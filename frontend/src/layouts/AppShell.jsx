@@ -5,7 +5,7 @@ export default function AppShell({ activeTab, onTabChange, user, onLogout, child
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-gray-800">
-      <header className="bg-white border-b sticky top-0 z-50">
+      <header className="bg-white border-b sticky top-0 z-50 print:hidden">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-black text-lg shadow-sm">
@@ -44,7 +44,9 @@ export default function AppShell({ activeTab, onTabChange, user, onLogout, child
             { id: 'students', label: 'Wanafunzi (Admission)' },
             { id: 'attendance', label: 'Mahudhurio (Attendance)' },
             { id: 'cbc', label: 'Tathmini ya CBC (Rubrics)' },
-            { id: 'fees', label: 'Ada za Shule (Fees & M-Pesa)' },
+            { id: 'report_card', label: 'Ripoti ya Matokeo (Report Card)' },
+            { id: 'fees', label: 'Lipa Ada (M-Pesa)' },
+            { id: 'statement', label: 'Taarifa ya Ada (Statement)' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -61,7 +63,7 @@ export default function AppShell({ activeTab, onTabChange, user, onLogout, child
         </nav>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-8 print:p-0 print:m-0">
         {children}
       </main>
     </div>

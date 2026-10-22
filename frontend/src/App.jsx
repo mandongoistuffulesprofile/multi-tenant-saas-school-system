@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import AppShell from './layouts/AppShell';
 import LoginForm from './views/LoginForm';
 import AdmissionForm from './views/AdmissionForm';
 import DailyAttendance from './views/DailyAttendance';
 import AssessmentMatrix from './components/AssessmentMatrix';
 import FeeCashiering from './views/FeeCashiering';
+import ReportCardView from './views/ReportCardView';
+import FeeStatementView from './views/FeeStatementView';
 
 export default function App() {
   const [session, setSession] = useState(() => {
@@ -44,7 +46,9 @@ export default function App() {
       {activeTab === 'students' && <AdmissionForm tenantID={session.user.tenant_id} />}
       {activeTab === 'attendance' && <DailyAttendance tenantID={session.user.tenant_id} />}
       {activeTab === 'cbc' && <AssessmentMatrix students={sampleStudents} strand={sampleStrand} tenantID={session.user.tenant_id} />}
+      {activeTab === 'report_card' && <ReportCardView />}
       {activeTab === 'fees' && <FeeCashiering tenantID={session.user.tenant_id} />}
+      {activeTab === 'statement' && <FeeStatementView />}
     </AppShell>
   );
 }
