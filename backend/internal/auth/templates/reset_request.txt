@@ -1,0 +1,16 @@
+# Reset Request Email
+# Subject: Reset your password
+
+Hi,
+
+We received a request to reset your password on {APP_NAME}.
+
+Use the code below to reset your password:
+
+{TOKEN}
+
+If you did not request a password reset, you can safely ignore this email.
+
+For your security, this link expires in 30 minutes.
+
+— {APP_NAME} Security Team

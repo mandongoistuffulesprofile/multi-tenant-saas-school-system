@@ -1,0 +1,151 @@
+V: Kenyan Primary School Management System (SaaS Architecture Blueprint)
+Enterprise UI Architecture, RBAC, and Navigation Blueprint
+
+1. Gateway & Authentication Module
+----------------------------------
+
+Page 1.1: Multi-Tenant Login Portal
+- Viewport Priority: Mobile-First (Responsive Layout).
+- UI Components:
+  • Dynamic School Branding Header (loads custom logo based on sub-domain context, e.g., nairobiacademy.skulapp.ke).
+  • Form input fields: Tenant Identification ID/School Code, Email Address / Admission Number, and Password Secure Field.
+  • Visibility Toggle icon (reveal password strings).
+  • CTA Primary Button: Sign In.
+- UI Workflow Actions:
+  1. System inspects the entered Tenant ID via an API lookahead check to ensure the school account is active.
+  2. User submits login forms. If successful, the API returns a JWT containing metadata for the user's explicit authorization role mapping.
+  3. The application client intercepts the token and routes users directly to their assigned layout dashboard.
+
+Page 1.2: Password Reset Execution & Recovery Workflow
+- Viewport Priority: Desktop and Mobile adaptive layout.
+- UI Components:
+  • Input Field: Registered Phone Number (Safaricom/Airtel) or Corporate Email.
+  • CTA Button: Request Reset Code.
+  • Secondary Component: 6-digit numeric verification box overlay (OTP Input Field).
+- UI Workflow Actions:
+  1. User states they forgot their password and submits their phone number.
+  2. System fires a low-cost SMS API containing a time-bounded (5-minute expiry) numerical hash code.
+  3. The UI automatically transitions into the OTP verification state. Upon correct numeric input entry, the layout exposes two hidden secure fields: New Password Input and Confirm Password Input, featuring an active client-side regex check for security validation.
+
+2. Headteacher & Admin Dashboard Module
+---------------------------------------
+
+Page 2.1: Centralized Executive Overview (The Command Center)
+- RBAC Scope: Accessible strictly by SuperAdmin, SchoolOwner, and Headteacher.
+- UI Components:
+  • KPI Scorecard Metrics (Grid View):
+    - Total Active Pupils Count
+    - Term-to-Date Fee Collection Realized (KES)
+    - Outstanding Arrears Portfolio Value (KES)
+    - Daily Staff/Student Attendance Index (%)
+  • Data Visualization Widgets:
+    - Line Chart tracking monthly fee collections against recurring operation bills.
+    - Bar Chart highlighting average performance descriptors across different Grade Streams (Grade 1 through Grade 6).
+
+Page 2.2: Multi-Tenant RBAC Settings & User Configuration
+- RBAC Scope: Restricted to SuperAdmin and SystemAdministrator.
+- UI Components:
+  • Tabbed Navigation: Staff Profiles, Role Definition Matrices, and Permission Toggles.
+  • The Matrix Component Table: A large cross-functional grid setting specific user types (Bursar, Teacher, ClassRepresentative) on the Y-Axis against database operation permissions (Create Invoices, Modify Grades, Wipe Records) on the X-Axis.
+
+| ROLE MANAGEMENT ENGINE |
+| System Role   | View Fin Ledgers | Edit Assessment | Export System |
+| Headteacher   | [🟢 Enabled]     | [🟢 Enabled]    | [🟢 Enabled]  |
+| Class Teacher | [🔴 Disabled]    | [🟢 Enabled]    | [🔴 Disabled] |
+| School Bursar | [🟢 Enabled]     | [🔴 Disabled]   | [🟢 Enabled]  |
+
+Page 2.3: Tenant Enrollment Control Panel (Admission Engine)
+- UI Components:
+  • Step-by-Step Multi-Stage Form Wizard:
+    - Stage 1: Student Bio Data (Full Name, Date of Birth, Gender, Nemis/UPI Number identifier).
+    - Stage 2: Academic Placement Selection (Drop-downs for Grade Level, Active Stream allocation).
+    - Stage 3: Primary Guardian Relationship Mapping (Input fields for Parent Mobile, Secondary Phone, Work Email).
+  • CTA Action Button: Register Student & Instantiate Financial Ledger.
+
+3. Academic & CBC Management Module
+-----------------------------------
+
+Page 3.1: The Interactive Formative Assessment Matrix
+- RBAC Scope: Editable by ClassTeacher and SubjectTeacher. View-only for Headteacher. Hidden from Bursar.
+- UI Components:
+  • Context-Filtering Ribbon: Selectors for Grade Class, Subject Block, and Target KICD Sub-Strand Node.
+  • Horizontal Touch Table Grid: Leftmost column locks the student name and admission ID. The subsequent columns represent specific classroom evaluation parameters.
+- UI Workflow Actions:
+  1. Tapping an intersection cell pops open a bottom drawer tray on the viewport displaying 4 colored evaluation targets: EE, ME, AE, and BE.
+  2. Selecting a metric updates the background color of the cell instantaneously using asynchronous JavaScript hooks, storing it directly into the IndexedDB caching instance to preserve data integrity during localized internet brownouts.
+
+Page 3.2: Comprehensive KPSEA Report Compilation Desk
+- UI Components:
+  • Active Progress Tracking Indicator (Progress bar displaying completion status of terminal assessments across all subjects).
+  • Data Validation Alert Matrix (Flags list of missing grading parameters or unchecked sub-strands).
+  • Action CTA Button: Compile and Publish Digital Terminal Report Forms.
+- UI Workflow Actions:
+  1. Clicking compilation fires an analytical execution script compiling continuous assessment metrics across Grade 4, 5, and 6.
+  2. Generates print-ready PDFs formatted precisely to match Ministry of Education regulatory guidelines, with a secondary button to push copies straight to the parent digital portal feed.
+
+4. School Bursar & Financial Management Module
+----------------------------------------------
+
+Page 4.1: Live Ledger Oversight & M-Pesa Hook Activity Feed
+- RBAC Scope: Write access for Bursar and SuperAdmin. Read-only access for Headteacher. Completely hidden from ClassTeacher.
+- UI Components:
+  • Dual Panel View layout.
+  • Panel A (Left): Running stream of incoming real-time webhooks (displays M-Pesa transaction codes, timestamp strings, incoming currency values, and billing references).
+  • Panel B (Right): Detailed ledger inspector interface showing items linked to selected accounts.
+- UI Workflow Actions:
+  1. When a transaction hits the system, it displays on the active layout panel with a pulse notification style.
+  2. Unresolved or mistyped payment descriptors display an alert badge labeled Unallocated Transaction. Clicking it triggers a modal enabling manual mapping search bars to tie the funds to the correct admission file.
+
+Page 4.2: Structured Fee Matrix Setup & Invoicing Suite
+- UI Components:
+  • Creation Input Form: Fee Component Title (e.g., Tuition, Transport Route A, Digital Content Access Fee).
+  • Billing Cadence Selection (Dropdown toggling between Termly, Annually, or One-Off occurrences).
+  • Target Cohort Allocation Toggles (Checkboxes to select matching student sets like Grade 4 or specific transport lines).
+  • Primary CTA Button: Generate Termly Bulk Invoice Roll-out.
+
+5. Parent Portal Module
+-----------------------
+
+Page 5.1: Multi-Pupil Ward Navigation Panel
+- RBAC Scope: Restricted strictly to authenticated Guardian phone profiles.
+- UI Components:
+  • Card Layout Profiles: Renders discrete thumbnail profile images, current active classes, and financial states for each child registered under the parent's primary phone number interface.
+  • Action UI Component: Clicking an individual student card dynamically shifts the master session parameters to load data specific to that student.
+
+Page 5.2: Student Academic Timeline & Performance Index
+- UI Components:
+  • Accordion dropdown lists grouped dynamically by KICD Learning Areas.
+  • Visual KPI Badges displaying descriptive summaries (Exceeding Expectations, etc.) with explanatory info tips to map technical educational markers into simple language layouts.
+  • Download Component: Direct links to fetch compiled official signed PDF terminal grade documents.
+
+Page 5.3: Integrated Micro-Billing & Payment Trigger Widget
+- UI Components:
+  • Financial Breakdown Card (Itemizes individual balances due across Tuition, Exams, and Meals).
+  • Input Numeric Component: Payment Amount Field.
+  • CTA Secondary Button: Initiate Immediate M-Pesa Payment.
+- UI Workflow Actions:
+  1. Parent edits the numerical value or keeps the full balance default.
+  2. Clicking the payment asset activates an external API integration loop communicating with your payment gateway worker.
+  3. Fires an STK PIN prompt directly onto the parent's mobile handset device, blocking the layout state using a modal spinner loading wheel animation until the webhook signals success.
+
+6. Communication & System Broadcast Desk
+----------------------------------------
+
+Page 6.1: Dual-Channel Broadcast Messenger Hub
+- RBAC Scope: Accessible by SuperAdmin, Headteacher, and Bursar.
+- UI Components:
+  • Audience Segment Filter Group (Multi-select boxes targeting All Parents, Grade 5 Parents, Transport Users Route B, or Staff Members).
+  • Text Input Area featuring a hardcoded 160-character boundary indicator tracking line.
+  • Routing Priority Checkbox options: Prefer Low-Cost WhatsApp Delivery Route or Enforce Direct Carrier SMS Delivery Line.
+  • CTA Button: Dispatch Mass Communication Payload.
+
+UI Architecture Summary
+-----------------------
+- Mobile-first responsive layout across all portals.
+- JWT-based role routing after authentication.
+- Multi-tenant sub-domain context for dynamic school branding.
+- RBAC matrix: SuperAdmin / SchoolOwner / Headteacher / Bursar / ClassTeacher / SubjectTeacher / Guardian.
+- CBC Formative Assessment Matrix with offline IndexedDB caching and color-coded EE/ME/AE/BE cells.
+- M-Pesa STK push integration with modal spinner state management.
+- 160-character SMS boundary indicator for broadcast messaging.
+- Print-ready KPSEA PDF compilation aligned to Ministry of Education guidelines.

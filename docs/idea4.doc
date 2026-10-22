@@ -1,0 +1,235 @@
+V: Kenyan Primary School Management System (SaaS Architecture Blueprint)
+System Administrator, Edge Hardware Views, and Exhaustive Core Production Database Schema
+
+7. System Administrator / SaaS Root Module (The Super Platform View)
+------------------------------------------------------------------
+
+This module sits above individual schools. It is the centralized multi-tenant panel
+used by your core engineering team to manage subscriptions, monitor system health,
+and onboard new institutions.
+
+Page 7.1: Global Multi-Tenant Operations Center
+- RBAC Scope: Accessible strictly by global SaaS-SuperAdmin. Completely hidden from
+  individual school headteachers.
+- UI Components:
+  • Global Health Tiles: Total Active Tenant Schools, Aggregated Global Monthly
+    Recurring Revenue (GMRR), System-Wide API Success Rate (M-Pesa/SMS Gateways),
+    and Database Storage Overhead (GB).
+  • Tenant Monitoring Grid: A data table tracking registered schools, their active
+    license tier (Basic, Standard, Premium Enterprise), their current subscription
+    status (Active, In Arrears, Suspended), and their cumulative student data footprint.
+  • Action UI Assets: A contextual action dropdown next to each tenant row providing
+    actions: [Suspend Tenant Access], [Force Database Schema Migration], or
+    [Impersonate School Admin Profile] (for debugging support issues).
+
+Page 7.2: Universal KICD Matrix Configurator
+- UI Components:
+  • Tree-View Hierarchy Node Editor: Allows global admins to modify curriculum models
+    down to specific sub-strand levels when the Ministry of Education issues circulars.
+  • Input Fields: Add New Subject Group, Map Outcome Descriptors, and Set National
+    Weightings Configuration (e.g., KPSEA 40%).
+  • Universal Propagate Button: A protected action trigger component labeled Deploy
+    Curriculum Update System-Wide. Clicking it triggers a background database migration
+    that seamlessly injects the updated matrix schemas across all tenant schemas
+    without clobbering existing school assessment logs.
+
+8. Physical Edge Hardware Views (The Security Turnstile Component)
+------------------------------------------------------------------
+
+For premium schools implementing physical biometric gates or RFID student badges,
+this interface runs locally on low-cost hardware edge displays (e.g., a wall-mounted
+7-inch tablet or Linux micro-panel attached to an entrance gate turnstile).
+
+Page 8.1: Real-Time Gate Check-In/Check-Out Console
+- Hardware Runtime Environment: A specialized local UI running on a Chromium kiosk
+  window or a C++ embedded screen application connected via WebSockets or MQTT to
+  the central cloud services.
+- UI Layout States:
+
++---------------------------------------------------------+
+|                  🔒 GATE 1 ENTRANCE                     |
++---------------------------------------------------------+
+|                                                         |
+|         [  STUDENT BADGE SCANNER ACTIVE...  ]           |
+|                                                         |
+|  STATUS MONITOR:                                        |
+|  +---------------------------------------------------+  |
+|  |  🟢 TAP RECEIVED AT 07:12:43 AM                   |  |
+|  |  Name: Brian Omondi                               |  |
+|  |  Admission ID: ADM-2024-4112                      |  |
+|  |  Grade Block: Primary 4 East                      |  |
+|  +---------------------------------------------------+  |
+|                                                         |
+|  >> DOWNSTREAM ACTION: Triggering Parent WhatsApp...    |
++---------------------------------------------------------+
+
+- UI Workflow Actions:
+  1. The device waits in a blank, high-contrast idle state reading input from an
+     attached USB RFID card scanner or optical biometric thumbprint array.
+  2. Upon a successful localized read event, the hardware client posts the numeric
+     hardware signature token over a persistent WebSocket pipe.
+  3. The UI instantaneously displays the student's profile thumbnail photograph
+     alongside a large green indicator band labeled Access Granted or a red band
+     labeled Contact Administration (Fee Arrears Gate Lockout Rule).
+  4. Concurrently, a background execution hook passes a processing ticket to the
+     communication engine, deploying an instant message notification card to the
+     parent's phone interface.
+
+9. The Exhaustive Core Production Database Schema (PostgreSQL)
+-------------------------------------------------------------
+
+To wire these multi-tenant views successfully without data leaks or runtime
+collisions, here is the production-grade, relational data structure mapping
+database schemas directly to the application views.
+
+-- PostgreSQL Data Dictionary Blueprint for Kenyan Multi-Tenant Primary SaaS Engine
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- 1. TENANT MANAGEMENT
+CREATE TABLE schools (
+    tenant_id VARCHAR(50) PRIMARY KEY,
+    school_name VARCHAR(150) NOT NULL,
+    subdomain VARCHAR(100) UNIQUE NOT NULL,
+    license_tier VARCHAR(30) DEFAULT 'STANDARD', -- BASIC, STANDARD, PREMIUM
+    status VARCHAR(20) DEFAULT 'ACTIVE', -- ACTIVE, SUSPENDED, DEACTIVATED
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. ACADEMIC MATRIX SETUP (GLOBAL CONFIG MAP)
+CREATE TABLE cbc_learning_areas (
+    subject_id VARCHAR(50) PRIMARY KEY,
+    subject_name VARCHAR(100) NOT NULL, -- e.g., Mathematics, Agriculture & Nutrition
+    grade_level VARCHAR(20) NOT NULL     -- e.g., GRADE_1, GRADE_4, JSS_1
+);
+
+CREATE TABLE cbc_strands (
+    strand_id VARCHAR(50) PRIMARY KEY,
+    subject_id VARCHAR(50) REFERENCES cbc_learning_areas(subject_id) ON DELETE CASCADE,
+    strand_name VARCHAR(150) NOT NULL
+);
+
+CREATE TABLE cbc_sub_strands (
+    sub_strand_id VARCHAR(50) PRIMARY KEY,
+    strand_id VARCHAR(50) REFERENCES cbc_strands(strand_id) ON DELETE CASCADE,
+    sub_strand_name VARCHAR(200) NOT NULL,
+    learning_outcome_rubric TEXT NOT NULL
+);
+
+-- 3. USER MANAGEMENT & RBAC
+CREATE TABLE users (
+    user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id VARCHAR(50) REFERENCES schools(tenant_id) ON DELETE CASCADE,
+    email VARCHAR(100) NOT NULL,
+    phone_number VARCHAR(15) NOT NULL, -- Format: 254XXXXXXXXX
+    password_hash VARCHAR(255) NOT NULL,
+    user_role VARCHAR(30) NOT NULL, -- SUPER_ADMIN, HEADTEACHER, BURSAR, TEACHER, PARENT
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_tenant_user_email UNIQUE(tenant_id, email)
+);
+
+-- 4. PUPIL & LEDGER RECORDS
+CREATE TABLE students (
+    student_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id VARCHAR(50) REFERENCES schools(tenant_id) ON DELETE CASCADE,
+    admission_number VARCHAR(50) NOT NULL,
+    upi_nemis_number VARCHAR(50),
+    full_name VARCHAR(150) NOT NULL,
+    grade_level VARCHAR(20) NOT NULL,
+    stream_name VARCHAR(50) NOT NULL, -- e.g., Blue, West, Alpha
+    parent_phone_number VARCHAR(15) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_tenant_adm_no UNIQUE(tenant_id, admission_number)
+);
+
+-- 5. REAL-TIME ASSESSMENT TRANS-LOGS
+CREATE TABLE student_cbc_assessments (
+    assessment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id VARCHAR(50) REFERENCES schools(tenant_id) ON DELETE CASCADE,
+    student_id UUID REFERENCES students(student_id) ON DELETE CASCADE,
+    sub_strand_id VARCHAR(50) REFERENCES cbc_sub_strands(sub_strand_id),
+    teacher_id UUID REFERENCES users(user_id),
+    score_code VARCHAR(4) NOT NULL, -- EE, ME, AE, BE
+    teacher_remarks TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_assessment_node UNIQUE(tenant_id, student_id, sub_strand_id)
+);
+
+-- 6. FINANCE EVENT LEDGERS
+CREATE TABLE financial_invoices (
+    invoice_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id VARCHAR(50) REFERENCES schools(tenant_id) ON DELETE CASCADE,
+    student_id UUID REFERENCES students(student_id) ON DELETE CASCADE,
+    fee_category VARCHAR(50) NOT NULL, -- TUITION, BOARDING, MEALS, TRANSPORT
+    amount_invoiced NUMERIC(12,2) NOT NULL,
+    amount_paid NUMERIC(12,2) DEFAULT 0.00,
+    term_code VARCHAR(20) NOT NULL, -- e.g., 2026_TERM_1
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE mpesa_webhook_logs (
+    transaction_id VARCHAR(50) PRIMARY KEY, -- Safaricom TransID
+    tenant_id VARCHAR(50) REFERENCES schools(tenant_id) ON DELETE CASCADE,
+    amount_received NUMERIC(12,2) NOT NULL,
+    phone_number VARCHAR(15) NOT NULL,
+    bill_reference VARCHAR(50) NOT NULL, -- Raw user input index
+    reconciliation_status VARCHAR(30) DEFAULT 'PENDING', -- UNRESOLVED, AUTOFILLED, MANUAL
+    raw_payload JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 7. MULTI-TENANT SECURITY POLICY ARCHITECTURE
+-- Enforce security layer partitioning directly at the engine base
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE students ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_cbc_assessments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE financial_invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mpesa_webhook_logs ENABLE ROW LEVEL SECURITY;
+
+-- Sample policy template applied systematically to all operational data sets
+CREATE POLICY tenant_isolation_policy ON students
+    FOR ALL
+    USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+-- Data Dictionary Entity Summary
+-- schools                  : SaaS tenant root (one per school)
+-- cbc_learning_areas       : Tier 1 KICD subjects (Mathematics, English, etc.)
+-- cbc_strands              : Tier 2 themes per subject (Numbers, Measurement)
+-- cbc_sub_strands          : Tier 3 topics per strand (Fractions, Decimals)
+-- students                 : Tier 4 pupil records with tenant isolation
+-- users                    : Staff/parent auth + RBAC roles per tenant
+-- student_cbc_assessments  : CBC formative rubric entries (EE/ME/AE/BE)
+-- financial_invoices       : Per-student fee structures and payments
+-- mpesa_webhook_logs       : Safaricom C2B transaction audit trail (idempotent)
+
+10. Execution Order: The Engineering Roadmap
+--------------------------------------------
+
+Now that the system is completely laid out across all backend architectures,
+interface views, and data collections, your path to deployment runs through three
+systematic execution sprints:
+
+Sprint 1 (The Core Webhook Engine):
+  Instantiate the PostgreSQL database infrastructure with Row-Level Security,
+  build out the high-speed Go Ingest Gateway Layer, and deploy the Safaricom
+  Daraja API endpoints. Confirm that an incoming raw payment simulation updates
+  your ledger state correctly under load.
+
+Sprint 2 (The Grading Grid Matrix):
+  Construct the multi-subject data relational tables, build the PWA offline-first
+  IndexedDB system for teachers, and lock down the single-tap grid view layouts.
+  Run testing to ensure background synchronizations pass incremental diff arrays
+  back to the central server smoothly.
+
+Sprint 3 (The Downstream Notification Engine):
+  Map the Java/Spring Boot communication processors to watch your database change
+  streams, configure your Africa's Talking SMS fallback routines, and launch the
+  low-bandwidth parent dashboard portals.
+
+Complete Blueprint Inventory
+----------------------------
+idea1.doc   - Technical Blueprint & Data Schema (CBC, KPSEA, M-Pesa, SMS, Offline-first, RLS)
+idea2.doc   - Event-Driven SaaS Architecture (Go/Gin, Kafka, Java/Spring Boot, PostgreSQL)
+idea3.doc   - UI Architecture, RBAC, and Navigation Blueprint (6 portal modules)
+idea4.doc   - System Admin, Edge Hardware Views, Exhaustive Core DB Schema

@@ -1,0 +1,194 @@
+Kenyan Primary School Management System
+Technical Blueprint & Data Schema Specification
+=============================================
+
+1. CBC Assessment Engine & Core Data Models
+-------------------------------------------
+
+1.1 Academic Hierarchy Schema
+
+The database must implement a strict 4-tier relational model representing
+the Kenya Institute of Curriculum Development (KICD) primary framework:
+
+  Tier 1: Learning Area (Subject)
+    Examples: Mathematics, English, Kiswahili, Agriculture & Nutrition,
+    Creative Arts
+
+  Tier 2: Strand (Theme)
+    Examples: Numbers, Measurement, Geometry
+
+  Tier 3: Sub-Strand (Topic)
+    Examples: Fractions, Decimals, Percentages
+
+  Tier 4: Specific Learning Outcome
+    The actual item being evaluated.
+
+Relational structure:
+  learning_area(id PK, tenant_id FK NOT NULL, code, name, description,
+    created_at, updated_at)
+  strand(id PK, learning_area_id FK NOT NULL, tenant_id FK NOT NULL,
+    code, name, description, created_at, updated_at)
+  sub_strand(id PK, strand_id FK NOT NULL, tenant_id FK NOT NULL,
+    code, name, description, created_at, updated_at)
+  specific_learning_outcome(id PK, sub_strand_id FK NOT NULL,
+    tenant_id FK NOT NULL, code, description, created_at, updated_at)
+
+1.2 Categorical Performance Descriptors
+
+Numerical marks are illegal for formative CBC tracking. Evaluations are
+stored using a 4-point Likert scale with categorical abbreviations:
+
+  Database Code | Full Term              | Integer Mapping
+  EE            | Exceeding Expectation  | 4
+  ME            | Meeting Expectation    | 3
+  AE            | Approaching Expectation| 2
+  BE            | Below Expectation      | 1
+
+AssessmentRecord schema:
+  id PK, tenant_id FK NOT NULL, student_id FK NOT NULL,
+  specific_learning_outcome_id FK NOT NULL, grade_level VARCHAR NOT NULL,
+  term VARCHAR NOT NULL, descriptor_code VARCHAR(2) NOT NULL CHECK
+    (descriptor_code IN ('EE','ME','AE','BE')),
+  descriptor_integer INTEGER NOT NULL CHECK (descriptor_integer BETWEEN 1 AND 4),
+  recorded_by FK NOT NULL, recorded_at TIMESTAMP NOT NULL,
+  local_uuid UUID NOT NULL, synced BOOLEAN DEFAULT FALSE,
+  synced_at TIMESTAMP NULL
+
+1.3 Formative Evaluation Weighting Math (KPSEA Composite)
+
+The final composite score for national reporting must be hardcoded into
+the analytics engine:
+
+  Final Primary Score =
+    (Grade 4 SBA × 0.20) + (Grade 5 SBA × 0.20) +
+    (Grade 6 SBA × 0.20) + (KPSEA Exam × 0.40)
+
+Weighting constants:
+  GRADE_4_SBA_WEIGHT    = 0.20
+  GRADE_5_SBA_WEIGHT    = 0.20
+  GRADE_6_SBA_WEIGHT    = 0.20
+  KPSEA_EXAM_WEIGHT     = 0.40
+
+The analytics engine aggregates School-Based Assessments (SBAs) across
+Grades 4, 5, and 6 with the KPSEA national exam for KPSEA formatting.
+
+2. Mandatory Local Integrations & Infrastructure APIs
+-----------------------------------------------------
+
+2.1 Safaricom M-Pesa B2C/C2B Fee Collection
+
+Real-time ledger updates via Safaricom Daraja API.
+
+Endpoint Trigger:
+  - C2B Validation URL: validates incoming transaction before processing
+  - C2B Confirmation URL: confirms and posts the transaction to the ledger
+
+Idempotency:
+  - Map Safaricom TransID (e.g., SRE45FT67X) as a STRICT UNIQUE CONSTRAINT
+    on the transactions table to prevent double-posting due to M-Pesa
+    network retries.
+
+Transactions schema:
+  id PK, tenant_id FK NOT NULL, trans_id VARCHAR(20) NOT NULL UNIQUE,
+  student_admission_number VARCHAR(50) NOT NULL INDEXED,
+  amount DECIMAL(12,2) NOT NULL, currency VARCHAR DEFAULT 'KES',
+  bill_ref_number VARCHAR(100) NOT NULL,
+  transaction_date TIMESTAMP NOT NULL, phone_number VARCHAR(20),
+  fee_category VARCHAR NOT NULL, status VARCHAR DEFAULT 'posted',
+  raw_payload JSONB, created_at TIMESTAMP NOT NULL
+
+Fee Reconciliation Logic:
+  - Webhook matches incoming payload BillRefNumber against the
+    student_admission_number index.
+  - On match, auto-allocates funds across active fee structures
+    (Tuition, Transport, Feeding Program) according to school
+    prioritization rules.
+
+Fee structure prioritization example (configurable per tenant):
+  1. Tuition
+  2. Feeding Program
+  3. Transport
+  4. Extracurricular
+
+2.2 Telco SMS Gateways (Safaricom, Airtel, Telkom)
+
+Parent communication via Africa's Talking API or direct SMPP connections.
+
+Technical Constraint:
+  - Single-page SMS text limit is 160 characters.
+  - CBC-specific texts (e.g., complete strand feedback with labels such as
+    "Approaching Expectation") naturally overrun this limit.
+
+Optimization Requirements:
+  - Implement multi-part concatenated SMS logic in backend worker queues.
+  - Strictly sanitize custom text variables (names, etc.) to prevent
+    unintended billing spikes across thousands of parents.
+  - Worker queue must segment long messages into 153-character parts
+    (UDH overhead for concatenation) and reassemble on the recipient device.
+
+3. Frontend & Mobile-First Edge Engineering
+-------------------------------------------
+
+3.1 User Persona
+
+Kenyan primary teachers are primarily mobile-centric. Desktop applications
+fail in day-to-day classroom execution. The frontend must be a mobile-first
+or Progressive Web App (PWA).
+
+3.2 Offline-First Local Data Storage
+
+Client Architecture:
+  - Native Apps: SQLite for local storage
+  - Web/PWA: IndexedDB via RxDB / PouchDB
+
+Synchronization Engine:
+  - Teachers work entirely against the local client cache when recording
+    classroom assessment rubrics (EE, ME, AE, BE).
+  - Every evaluation transaction generates a localized deterministic UUID
+    and timestamp.
+  - On connection restoration (detected via service worker or connection
+    ping), fire a background sync protocol passing incremental changes via
+    a diff-payload to avoid bulk rewrites to the primary database.
+
+Diff-payload structure:
+  { tenant_id, device_id, last_sync_timestamp,
+    changes: [ { table, operation, record_id, data, local_uuid, timestamp } ] }
+
+3.3 Multi-Tenant Data Isolation
+
+Deployment model: Software-as-a-Service (SaaS).
+
+Database Isolation Strategy:
+  - Shared-database approach with Row-Level Security (RLS).
+  - Completely isolated database instances per school are cost-prohibitive
+    for micro-budget primary schools.
+
+Query Enforcement:
+  - Every data model from Student, FeeInvoice, down to AssessmentRecord
+    must have a non-nullable indexed tenant_id foreign key.
+  - Configure the ORM globally to apply a strict
+    WHERE tenant_id = current_authenticated_tenant() filter on every
+    read/write execution to completely avoid data leakage across schools.
+
+Core models requiring tenant_id:
+  - School/Tenant
+  - Student
+  - FeeInvoice
+  - AssessmentRecord
+  - SpecificLearningOutcome
+  - SubStrand
+  - Strand
+  - LearningArea
+  - Transaction (M-Pesa)
+  - SMSLog
+
+Architecture Summary:
+  - 4-tier CBC academic hierarchy (Learning Area -> Strand -> Sub-Strand ->
+    Specific Learning Outcome)
+  - Categorical 4-point Likert scale (EE/ME/AE/BE) for formative tracking
+  - KPSEA composite formula: G4(0.20) + G5(0.20) + G6(0.20) + Exam(0.40)
+  - Safaricom Daraja C2B validation/confirmation with TransID idempotency
+  - Fee reconciliation via BillRefNumber -> student_admission_number match
+  - Multi-part concatenated SMS with variable sanitization
+  - Offline-first PWA/Native app with SQLite/IndexedDB and diff-payload sync
+  - Shared-database multi-tenancy with RLS and mandatory tenant_id on all models
