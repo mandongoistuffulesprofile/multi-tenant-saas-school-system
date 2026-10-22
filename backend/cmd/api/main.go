@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/mpesa"
 )
 
 type Config struct {
@@ -28,18 +29,17 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Initialize pgxpool connection
 	dbPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Printf("⚠️ Warning: Could not connect to database immediately (%v). Running in offline/scaffold mode.", err)
+		log.Printf("⚠️ Running in offline/scaffold mode: %v", err)
 	} else {
 		defer dbPool.Close()
 		log.Println("✅ Database connection pool established successfully.")
 	}
 
+	darajaSvc := mpesa.NewDarajaService(dbPool)
 	mux := http.NewServeMux()
 
-	// Public Healthcheck
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -49,19 +49,9 @@ func main() {
 		})
 	})
 
-	// Public M-Pesa Daraja Webhook Route (Strict Idempotency Check)
-	mux.HandleFunc("/api/v1/payments/c2b-callback", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		// Safaricom requires a 200 OK fast acknowledgment
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"ResultCode": 0, "ResultDesc": "Confirmation received successfully"}`))
-	})
+	mux.HandleFunc("/api/v1/payments/c2b-validation", darajaSvc.HandleValidation)
+	mux.HandleFunc("/api/v1/payments/c2b-confirmation", darajaSvc.HandleConfirmation)
 
-	// Protected Tenant Sub-router
 	tenantHandler := http.NewServeMux()
 	tenantHandler.HandleFunc("/api/v1/tenant/info", func(w http.ResponseWriter, r *http.Request) {
 		tenantID := r.Context().Value(middleware.TenantIDKey)
@@ -72,7 +62,6 @@ func main() {
 		})
 	})
 
-	// Wrap tenant routes with TenantMiddleware
 	mux.Handle("/api/v1/tenant/", middleware.TenantMiddleware(tenantHandler))
 
 	server := &http.Server{
@@ -90,7 +79,6 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown handling
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
