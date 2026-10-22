@@ -1,46 +1,70 @@
-const CACHE_NAME = "skulapp-teacher-v1";
-const ASSETS = [
-  "/",
-  "/teacher/classes",
-  "/teacher/grading",
-  "/teacher/attendance",
-  "/teacher/sync",
-  "/teacher/remarks",
-  "/teacher/progress",
-  "/teacher/evidence",
+/**
+ * Kenyan School SaaS Service Worker (Offline-First Resilient PWA)
+ * Protects against Safaricom / Airtel staffroom internet blackouts.
+ */
+
+const CACHE_NAME = 'eduke-saas-v1.0.0';
+const STATIC_ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/thermalReceipt.css'
 ];
 
-self.addEventListener("install", (event) => {
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(STATIC_ASSETS);
+    })
   );
+  self.skipWaiting();
 });
 
-self.addEventListener("activate", (event) => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => {
+          if (key !== CACHE_NAME) {
+            return caches.delete(key);
+          }
+        })
+      );
+    })
   );
+  self.clients.claim();
 });
 
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
+// Stale-While-Revalidate network strategy
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
 
-  // API calls: try network, fall back to cache (offline queue handles writes)
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/api/v1/")) {
-    event.respondWith(
-      fetch(request).catch(() => caches.match(request))
-    );
-    return;
-  }
-
-  // App shell: cache-first
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request))
+    caches.match(event.request).then((cachedResponse) => {
+      const fetchPromise = fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      }).catch(() => cachedResponse);
+
+      return cachedResponse || fetchPromise;
+    })
   );
 });
 
-// Push notifications placeholder (future)
-self.addEventListener("push", () => {});
+// Background Sync Event Handler
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-cbc-assessments') {
+    event.waitUntil(
+      self.clients.matchAll().then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({ type: 'TRIGGER_OUTBOX_DRAIN' });
+        });
+      })
+    );
+  }
+});
