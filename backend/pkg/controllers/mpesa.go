@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"backend/pkg/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/pkg/middleware"
 )
 
 type DarajaCallbackPayload struct {

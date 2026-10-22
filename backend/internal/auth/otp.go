@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"kenyan-primary-saas/backend/internal/validation"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
 // SMSSender is the interface for delivering OTP codes to a phone number.

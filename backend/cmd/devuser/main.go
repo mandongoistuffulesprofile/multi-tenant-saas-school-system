@@ -7,7 +7,7 @@ import (
 
 	"github.com/lib/pq"
 
-	"kenyan-primary-saas/backend/internal/auth"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 )
 
 // Creates (or updates) a development user with the given role so that

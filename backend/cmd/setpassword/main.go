@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"kenyan-primary-saas/backend/internal/auth"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 )
 
 func main() {
