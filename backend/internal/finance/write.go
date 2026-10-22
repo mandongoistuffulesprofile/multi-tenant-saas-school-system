@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"kenyan-primary-saas/backend/internal/validation"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
 // feeLineDraft is one fee-structure line that will become an invoice line.

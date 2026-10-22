@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"kenyan-primary-saas/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 )
 
 type OutboxEvent struct {

@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"backend/pkg/controllers"
-	"backend/pkg/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/pkg/controllers"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/pkg/middleware"
 )
 
 func main() {

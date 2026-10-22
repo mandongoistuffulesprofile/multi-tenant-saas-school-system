@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"kenyan-primary-saas/backend/internal/validation"
-	"kenyan-primary-saas/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 )
 
 type Service struct {
