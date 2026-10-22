@@ -22,13 +22,13 @@ import (
 )
 
 type Config struct {
-	Port           string
-	DatabaseURL    string
-	JWTSecret      string
-	MigrationsDir  string
-	SMSApiKey      string
-	SMSUsername    string
-	SMSSenderID    string
+	Port          string
+	DatabaseURL   string
+	JWTSecret     string
+	MigrationsDir string
+	SMSApiKey     string
+	SMSUsername   string
+	SMSSenderID   string
 }
 
 func main() {
@@ -52,7 +52,6 @@ func main() {
 		defer dbPool.Close()
 		log.Println("✅ Database connection pool established.")
 
-		// Automatically run all SQL migrations on startup
 		migCtx, migCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer migCancel()
 		if err := database.RunMigrations(migCtx, dbPool, cfg.MigrationsDir); err != nil {
@@ -69,7 +68,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// 1. Public Endpoints
+	// Public Endpoints
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -82,7 +81,7 @@ func main() {
 	mux.HandleFunc("/api/v1/payments/c2b-validation", darajaSvc.HandleValidation)
 	mux.HandleFunc("/api/v1/payments/c2b-confirmation", darajaSvc.HandleConfirmation)
 
-	// 2. Protected Tenant Sub-router
+	// Protected Tenant Sub-router
 	tenantMux := http.NewServeMux()
 
 	tenantMux.HandleFunc("/api/v1/tenant/info", func(w http.ResponseWriter, r *http.Request) {
@@ -103,9 +102,12 @@ func main() {
 	authMiddleware := middleware.AuthMiddleware([]byte(cfg.JWTSecret))
 	mux.Handle("/api/v1/tenant/", middleware.TenantMiddleware(authMiddleware(tenantMux)))
 
+	// Wrap entire router with CORSMiddleware
+	corsHandler := middleware.CORSMiddleware(mux)
+
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      corsHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -118,7 +120,7 @@ func main() {
 		}
 	}()
 
-	_ = smsSvc // active in notification worker
+	_ = smsSvc
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
