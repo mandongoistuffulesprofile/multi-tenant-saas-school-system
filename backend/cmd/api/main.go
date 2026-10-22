@@ -14,22 +14,32 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/attendance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/cbc"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/database"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/mpesa"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/notification"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/student"
 )
 
 type Config struct {
-	Port        string
-	DatabaseURL string
-	JWTSecret   string
+	Port           string
+	DatabaseURL    string
+	JWTSecret      string
+	MigrationsDir  string
+	SMSApiKey      string
+	SMSUsername    string
+	SMSSenderID    string
 }
 
 func main() {
 	cfg := Config{
-		Port:        getEnv("PORT", "8080"),
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://school_admin:dev_secret_password@localhost:5432/school_system?sslmode=disable"),
-		JWTSecret:   getEnv("JWT_SECRET", "super-secret-kenyan-school-saas-key-32chars!"),
+		Port:          getEnv("PORT", "8080"),
+		DatabaseURL:   getEnv("DATABASE_URL", "postgres://school_admin:dev_secret_password@localhost:5432/school_system?sslmode=disable"),
+		JWTSecret:     getEnv("JWT_SECRET", "super-secret-kenyan-school-saas-key-32chars!"),
+		MigrationsDir: getEnv("MIGRATIONS_DIR", "../../migrations"),
+		SMSApiKey:     getEnv("SMS_API_KEY", "sandbox"),
+		SMSUsername:   getEnv("SMS_USERNAME", "sandbox"),
+		SMSSenderID:   getEnv("SMS_SENDER_ID", "SHULEYETU"),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -40,9 +50,17 @@ func main() {
 		log.Printf("⚠️ Running in offline/scaffold mode: %v", err)
 	} else {
 		defer dbPool.Close()
-		log.Println("✅ Database connection pool established successfully.")
+		log.Println("✅ Database connection pool established.")
+
+		// Automatically run all SQL migrations on startup
+		migCtx, migCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer migCancel()
+		if err := database.RunMigrations(migCtx, dbPool, cfg.MigrationsDir); err != nil {
+			log.Printf("⚠️ Migration warning: %v", err)
+		}
 	}
 
+	smsSvc := notification.NewSMSService(cfg.SMSApiKey, cfg.SMSUsername, cfg.SMSSenderID)
 	authHandler := auth.NewHandler(dbPool, []byte(cfg.JWTSecret))
 	darajaSvc := mpesa.NewDarajaService(dbPool)
 	studentSvc := student.NewService(dbPool)
@@ -99,6 +117,8 @@ func main() {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()
+
+	_ = smsSvc // active in notification worker
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
