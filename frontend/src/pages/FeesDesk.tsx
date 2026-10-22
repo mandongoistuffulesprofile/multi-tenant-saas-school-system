@@ -73,6 +73,7 @@ const INITIAL_UNMATCHED: UnmatchedTransaction[] = [
 export const FeesDesk: React.FC = () => {
   const [feesData, setFeesData] = useState<FeeRecord[]>(MANDONGOI_FEES);
   const [unmatchedList, setUnmatchedList] = useState<UnmatchedTransaction[]>(INITIAL_UNMATCHED);
+  const [isDarajaOnline, setIsDarajaOnline] = useState<boolean>(false); // Daraja offline fallback toggle
 
   const [isWaiverOpen, setIsWaiverOpen] = useState(false);
   const [isThermalOpen, setIsThermalOpen] = useState(false);
@@ -84,14 +85,30 @@ export const FeesDesk: React.FC = () => {
 
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 5000);
+    setTimeout(() => setToast(null), 6000);
   };
 
   const handleTriggerSTK = (student: FeeRecord) => {
-    showToast(`Inatuma Daraja STK Push ya KES ${student.total_balance.toLocaleString()} kwa ${student.parent_name} (${student.parent_phone})...`);
-    setTimeout(() => {
-      showToast(`✓ STK Push Imepokelewa na Simu ya ${student.parent_phone}! Mzazi anaweka PIN ya M-Pesa.`);
-    }, 2000);
+    if (!isDarajaOnline) {
+      // Graceful local simulation when Daraja has connectivity issues
+      const mockRef = 'SIM-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+      showToast(`⚡ Hali ya Ndani (Local Mode): Malipo ya KES 10,000 yamethibitishwa kienyeji kwa ${student.student_name}. Ref: ${mockRef}`);
+      
+      setFeesData(prev => prev.map(item => {
+        if (item.id === student.id) {
+          const newBal = Math.max(0, item.total_balance - 10000);
+          return {
+            ...item,
+            boarding_balance: Math.max(0, item.boarding_balance - 10000),
+            total_balance: newBal,
+            last_mpesa_ref: mockRef,
+          };
+        }
+        return item;
+      }));
+    } else {
+      showToast(`Inatuma Live Daraja STK Push ya KES ${student.total_balance.toLocaleString()} kwa ${student.parent_phone}...`);
+    }
   };
 
   const columns: Column<FeeRecord>[] = [
@@ -132,20 +149,28 @@ export const FeesDesk: React.FC = () => {
       ),
     },
     {
+      key: 'last_mpesa_ref',
+      header: 'Kumbukumbu',
+      render: (r) => (
+        <span className="font-mono bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-[11px] font-bold">
+          {r.last_mpesa_ref}
+        </span>
+      ),
+    },
+    {
       key: 'actions',
       header: 'Hatua za Bursar',
       render: (r) => (
         <div className="flex gap-1.5 items-center">
           <button
             onClick={() => handleTriggerSTK(r)}
-            title="Lipa na M-Pesa STK Push moja kwa moja kwa simu ya mzazi"
-            className="px-2 py-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded shadow-xs"
+            className="px-2 py-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded shadow-xs cursor-pointer"
           >
-            STK Push
+            {isDarajaOnline ? 'STK Push' : 'Lipa Kienyeji'}
           </button>
           <button
             onClick={() => { setSelectedRecord(r); setIsThermalOpen(true); }}
-            className="px-2 py-1 text-[11px] font-bold bg-slate-900 text-white rounded hover:bg-slate-800"
+            className="px-2 py-1 text-[11px] font-bold bg-slate-900 text-white rounded hover:bg-slate-800 cursor-pointer"
           >
             Risiti
           </button>
@@ -156,26 +181,39 @@ export const FeesDesk: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* Header with Daraja Network State Indicator */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap justify-between items-center gap-3">
         <div>
-          <h2 className="text-base font-black text-slate-900 tracking-tight">
-            MANDONGOI COMPREHENSIVE SCHOOL &bull; USIMAMIZI WA ADA
-          </h2>
-          <p className="text-xs text-slate-500">
-            S.L.P. 1 - 90401 Ngomeni, Kitui &bull; Paybill ya Shule: <strong className="text-emerald-700 font-mono">522123</strong>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-black text-slate-900 tracking-tight">
+              MANDONGOI COMPREHENSIVE SCHOOL &bull; USIMAMIZI WA ADA
+            </h2>
+            <button
+              onClick={() => setIsDarajaOnline(!isDarajaOnline)}
+              className={`text-[10px] font-bold px-2 py-0.5 rounded border cursor-pointer ${
+                isDarajaOnline
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : 'bg-amber-50 text-amber-800 border-amber-300'
+              }`}
+            >
+              {isDarajaOnline ? '● Daraja Live Network' : '◐ Njia ya Ndani (Offline Staging Active)'}
+            </button>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            S.L.P. 1 - 90401 Ngomeni, Kitui &bull; Lipa Na M-Pesa Paybill: <strong className="text-emerald-700 font-mono">522123</strong>
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsSiblingOpen(true)}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-lg"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-lg cursor-pointer"
           >
-            Mgawanyo wa Ndugu (Sibling Split)
+            Mgawanyo wa Ndugu
           </button>
           <button
             onClick={() => setIsOrphanOpen(true)}
-            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg"
+            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg cursor-pointer"
           >
             Bwawa la M-Pesa ({unmatchedList.length})
           </button>
@@ -229,10 +267,19 @@ export const FeesDesk: React.FC = () => {
         lumpSumAmount={25000}
         mpesaRef="RKG778901Z"
         senderPhone="0718786067"
-        onApplySplit={(allocations) => {
+        onApplySplit={() => {
           showToast("Mgawanyo wa malipo ya familia ya Kasamba Kitheka umekamilika!");
           setIsSiblingOpen(false);
         }}
+      />
+
+      <AuditConfirmationModal
+        isOpen={isWaiverOpen}
+        title="Idhini ya Msamaha wa Ada"
+        warningMessage="Hatua hii itapunguza salio la mwanafunzi kisheria."
+        actionButtonLabel="Thibitisha"
+        onConfirm={() => setIsWaiverOpen(false)}
+        onClose={() => setIsWaiverOpen(false)}
       />
     </div>
   );
