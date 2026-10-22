@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/cbc"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/mpesa"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/student"
 )
 
 type Config struct {
@@ -38,8 +40,12 @@ func main() {
 	}
 
 	darajaSvc := mpesa.NewDarajaService(dbPool)
+	studentSvc := student.NewService(dbPool)
+	cbcSvc := cbc.NewService(dbPool)
+
 	mux := http.NewServeMux()
 
+	// Healthcheck
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -49,9 +55,11 @@ func main() {
 		})
 	})
 
+	// Safaricom Daraja C2B Endpoints
 	mux.HandleFunc("/api/v1/payments/c2b-validation", darajaSvc.HandleValidation)
 	mux.HandleFunc("/api/v1/payments/c2b-confirmation", darajaSvc.HandleConfirmation)
 
+	// Protected Tenant Sub-router
 	tenantHandler := http.NewServeMux()
 	tenantHandler.HandleFunc("/api/v1/tenant/info", func(w http.ResponseWriter, r *http.Request) {
 		tenantID := r.Context().Value(middleware.TenantIDKey)
@@ -61,6 +69,13 @@ func main() {
 			"message":        "Tenant scope active and isolated via RLS",
 		})
 	})
+
+	// Student Management
+	tenantHandler.HandleFunc("/api/v1/tenant/students", studentSvc.HandleStudents)
+
+	// CBC Assessment Handlers
+	tenantHandler.HandleFunc("/api/v1/tenant/cbc/evaluations", cbcSvc.HandleBulkEvaluations)
+	tenantHandler.HandleFunc("/api/v1/tenant/cbc/report-card", cbcSvc.HandleReportCard)
 
 	mux.Handle("/api/v1/tenant/", middleware.TenantMiddleware(tenantHandler))
 
