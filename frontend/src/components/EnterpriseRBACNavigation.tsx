@@ -10,13 +10,12 @@ export interface NavItem {
 }
 
 const NAVIGATION_ITEMS: NavItem[] = [
-  { label: 'Dashibodi (Dashboard)', href: '/dashboard', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BURSAR', 'TEACHER', 'BOM_MEMBER', 'STOREKEEPER'] },
-  { label: 'Usimamizi wa Ada (Fees & Paybill)', href: '/fees', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BURSAR'] },
-  { label: 'Tathmini ya CBC (Assessments)', href: '/cbc-assessment', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'TEACHER'] },
-  { label: 'Wanafunzi & NEMIS', href: '/students', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BURSAR', 'TEACHER'] },
-  { label: 'BOM Oversight & Reconciliations', href: '/bom-oversight', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BOM_MEMBER'] },
-  { label: 'Bohari na Vifaa (Inventory)', href: '/inventory', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'STOREKEEPER'] },
-  { label: 'Mipangilio ya Mfumo (Settings)', href: '/settings', roles: ['SUPER_ADMIN'] }
+  { label: 'SaaS Platform Owner', href: '/saas-admin', roles: ['SUPER_ADMIN'] },
+  { label: 'Dashibodi ya Shule', href: '/dashboard', roles: ['HEADTEACHER', 'BURSAR', 'TEACHER', 'BOM_MEMBER', 'STOREKEEPER'] },
+  { label: 'Usimamizi wa Ada', href: '/fees', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BURSAR'] },
+  { label: 'Tathmini ya CBC', href: '/cbc-assessment', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'TEACHER'] },
+  { label: 'Sajili ya Wanafunzi (NEMIS)', href: '/students', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BURSAR', 'TEACHER'] },
+  { label: 'BOM Oversight & QASO', href: '/bom-oversight', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BOM_MEMBER'] },
 ];
 
 interface RBACNavProps {
@@ -40,7 +39,7 @@ export const EnterpriseRBACNavigation: React.FC<RBACNavProps> = ({
         <div className="flex items-center justify-between h-14">
           <div className="flex items-center space-x-4">
             <span className="font-black text-sm tracking-widest text-emerald-400 uppercase">
-              {schoolName}
+              {currentRole === 'SUPER_ADMIN' ? 'EduKe SaaS Network' : schoolName}
             </span>
             <nav className="hidden md:flex space-x-1" aria-label="Main Navigation">
               {authorizedItems.map((item) => {
