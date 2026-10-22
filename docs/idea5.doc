@@ -1,0 +1,2107 @@
+Kenyan Primary School SaaS — Phase 0: Frontend View ↔ Backend Requirement Matrix
+Version 0.1 · 19 October 2026 · Status: paper design only (no code). Audience: the builder and the coding LLM (Kilo Code).
+0. Purpose and rules for the coding agent
+This document fixes, before any code exists, every screen (view) of the system and the backend each screen needs: endpoints, tables, business rules, events and external integrations. Coding starts only after this matrix is reviewed.
+Rules the coding agent must follow
+1. No invention. Do not build a view, endpoint, table or rule that has no ID in this document. If something is missing, stop and propose an addition (new ID, same format) first.
+2. One module per task. Read §1–§4 (always) plus only the module section being built. Do not load the whole document into context.
+3. Reference IDs in every commit, file header and test name (e.g. V-T02, API-ASM-03, R-FIN-04).
+4. Respect confidence tags (§1). Anything tagged [O] is an open decision: implement behind a config flag or interface, never hard-code a guess. Anything tagged [A] is a recommended default that may be overridden.
+5. Definition of done for a view: all APIs it lists exist and are tested; all UI states in R-G12 are implemented; role access matches §2; audit and consent hooks in R-G05/R-G07 are wired; i18n keys exist for English and Kiswahili.
+6. Tenant isolation is non-negotiable. Every tenant table has tenant_id, RLS with FORCE, and a cross-tenant leak test.
+1. Conventions
+ID prefixes
+Prefix
+Meaning
+Example
+V-
+View (screen)
+V-H09
+API-
+HTTP/WebSocket endpoint
+API-ASM-03
+WH-
+Inbound webhook
+WH-MPESA-02
+T- / table names
+Database table
+assessment_results
+R-
+Business rule / invariant
+R-FIN-04
+EV-
+Domain event
+EV-04
+J-
+Background job
+J-03
+X-
+External integration
+X-01
+D-
+Open decision
+D-02
+Confidence tags
+• [V] Verified from public sources as of 19 Oct 2026 (sources listed in §12).
+• [U] Stated by the builder in the original blueprint.
+• [A] Assumption or recommendation made by this document.
+• [O] Open: unknown or undecided; needs a decision or a real-world document before coding.
+Surfaces
+Code
+Surface
+Users
+Notes
+S1
+School Admin Web
+Head, Deputy, Bursar, Clerk
+Desktop-first, responsive
+S2
+Teacher PWA
+Teachers
+Offline-first, IndexedDB [U], phone-first
+S3
+Parent Portal
+Parents/guardians
+Low-bandwidth PWA, phone-first [U]
+S4
+SaaS Root Console
+Platform staff
+Separate auth realm
+S5
+Gate Kiosk
+Gate device
+Kiosk browser, WebSocket/MQTT [U], offline tolerant
+Technical conventions [A]
+• Timezone Africa/Nairobi for display; store UTC. Phone numbers stored as 254XXXXXXXXX. Currency KES, NUMERIC(12,2). Primary keys UUID. Languages: English and Kiswahili.
+• API base /api/v1, JSON, cursor pagination, Idempotency-Key header required on all money and sync POSTs. Error envelope: {code, message, field_errors[], request_id}.
+• Declared stack [U]: PostgreSQL with RLS, Go ingest gateway for webhooks, PWA with IndexedDB, Java/Spring Boot communication processors, Africa's Talking SMS fallback.
+• Event delivery [A]: transactional outbox table written in the same transaction as the change, polled by the Spring Boot processors. Prefer this over logical-decoding change streams for simplicity; revisit only if latency demands it.
+2. Actors and permission matrix
+Roles: SAAS_ADMIN, SAAS_SUPPORT (S4 only); HEAD, DEPUTY (academic), BURSAR, CLERK (registrar/office), TEACHER (with optional CLASS_TEACHER flag per class), PARENT; GATE_DEVICE (machine identity).
+SaaS roles have no default read access to tenant learner data; access is only through time-boxed impersonation (R-PLT-03) [A].
+Legend: R read · W write · A approve/confirm · own = restricted to own classes/children · — none.
+Capability
+HEAD
+DEPUTY
+BURSAR
+CLERK
+TEACHER
+PARENT
+School settings & integrations
+W
+R
+—
+—
+—
+—
+Staff & role assignment
+W
+R
+—
+R
+—
+—
+Calendar, grades, streams
+W
+W
+R
+R
+R
+—
+Learners & guardians
+W
+W
+R (limited)
+W
+R own
+R own children
+Curriculum browser
+R
+R
+—
+—
+R
+—
+Assessment entry
+R
+R
+—
+—
+W own
+—
+Moderation
+A (reopen)
+W
+—
+—
+—
+—
+KNEC tracker
+A (confirm)
+W
+—
+—
+R own
+—
+Report cards
+A (publish)
+W (generate)
+—
+—
+W comments (class teacher)
+R own children
+Attendance
+R
+R
+—
+W
+W own
+R own children
+Fee structures
+A
+—
+W
+—
+—
+—
+Invoices
+R
+—
+W
+R
+—
+R own children
+Payments & reconciliation
+R
+—
+W
+W (cash receipting)
+—
+R own children
+Waivers, bursaries, refunds
+A
+—
+W (request)
+—
+—
+—
+Broadcast messages
+W
+W
+W (fee reminders only)
+—
+—
+—
+Consent records
+R
+R
+—
+W
+—
+W own
+Audit log & compliance centre
+R
+R (limited)
+—
+—
+—
+—
+Gate devices & policy
+W
+R
+—
+R
+—
+—
+Analytics
+R
+R
+R (finance only)
+—
+R own classes
+—
+3. Cross-cutting rules (apply to every module)
+• R-G01 Tenant isolation. Every tenant-owned table has tenant_id; RLS enabled and FORCED; tenant set per transaction with SET LOCAL app.current_tenant_id; connection-pool leak test mandatory. Reference (global) tables have no tenant_id.
+• R-G02 Identity. One global users identity per person; access per school via tenant_memberships(user_id, tenant_id, role). A parent may belong to several schools. This replaces UNIQUE(tenant_id, email) as the only identity key [A].
+• R-G03 Grading scale [V]. Four levels EE, ME, AE, BE, each split in two giving points: EE1=8, EE2=7, ME1=6, ME2=5, AE1=4, AE2=3, BE1=2, BE2=1. KJSEA percentage bands: EE1 90–100, EE2 75–89, ME1 58–74, ME2 41–57, AE1 31–40, AE2 21–30, BE1 11–20, BE2 1–10. Whether primary report cards show sub-levels is [O] (D-07), so store the full 8-level code and derive the 4-level label.
+• R-G04 Weightings are configuration [V values, A mechanism]. KPSEA: SBA from Grades 4, 5, 6 is 60% (20% each), national assessment 40%. KJSEA: KPSEA 20%, Grade 7–8 SBA 20%, Grade 9 summative 60%. One outlet reported the KPSEA split reversed; treat 60/40 SBA-first as correct but keep values in an effective-dated weighting_profiles table.
+• R-G05 Audit. Every write to assessments, payments, consents, learner identity fields and settings emits an append-only audit event (who, when, device, old/new, reason). The app DB role has no UPDATE/DELETE on audit tables. Writes go through triggers so no code path can skip them.
+• R-G06 Idempotency. Money and sync endpoints accept Idempotency-Key; the same key returns the original result. M-Pesa is idempotent on TransID.
+• R-G07 Consent gate. No outbound message, photo display, parent-portal access or gate biometric/RFID processing happens without a valid, purpose-scoped consent record for that guardian and child. Checked at send/use time, not at design time. [A; legal basis: Data Protection Act s.33 summary, see §12]
+• R-G08 Sensitive fields. Birth certificate number, SNE status, health notes, photos, biometric data and guardian ID numbers are encrypted at rest, excluded from list endpoints by default, and every read of them is logged.
+• R-G09 Offline-first. S2 (and S5, S3 read-only) must work without connectivity; writes queue locally with a client UUID, and sync follows R-ASM-06.
+• R-G10 Soft delete. Learners, staff, payments and assessments are never hard-deleted; use status plus audit. Erasure requests follow R-CMP-04.
+• R-G11 Academic context. Every academic or fee record carries academic_year and term. 2026 basic-education calendar [V]: Term 1 5 Jan–2 Apr, Term 2 27 Apr–31 Jul, Term 3 24 Aug–23 Oct. 2027 calendar is [O]; calendars are editable per school.
+• R-G12 Standard view states. Every view implements: loading, empty, error (with retry), forbidden, and (S2/S3/S5) offline with stale-data indicator. Tables support server-side search, filter, sort and cursor pagination.
+• R-G13 i18n. All user-visible strings via keys; English and Kiswahili; parent messages and report-card labels template-able per language.
+• R-G14 School-configured finance features [U, D-03]. A tenant flag funding_mode (PUBLIC | PRIVATE | CUSTOM) is only a preset label. The real switches live per school in school_finance_settings (R-FIN-13), so each school decides which finance features are on. The platform shows a non-blocking warning, never a block, when a school typed PUBLIC enables tuition-style charges; the Ministry has warned heads against unauthorised levies [V].
+4. Scope and open decisions
+In scope [A]: PP1–PP2 and Grades 1–6, with optional Grades 7–9 if the school hosts junior school (KNEC circulars address primary heads who also head JSS [V]). Out of scope for v1: senior school, boarding/dormitory, library, HR/payroll, LMS.
+ID
+Decision
+Default if undecided
+Blocks
+D-01
+Frontend framework per surface
+One TypeScript SPA codebase with a shared component library for S1/S3/S4; PWA shell for S2/S3; plain kiosk page for S5 [A]
+all views
+D-02
+M-Pesa shortcode model: one paybill per school vs one shared platform paybill with account prefixes
+DECIDED: one paybill per school, and each school can add more channels (see §13); tenant resolved from BusinessShortCode [U]
+M10, tenant onboarding
+D-03
+Public-school vs private-school feature gating
+funding_mode is only a preset label; finance switches are set per school. DECIDED: custom set by each school [U]
+M10
+D-04
+Fee-arrears gate denial and report-card withholding
+Both OFF by default, behind a flag with legal-review warning [A]
+M8, M9
+D-05
+WhatsApp provider (direct Meta Cloud API vs a business solution provider)
+Abstract behind a ChannelProvider interface; SMS first [A]
+M11
+D-06
+Biometric storage
+Templates stay on the device; cloud stores only a tag hash and event [A]
+M9
+D-07
+Sub-levels and weighting shown on primary report cards
+Show 4 levels; keep 8-level data [A]
+M8
+D-08
+Backdating threshold and moderation workflow
+Flag entries synced more than 7 days after creation [A]
+M6
+D-09
+KEMIS/NEMIS integration
+File import/export only; no API assumed [A]
+M4, M15
+D-10
+Hosting region and data residency
+Not decided [O]
+deployment
+D-11
+Capitation/vote-head accounting depth for public schools
+Record receipts only; no expenditure ledger in v1 [A]
+M10
+5. Master view registry
+64 views. Module column points to the section holding the full spec.
+ID
+View
+Surface
+Roles
+Module
+V-A01
+Login
+all
+all
+M1
+V-A02
+Forgot password / OTP verify
+S1–S4
+all
+M1
+V-A03
+School picker
+S1, S3, S4
+multi-school users
+M1
+V-A04
+My profile and notification preferences
+S1–S3
+all
+M1
+V-H01
+Head dashboard
+S1
+HEAD, DEPUTY
+M14
+V-H02
+School profile and branding
+S1
+HEAD
+M2
+V-H03
+Integrations settings (paybill, SMS sender ID, WhatsApp)
+S1
+HEAD
+M2
+V-H04
+Academic calendar
+S1
+HEAD, DEPUTY
+M3
+V-H05
+Grades and streams
+S1
+HEAD, DEPUTY
+M3
+V-H06
+Staff and roles
+S1
+HEAD
+M3
+V-H07
+Teaching allocation
+S1
+HEAD, DEPUTY
+M3
+V-H08
+Learner registry
+S1
+HEAD, DEPUTY, CLERK, BURSAR
+M4
+V-H09
+Learner profile (tabs)
+S1
+staff
+M4
+V-H10
+Admission / enrolment wizard
+S1
+CLERK, DEPUTY
+M4
+V-H11
+Bulk import wizard
+S1
+CLERK, HEAD
+M4
+V-H12
+Promotion and transfer
+S1
+DEPUTY, HEAD
+M4
+V-H13
+Guardian directory
+S1
+CLERK, HEAD
+M4
+V-H14
+Curriculum browser
+S1, S2
+staff
+M5
+V-H15
+Assessment events
+S1
+DEPUTY, HEAD
+M6
+V-H16
+Moderation queue
+S1
+DEPUTY, HEAD
+M6
+V-H17
+KNEC submission tracker
+S1
+HEAD, DEPUTY
+M7
+V-H18
+Report card batch generator
+S1
+DEPUTY, HEAD
+M8
+V-H19
+Attendance overview
+S1
+HEAD, DEPUTY, CLERK
+M9
+V-H20
+Communications centre
+S1
+HEAD, DEPUTY, BURSAR
+M11
+V-H21
+Compliance centre
+S1
+HEAD
+M12
+V-H22
+Audit log viewer
+S1
+HEAD
+M12
+V-H23
+Analytics
+S1
+HEAD, DEPUTY
+M14
+V-H24
+Exports
+S1
+HEAD, DEPUTY, CLERK
+M15
+V-H25
+Capitation receipts (public mode)
+S1
+HEAD, BURSAR
+M10
+V-B01
+Finance dashboard
+S1
+BURSAR, HEAD
+M10
+V-B02
+Fee structures
+S1
+BURSAR, HEAD
+M10
+V-B03
+Invoice runs
+S1
+BURSAR
+M10
+V-B04
+Payments ledger
+S1
+BURSAR, CLERK
+M10
+V-B05
+Reconciliation queue
+S1
+BURSAR
+M10
+V-B06
+Learner fee statement
+S1
+BURSAR, CLERK
+M10
+V-B07
+Arrears and reminders
+S1
+BURSAR
+M10
+V-B08
+Waivers, bursaries, refunds
+S1
+BURSAR, HEAD
+M10
+V-B09
+Finance reports
+S1
+BURSAR, HEAD
+M10
+V-T01
+My classes
+S2
+TEACHER
+M6
+V-T02
+Grading grid
+S2
+TEACHER
+M6
+V-T03
+Evidence capture
+S2
+TEACHER
+M6
+V-T04
+Learner remarks and competencies
+S2
+TEACHER
+M6
+V-T05
+Attendance register
+S2
+TEACHER
+M9
+V-T06
+Sync centre
+S2
+TEACHER
+M6
+V-T07
+Class progress preview
+S2
+TEACHER
+M14
+V-P01
+Parent home
+S3
+PARENT
+M8
+V-P02
+Child progress and report card
+S3
+PARENT
+M8
+V-P03
+Fees and pay
+S3
+PARENT
+M10
+V-P04
+Receipts and payment history
+S3
+PARENT
+M10
+V-P05
+Child attendance
+S3
+PARENT
+M9
+V-P06
+Notices and messages
+S3
+PARENT
+M11
+V-P07
+Consents and privacy
+S3
+PARENT
+M12
+V-P08
+Activate account (claim child)
+S3
+PARENT
+M1
+V-S01
+Operations centre
+S4
+SAAS_*
+M13
+V-S02
+Tenant registry and detail
+S4
+SAAS_*
+M13
+V-S03
+Tenant onboarding wizard
+S4
+SAAS_ADMIN
+M13
+V-S04
+Curriculum configurator
+S4
+SAAS_ADMIN
+M5
+V-S05
+Subscriptions and platform billing
+S4
+SAAS_ADMIN
+M13
+V-S06
+Integration health
+S4
+SAAS_*
+M13
+V-S07
+Support impersonation
+S4
+SAAS_SUPPORT, SAAS_ADMIN
+M13
+V-S08
+Platform audit
+S4
+SAAS_ADMIN
+M13
+V-G01
+Scan console (idle and result)
+S5
+GATE_DEVICE
+M9
+V-G02
+Device pairing and health
+S5
+GATE_DEVICE, HEAD
+M9
+V-G03
+Offline queue and manual entry
+S5
+GATE_DEVICE, CLERK
+M9
+6. Module specifications
+Each module lists: tables owned, views (what they show, which APIs they call, special states), APIs, and rules. Tables listed are the delta and additions to the original blueprint schema; tenant tables always carry tenant_id + FORCE RLS (R-G01).
+M1 — Identity and Access (AUTH)
+Tables: users (global: id, email?, phone, password_hash, mfa_secret?, locale, status), tenant_memberships (user_id, tenant_id, role, status), refresh_tokens, devices (user, tenant, fingerprint, label, revoked_at), otp_challenges (purpose, code_hash, expires_at, attempts), guardian_claim_codes (learner_id, guardian_id, code_hash, expires_at, used_at).
+View
+Shows
+Actions → API
+Special states
+V-A01
+Identifier (email or phone) and password; language toggle
+API-AUTH-01, API-AUTH-09
+lockout after repeated failures; expired session; S2 offline login allowed only with a previously cached session
+V-A02
+Phone/email entry, OTP entry, new password
+API-AUTH-02, -03, -04
+OTP resend cooldown; rate-limit message
+V-A03
+List of schools the user belongs to
+API-AUTH-07, -09
+auto-skipped when only one membership
+V-A04
+Name, phone, language, per-channel notification toggles
+API-AUTH-07, -08
+—
+V-P08
+Claim code, guardian phone, new password
+API-AUTH-10
+invalid/expired/used code; phone mismatch
+API
+Method and path
+Roles
+Notes
+API-AUTH-01
+POST /auth/login
+public
+Returns short-lived access token and rotating refresh token; tenant claim set when exactly one membership
+API-AUTH-02
+POST /auth/otp/request
+public
+SMS via X-04; rate limited per phone and IP
+API-AUTH-03
+POST /auth/otp/verify
+public
+—
+API-AUTH-04
+POST /auth/password/reset
+public
+Requires verified OTP
+API-AUTH-05
+POST /auth/refresh
+any
+Rotation with reuse detection; device-bound for S2
+API-AUTH-06
+POST /auth/logout
+any
+Revokes refresh token and device session
+API-AUTH-07
+GET /me
+any
+Memberships, roles, per-class flags, locale, consent summary
+API-AUTH-08
+PATCH /me
+any
+Locale and notification preferences
+API-AUTH-09
+POST /auth/tenant/switch
+any
+Issues a token scoped to one tenant
+API-AUTH-10
+POST /auth/parent/activate
+public
+Claim code + phone + password; creates user and links guardian
+Rules
+• R-AUTH-01 Passwords hashed with argon2id [A]. SaaS realm uses a separate token issuer and audience, and MFA is mandatory for SAAS_* roles [A].
+• R-AUTH-02 OTP: 6 digits, 5-minute expiry, 5 attempts [A].
+• R-AUTH-03 Claim codes are single-use, hashed at rest, expire in 14 days [A]; the phone entered must equal a guardian phone on record for that learner.
+• R-AUTH-04 Teacher PWA: refresh token lifetime 30 days with remote device revoke [A]. The app stays usable offline on cached data, but sync requires a valid token.
+• R-AUTH-05 CLASS_TEACHER is derived from class_groups.class_teacher_id, not a global role.
+M2 — School Setup (TEN)
+Tables: schools (existing, extended: knec_code?, kemis_code?, school_type PUBLIC|PRIVATE|SNE, funding_mode, county, sub_county, address, logo_ref, stamp_ref, head_signature_ref, default_locale, hosts_junior, license_tier, status), school_settings (key, jsonb value, version), school_integrations (mpesa_shortcode, mpesa_env, sms_sender_id, whatsapp_phone_id, secret_refs).
+View
+Shows
+Actions → API
+Special states
+V-H02
+Name, codes, type, county, contacts, logo/stamp/signature, default language, funding mode
+API-TEN-01, -02
+funding_mode change shows a warning that it hides/shows finance features
+V-H03
+Payment channels (own paybill plus added channels: shortcode or account, environment, C2B registration status, default flag), add and disable channel, finance settings tab, SMS sender ID, WhatsApp status, test buttons
+API-TEN-03, -04, -05
+secrets are write-only; registration button disabled once registered
+API
+Method and path
+Roles
+Notes
+API-TEN-01
+GET, PATCH /school
+HEAD (W), DEPUTY (R)
+Audited
+API-TEN-02
+POST /school/assets
+HEAD
+Logo, stamp, signature; image type/size validated
+API-TEN-03
+GET, PUT /school/integrations
+HEAD
+Secrets stored in a secret manager; only references in the DB
+API-TEN-04
+POST /school/integrations/mpesa/register-urls
+HEAD
+Calls X-01; see R-TEN-02
+API-TEN-05
+POST /school/integrations/test-sms
+HEAD
+Sends a test SMS to the head's own phone
+Rules
+• R-TEN-01 Integration secrets are never returned by any endpoint.
+• R-TEN-02 [V] In production, C2B URL registration is a one-time call; to change URLs they must be deleted in Safaricom self-service and re-registered. Transaction validation is optional and must be activated by Safaricom on the shortcode. The UI must confirm before registering and explain this.
+• R-TEN-03 Institution codes are validated by non-empty format only; official formats are [O].
+• R-TEN-04 Changing the shortcode requires HEAD, a reason, and an audit event.
+M3 — Calendar, Structure and Staff (CAL, STR, STF)
+Tables: academic_years, terms, exam_windows (type: KPSEA|KJSEA|INTERNAL|OTHER, start, end), grades (global reference: PP1, PP2, G1–G9 with level_band), streams, class_groups (year, grade, stream, class_teacher_id), staff_profiles (membership_id, TSC no. and national ID encrypted, subjects), teaching_assignments (staff, class_group, learning_area_id, year).
+View
+Shows
+Actions → API
+Special states
+V-H04
+Years, terms, half-terms, exam windows on a timeline
+API-CAL-01..04
+overlap errors; seed-from-template dialog
+V-H05
+Grade list, streams, class groups per year, class teacher
+API-STR-01..04
+rollover preview
+V-H06
+Staff list, invitation status, role
+API-STF-01..03
+pending invites; deactivated staff
+V-H07
+Grid: class group × learning area → teacher
+API-STF-04, API-CUR-01
+warns on unassigned learning areas
+API
+Method and path
+Roles
+Notes
+API-CAL-01
+CRUD /academic-years
+HEAD, DEPUTY
+—
+API-CAL-02
+CRUD /terms
+HEAD, DEPUTY
+—
+API-CAL-03
+CRUD /exam-windows
+HEAD, DEPUTY
+—
+API-CAL-04
+POST /calendar/seed
+HEAD
+Seeds year and terms from a bundled template (2026 values below)
+API-STR-01
+GET /grades
+staff
+Reference list
+API-STR-02
+CRUD /streams
+HEAD, DEPUTY
+—
+API-STR-03
+CRUD /class-groups
+HEAD, DEPUTY
+Filter by year
+API-STR-04
+POST /class-groups/rollover
+HEAD, DEPUTY
+Copy structure to next year (dry-run + commit)
+API-STF-01
+CRUD /staff
+HEAD
+—
+API-STF-02
+POST /staff/:id/invite
+HEAD
+SMS or email invitation
+API-STF-03
+PUT /staff/:id/role
+HEAD
+Audited
+API-STF-04
+CRUD /teaching-assignments
+HEAD, DEPUTY
+—
+Rules
+• R-CAL-01 Terms must not overlap and must sit inside their academic year; exactly one term is current.
+• R-CAL-02 [V] 2026 seed: Term 1 5 Jan–2 Apr (mid-term 25 Feb–1 Mar); Term 2 27 Apr–31 Jul (half-term 24–28 Jun); Term 3 24 Aug–23 Oct; long holiday 26 Oct–1 Jan 2027. KPSEA dates conflict between sources (26–28 vs 26–29 Oct); store whatever the head confirms. 2027 template is [O].
+• R-STR-01 class_groups unique on (tenant, year, grade, stream).
+• R-STF-01 An assessment event cannot open for a class group and learning area that has no assigned teacher.
+• R-STF-02 TSC number format is [O]; stored encrypted; optional.
+M4 — Learners, Guardians, Enrolment (LRN, GRD, ENR, IMP)
+Tables: learners (admission_no, upi?, names, dob, gender, birth_cert_no_enc, sne_enc, photo_ref, status, admitted_on, previous_school), guardians (names, phone, alt_phone, id_no_enc, email, language, user_id?), learner_guardians (relationship, is_primary_payer, is_emergency_contact, can_collect), enrolments (learner, class_group, year, status, started_on, ended_on), learner_status_history, transfers, import_batches, import_rows.
+This replaces static grade_level/stream_name and the single parent_phone_number on students [A].
+View
+Shows
+Actions → API
+Special states
+V-H08
+Searchable list: admission no., name, class, status, primary guardian phone, flags (consent, balance for permitted roles)
+API-LRN-01
+server-side paging; BURSAR sees limited columns
+V-H09
+Tabs: Bio, Guardians, Enrolment history, Assessments, Fees, Attendance, Consents, Audit
+API-LRN-03, -04, -05, -06, API-GRD-02, API-ASM-14, API-FIN-04, API-ATT-04, API-CMP-01, API-CMP-07
+sensitive fields masked until revealed (read logged, R-G08); tabs hidden per role
+V-H10
+Wizard: bio, guardians (at least one primary payer), class placement, identifiers, consents, claim-code printout
+API-LRN-07, -02, API-GRD-02, API-ENR-01, API-CMP-02, API-LRN-08
+duplicate warning with merge/continue; draft saved
+V-H11
+Upload, column mapping, per-row validation report, commit
+API-IMP-01..03
+row errors downloadable; atomic commit
+V-H12
+Class-level promote/repeat selection, transfer-out and transfer-in forms
+API-ENR-02, -03, -04
+dry-run preview; Grade 6 leavers handled per R-LRN-06
+V-H13
+Guardian list with linked learners, portal activation status
+API-GRD-01, API-LRN-08
+guardians with several children
+API
+Method and path
+Roles
+Notes
+API-LRN-01
+GET /learners
+staff
+Filters: q, grade, stream, status, flags; cursor
+API-LRN-02
+POST /learners
+CLERK, DEPUTY, HEAD
+—
+API-LRN-03
+GET /learners/:id
+staff (scoped)
+Sensitive fields masked
+API-LRN-04
+PATCH /learners/:id
+CLERK, DEPUTY, HEAD
+Audited; identity-field edits need reason
+API-LRN-05
+POST /learners/:id/photo
+CLERK, DEPUTY
+Requires photo consent (R-G07)
+API-LRN-06
+GET /learners/:id/timeline
+staff
+Enrolments, status changes, transfers
+API-LRN-07
+POST /learners/validate
+CLERK, DEPUTY
+Dry-run duplicate and identifier-format check
+API-LRN-08
+POST /learners/:id/guardians/:gid/claim-code
+CLERK, HEAD
+Delivered by SMS or printed
+API-GRD-01
+CRUD /guardians
+CLERK, HEAD
+—
+API-GRD-02
+PUT /learners/:id/guardians
+CLERK, HEAD
+Replaces links atomically
+API-ENR-01
+POST /enrolments
+CLERK, DEPUTY
+—
+API-ENR-02
+POST /enrolments/promote
+DEPUTY, HEAD
+Dry-run then commit
+API-ENR-03
+POST /learners/:id/transfer-out
+DEPUTY, HEAD
+Reason and destination recorded
+API-ENR-04
+POST /learners/transfer-in
+CLERK, DEPUTY
+Creates learner with prior-school info
+API-IMP-01
+POST /imports
+CLERK, HEAD
+Types: learners, guardians, opening balances
+API-IMP-02
+GET /imports/:id
+CLERK, HEAD
+Validation report
+API-IMP-03
+POST /imports/:id/commit
+CLERK, HEAD
+Atomic per batch
+Rules
+• R-LRN-01 admission_no unique per tenant; format configurable per school.
+• R-LRN-02 Duplicate rule: same normalised name + date of birth, or same UPI.
+• R-LRN-03 [V reported] UPI is a six-character identifier. Store as given, nullable until assigned; validate format only; no external lookup (D-09).
+• R-LRN-04 At least one guardian marked primary payer before the first invoice is issued.
+• R-LRN-05 Statuses: ACTIVE, TRANSFERRED_OUT, COMPLETED, WITHDRAWN, SUSPENDED, with history rows.
+• R-LRN-06 Promotion never edits past enrolments. Grade 6 learners become COMPLETED, or move to Grade 7 if hosts_junior. A repeat flag is allowed.
+• R-LRN-07 Phones normalised to 254XXXXXXXXX on input; invalid numbers rejected with field errors.
+• R-LRN-08 Imports: atomic per batch, row-level error report, max 5,000 rows [A]; opening-balance imports create invoice lines of type OPENING_BALANCE.
+• R-LRN-09 Transfer-in does not import assessment history automatically (no source API); optional manual results upload is out of v1 [A].
+M5 — Curriculum (CUR)
+Tables (global, no tenant_id): curriculum_versions (label, source_ref, effective_from, status DRAFT|PUBLISHED), learning_areas (version, level_band, grades[], name, lessons_per_week), strands, sub_strands (name, outcomes jsonb), node_mappings (old → new). Tenant: tenant_curriculum_pins.
+Seed facts [V]: Pre-primary has five areas and 25 lessons/week (language 5, mathematical 5, creative 6, environmental 5, religious 3, pastoral programme 1). Lower primary (G1–3) has seven areas and 31 lessons/week including the pastoral programme: Indigenous Language, Kiswahili/KSL, English, Mathematics, Religious Education, Environmental Activities, Creative Activities (7 lessons). Upper primary (G4–6) has eight areas and 35 lessons/week: English 5, Kiswahili/KSL 4, Mathematics 5, Religious Education 3, Science and Technology 4, Agriculture and Nutrition 4, Social Studies 3, Creative Arts 6, plus a 1-lesson pastoral/religious programme. Per-area lesson counts for lower primary beyond those stated are [O]. Strands and sub-strands must be ingested from the KICD curriculum design documents, not typed by hand; the ingestion tool is its own dev task and its output format is [O] until a sample is parsed.
+View
+Shows
+Actions → API
+Special states
+V-H14
+Level band → learning area → strand → sub-strand tree, outcomes, lessons/week, active version
+API-CUR-01..04
+read-only for schools; cached for offline (S2)
+V-S04
+Version list, draft editor (tree), diff and impact report, publish scheduler, tenant pin controls
+API-PLT-CUR-01..05
+publish blocked on unmapped nodes; two-person approval before publish [A]
+API
+Method and path
+Roles
+Notes
+API-CUR-01
+GET /curriculum/areas?grade=
+staff
+From the tenant's pinned version
+API-CUR-02
+GET /curriculum/areas/:id/tree
+staff
+Strands and sub-strands
+API-CUR-03
+GET /curriculum/versions
+staff
+Pinned and available versions
+API-CUR-04
+GET /curriculum/pin
+staff
+Current pin and next change date
+API-PLT-CUR-01
+POST /platform/curriculum/versions
+SAAS_ADMIN
+Clone published version to draft
+API-PLT-CUR-02
+PUT /platform/curriculum/versions/:id/nodes
+SAAS_ADMIN
+Batch tree edit
+API-PLT-CUR-03
+POST /platform/curriculum/versions/:id/publish
+SAAS_ADMIN
+effective_from and release notes
+API-PLT-CUR-04
+GET /platform/curriculum/versions/:id/diff
+SAAS_ADMIN
+Impact report
+API-PLT-CUR-05
+POST /platform/curriculum/pins
+SAAS_ADMIN
+Pin tenants (or all) at next term start
+Rules
+• R-CUR-01 Published versions are immutable; changes create a new draft.
+• R-CUR-02 Results reference version-specific sub_strand_id. Renamed or merged nodes need a node_mappings row or publish is blocked.
+• R-CUR-03 Tenants move to a new version only at a term boundary by default [A].
+• R-CUR-04 "Deploy system-wide" means updating pins. It never rewrites tenant data, because curriculum tables are global (this replaces the blueprint's per-tenant schema injection) [A].
+• R-CUR-05 The Ministry rationalised learning areas in 2023–24 and revised designs followed [V], so version churn is expected, not exceptional.
+M6 — Assessment and Offline Sync (ASM)
+Tables: assessment_events (term, grade, learning_area, type, source SCHOOL_FORMATIVE|KNEC_SBA_TOOL|INTERNAL_SUMMATIVE, tool_ref?, scoring_mode LEVEL|SCORE|BOTH, window, weighting_profile_id, status), assessment_results (event, learner, sub_strand? nullable, raw_score?, max_score?, level_code?, points?, teacher_id, remarks, client_uuid, version, state, device_id, client_ts, server_ts), assessment_result_history (append-only), evidence_files, competency_ratings (learner, term, competency/value, level), learner_remarks, weighting_profiles (effective-dated), sync_log (tenant sequence), sync_conflicts.
+This replaces student_cbc_assessments and its UNIQUE(tenant, student, sub_strand) key, which kept one result forever and could not hold history across terms [A].
+View
+Shows
+Actions → API
+Special states
+V-H15
+Events by term/grade/area; create/edit; open/close; source and weighting
+API-ASM-01, -13
+cannot open without assigned teacher (R-STF-01)
+V-H16
+Pending moderation by class/area; batch moderate; reopen requests
+API-ASM-10, -11, -12
+reopen needs reason and HEAD approval
+V-T01
+My class groups × learning areas, open events, pending counts, last sync
+API-ASM-15
+offline shows cached workload
+V-T02
+Learners × sub-strands grid; one tap cycles EE→ME→AE→BE; long-press for sub-level, score, remark; autosave; progress bar; filter pending
+API-ASM-02, -03, -04, -05
+offline banner; locked cells after moderation; conflict badge
+V-T03
+Camera/file attach to learner and event, preview, upload queue
+API-ASM-08
+photo consent check; resumable upload; offline queue
+V-T04
+Per-learner competencies, values, term remark
+API-ASM-09
+draft autosave
+V-T06
+Queue length, last sync, failures, conflict list with both versions
+API-ASM-04..07
+manual retry; resolve keep-mine/keep-theirs
+API
+Method and path
+Roles
+Notes
+API-ASM-01
+CRUD /assessment-events
+DEPUTY, HEAD
+—
+API-ASM-02
+GET /assessment-events/:id/grid?class_group=
+TEACHER (own)
+Learners × sub-strands with existing results
+API-ASM-03
+PUT /assessment-results/batch
+TEACHER (own)
+Idempotent; per-item outcome
+API-ASM-04
+POST /sync/push
+TEACHER
+Offline batch ≤ 200 items [A]
+API-ASM-05
+GET /sync/pull?cursor=
+TEACHER
+Server sequence cursor
+API-ASM-06
+GET /sync/conflicts
+TEACHER
+—
+API-ASM-07
+POST /sync/conflicts/:id/resolve
+TEACHER
+Audited
+API-ASM-08
+POST /evidence
+TEACHER
+Multipart or resumable
+API-ASM-09
+GET, PUT /learners/:id/remarks and /competencies
+TEACHER (class teacher for term remark)
+—
+API-ASM-10
+POST /assessment-events/:id/moderate
+DEPUTY
+Class-level
+API-ASM-11
+GET /moderation/queue
+DEPUTY, HEAD
+—
+API-ASM-12
+POST /assessment-results/:id/reopen
+HEAD (approve)
+Reason required
+API-ASM-13
+GET /weighting-profiles
+staff
+Effective-dated
+API-ASM-14
+GET /learners/:id/assessments
+staff (scoped), PARENT via parent API
+History by term
+API-ASM-15
+GET /teacher/workload
+TEACHER
+—
+Rules
+• R-ASM-01 Level scale per R-G03; the server derives the 4-level label and points from level_code.
+• R-ASM-02 Only the assigned teacher writes results. DEPUTY and HEAD can moderate and reopen, not edit results [A].
+• R-ASM-03 States: DRAFT → SUBMITTED → MODERATED → LOCKED. Edits after MODERATED need API-ASM-12.
+• R-ASM-04 One current result per (event, learner, sub_strand); every change appends to history.
+• R-ASM-05 If the client sends both score and level, the server validates them against the bands and flags inconsistency rather than silently overwriting.
+• R-ASM-06 Sync: each result has a client UUID and base_version. Push is idempotent. If base_version is behind and the value differs, create a conflict holding both values; never auto-overwrite. Deletes are tombstones. Pull uses a monotonic per-tenant sequence. Partial success is reported per item.
+• R-ASM-07 Entries synced later than the D-08 threshold are flagged "late synced" for the moderator.
+• R-ASM-08 [O] The record shape of KNEC SBA tools (score per learning area vs per sub-strand) is unknown, so sub_strand_id is nullable and KNEC events use event-level scores per learner and learning area.
+• R-ASM-09 Evidence linked to a KNEC SBA event cannot be deleted [V: KNEC instructs schools to retain projects and supporting documents].
+• R-ASM-10 Performance target [A]: grid for 60 learners × 15 columns opens in under 2 s on a 3G connection after first sync.
+• R-ASM-11 Weighted summaries (KPSEA/KJSEA style) are computed by the reporting layer from weighting_profiles, never stored on results.
+M7 — KNEC Submission Tracker (KNE)
+KNEC collects SBA scores through its CBA portal; heads log in, download tools, capture outcomes per learning area, and upload [V]. No public API was found, so this module tracks completeness and produces portal-shaped sheets; it does not upload [A].
+Tables: knec_tools (global reference: grade, learning_area, tool_ref, access_from, upload_deadline, format flags), knec_submission_status (learner, grade, learning_area, tool, status), knec_export_batches.
+View
+Shows
+Actions → API
+Special states
+V-H17
+Matrix grade × learning area with completion %, deadline countdown, class drill-down, per-learner states, variance report, evidence status
+API-KNE-01..05
+deadline passed; extension updated; SNE (PDF-only) badge
+API
+Method and path
+Roles
+Notes
+API-KNE-01
+GET /knec/windows
+HEAD, DEPUTY
+Tools and deadlines (global reference)
+API-KNE-02
+GET /knec/matrix?grade=&area=
+HEAD, DEPUTY
+Completion per cell
+API-KNE-03
+POST /knec/exports
+HEAD, DEPUTY
+Sheet per class and learning area
+API-KNE-04
+POST /knec/confirm
+HEAD
+Marks CONFIRMED_UPLOADED with timestamp
+API-KNE-05
+GET /knec/variance
+HEAD, DEPUTY
+Registered candidates missing SBA
+API-PLT-KNE-01
+CRUD /platform/knec/tools
+SAAS_ADMIN
+Maintains deadlines nationally
+Rules
+• R-KNE-01 Only results with source KNEC_SBA_TOOL feed this module.
+• R-KNE-02 Status flow: NOT_ASSESSED → CAPTURED → MODERATED → EXPORTED → CONFIRMED_UPLOADED. Only HEAD sets the last state.
+• R-KNE-03 [V] 2026 cycle for Grades 3, 4, 5, 7, 8: tools opened 28 Sep and the last upload date was 23 Oct. Earlier cycles had extended deadlines, so deadlines are editable data.
+• R-KNE-04 Portal steps for the user manual [V]: log in at the CBA portal, choose Capture Assessment Outcomes, select the learning area. Sheets list learners in admission-number order per class [A].
+• R-KNE-05 [V] Foundation-level SNE tools are PDF-only; flagged learners are excluded from digital-entry assumptions.
+• R-KNE-06 [O] The exact portal upload template is unknown; build the export as a pluggable template and obtain a real manual from a head teacher login before finalising.
+M8 — Report Cards and Parent Facade (RPT, PAR)
+Tables: report_templates (grade band, language, layout jsonb), report_runs (term, class groups, status), report_cards (learner, term, revision, snapshot jsonb, pdf_ref, status DRAFT|READY|PUBLISHED), report_card_comments (class teacher, head).
+View
+Shows
+Actions → API
+Special states
+V-H18
+Term and class picker, template picker, pre-publish checklist (missing results, missing comments), run progress, per-learner issues, preview, publish
+API-RPT-01..06
+long-running run with progress; partial failures listed per learner
+V-P01
+Cards for each linked child: name, class, latest report, fee balance (if permitted), unread notices
+API-PAR-01, -06
+child without published data shows a friendly empty state; offline shows last cached
+V-P02
+Per learning area level (EE/ME/AE/BE), competencies, comments, attendance summary, PDF download, term history
+API-PAR-02, -03
+only published data; bilingual labels
+API
+Method and path
+Roles
+Notes
+API-RPT-01
+GET, PUT /report-templates
+DEPUTY, HEAD
+Per grade band and language
+API-RPT-02
+POST /report-runs
+DEPUTY
+Async (J-02); dry-run returns checklist only
+API-RPT-03
+GET /report-runs/:id
+DEPUTY, HEAD
+Progress and issues
+API-RPT-04
+GET /report-cards/:id/pdf
+staff (scoped)
+Signed URL
+API-RPT-05
+POST /report-runs/:id/publish
+HEAD
+Emits EV-09; consent gate applies to notifications
+API-RPT-06
+GET /report-cards?learner=
+staff (scoped)
+History and revisions
+API-PAR-01
+GET /parent/children
+PARENT
+Linked children with summary
+API-PAR-02
+GET /parent/children/:id/reports
+PARENT
+Published report cards only
+API-PAR-03
+GET /parent/children/:id/progress
+PARENT
+Latest published results by learning area
+API-PAR-04
+GET /parent/children/:id/statement
+PARENT
+Requires per-link can_view_fees
+API-PAR-05
+GET /parent/children/:id/attendance
+PARENT
+Month view
+API-PAR-06
+GET /parent/notices
+PARENT
+Notices addressed to the guardian
+API-PAR-07
+GET, POST /parent/consents
+PARENT
+Grant and revoke own consents
+API-PAR-08
+POST /parent/pay
+PARENT
+Delegates to API-FIN-16
+API-PAR-09
+GET /parent/payments/:id/receipt
+PARENT
+PDF
+Rules
+• R-RPT-01 A published snapshot is immutable. A correction creates revision N+1 and notifies the parent; the old revision remains visible in history.
+• R-RPT-02 Pre-publish checks (configurable): every learning area for the grade has a result, class-teacher comment present, head comment present.
+• R-RPT-03 Learning areas on a card come from the learner's pinned curriculum version and grade band (lower vs upper primary differ, see M5).
+• R-RPT-04 Card content: school branding, learner details, learning-area levels, competencies and values, attendance summary, comments, next-term dates. KPSEA results come from KNEC and are not generated here [A].
+• R-RPT-05 Withholding report cards for fee arrears is OFF by default (D-04); enabling it shows a legal-review warning and an audit event.
+• R-PAR-01 A guardian sees only learners linked in learner_guardians; fee visibility is a per-link flag.
+• R-PAR-02 Parent endpoints return only published or parent-facing data; row filter is enforced in the query, not the UI.
+• R-PAR-03 Low-bandwidth targets [A]: JSON responses under 30 KB per page, lazy images, no large client bundles; read-only offline cache of last viewed screens.
+M9 — Attendance and Gate (ATT, GATE)
+Tables: attendance_registers (class_group, date, session, status OPEN|CLOSED), attendance_marks (register, learner, status PRESENT|ABSENT|LATE|EXCUSED, source CLASS|GATE|MANUAL, reason?), gate_devices (name, location, token_ref, last_seen, status), rfid_tags (learner, tag_hash, active), gate_events (device, seq, tag_hash, ts, direction IN|OUT, result, learner?).
+View
+Shows
+Actions → API
+Special states
+V-T05
+Class roll with one-tap present/absent, late and excused options, "mark all present", close register
+API-ATT-01, -02
+offline queue; register already closed
+V-H19
+School-wide attendance by class and day, absence list, gate-vs-class mismatches
+API-ATT-03, API-GATE-04
+date range filter
+V-P05
+Calendar month with present/absent marks
+API-PAR-05
+consent to portal required
+V-G01
+Idle state, then result: learner name and photo (if consent), class, large Granted/Denied band, notification status line
+API-GATE-02, -03
+offline mode badge; unknown tag; inactive learner; duplicate tap
+V-G02
+Pairing code entry, device name, connection and sync health, time sync
+API-GATE-01, -04
+revoked device
+V-G03
+Queued events count, manual entry by admission number with clerk PIN and reason
+API-GATE-03, -06
+PIN lockout
+API
+Method and path
+Roles
+Notes
+API-ATT-01
+GET /attendance/register?class_group=&date=
+TEACHER (own), CLERK
+Creates register if absent
+API-ATT-02
+PUT /attendance/register
+TEACHER (own), CLERK
+Batch; offline-capable; idempotent
+API-ATT-03
+GET /attendance/summary
+HEAD, DEPUTY, CLERK
+Filters by class and range
+API-ATT-04
+GET /learners/:id/attendance
+staff (scoped)
+—
+API-GATE-01
+POST /gate/devices/pair
+HEAD, GATE_DEVICE
+One-time pairing code to device token
+API-GATE-02
+WS /gate/stream
+GATE_DEVICE
+Device sends tap, cloud returns result; heartbeat
+API-GATE-03
+POST /gate/events/batch
+GATE_DEVICE
+Offline replay, idempotent on (device, seq)
+API-GATE-04
+GET /gate/devices
+HEAD, DEPUTY, CLERK
+Health, last seen
+API-GATE-05
+POST /gate/tags
+CLERK, HEAD
+Assign or deactivate a tag for a learner
+API-GATE-06
+POST /gate/override
+CLERK
+PIN, reason, audit
+API-GATE-07
+GET /gate/policy, PUT
+HEAD
+Decision policy (R-GATE-03)
+Rules
+• R-ATT-01 One register per class group, date and session (AM/PM configurable). The class register is authoritative; gate events mark presence tentatively [A].
+• R-ATT-02 The teacher edits the same day; later edits need CLERK and a reason, audited.
+• R-ATT-03 When a register closes, each ABSENT learner emits EV-08; a message goes out only if the guardian consented (R-G07).
+• R-GATE-01 Devices authenticate with a device token from pairing. Each device caches a roster (tag hash → learner, thumbnail only with photo consent) and receives deltas.
+• R-GATE-02 Event replay is idempotent on (device_id, seq); server time is authoritative, device sends its clock offset.
+• R-GATE-03 Results: GRANTED, DENIED_UNKNOWN_TAG, DENIED_INACTIVE, ESCALATE. A fee-arrears denial is a policy option, OFF by default (D-04), with a legal-review warning: public schools are bound by the constitutional right to free basic education and the Ministry's warning on unauthorised levies [V].
+• R-GATE-04 Parent notification on tap only with consent; duplicate taps within 5 minutes are suppressed [A].
+• R-GATE-05 Tags stored as hashes. Biometric templates stay on the device (D-06). Enabling biometrics requires a DPIA record [A]; whether the Data Protection Act classes it as sensitive data should be confirmed with counsel.
+• R-GATE-06 Display shows name and photo only with photo consent; otherwise initials and class.
+• R-GATE-07 Targets [A]: tap-to-result under 1.5 s online; offline decisions come from the cached roster.
+• R-GATE-08 Manual override needs a clerk PIN and reason and writes an audit event.
+M10 — Finance and M-Pesa (FIN, WH-MPESA, CAP)
+Tables: fee_categories (type TUITION|MEALS|TRANSPORT|UNIFORM|ACTIVITY|OTHER, refundable, public_mode_allowed), fee_structures (year, term, grade, category, amount, due_date), learner_fee_options (optional services such as transport), invoices (learner, term, status, due_date), invoice_lines, payments (source MPESA|CASH|BANK|CHEQUE|CREDIT, amount, reference, received_at, receipt_no, status), payment_allocations (payment, invoice_line, amount), credits, adjustments (WAIVER|BURSARY|DISCOUNT|WRITE_OFF|REVERSAL, reason, approved_by), refunds, mpesa_transactions (trans_id UNIQUE, shortcode, tenant resolved, bill_ref, msisdn_masked, amount, status RECEIVED|MATCHED|UNMATCHED|REVERSED, raw jsonb), mpesa_stk_requests (checkout_request_id, learner, amount, status), receipt_sequences, capitation_receipts (term, amount, reference, received_on), reconciliation_runs.
+This replaces amount_paid stored on financial_invoices, which cannot represent partial allocations, overpayments or reversals [A]. The blueprint's reconciliation_status comment values (UNRESOLVED, AUTOFILLED, MANUAL) do not match its default (PENDING); use the status set above.
+View
+Shows
+Actions → API
+Special states
+V-B01
+Collected today and this term, outstanding, collection rate by grade, unmatched count, 30-day trend
+API-FIN-12
+shows capitation tiles when capitation tracking is enabled
+V-B02
+Grade × category matrix per term, copy from previous term, approval status
+API-FIN-01
+locked after invoicing; changes create a new version
+V-B03
+Term, grades, learners; dry-run totals and counts; commit
+API-FIN-02, -03
+learners without primary payer flagged; duplicate run blocked
+V-B04
+Ledger with filters; record cash/bank payment; reprint receipt
+API-FIN-05, -06
+idempotency key prevents double entry
+V-B05
+Unmatched M-Pesa rows: reference typed, amount, time, suggested learners, match, refund flag
+API-FIN-07, -08, -09
+already-matched conflict; empty queue message
+V-B06
+Invoices, payments, adjustments, running balance; PDF and send
+API-FIN-04
+sibling roll-up optional
+V-B07
+Aged arrears buckets, select learners, send reminder campaign
+API-FIN-15, -14
+learners without consent excluded and counted
+V-B08
+Waiver/bursary/refund request form, HEAD approval inbox
+API-FIN-10, -11
+approval states; reason mandatory
+V-B09
+Daily collection, term summary, aged arrears, by category, M-Pesa reconciliation; CSV/PDF
+API-FIN-13
+async for big ranges
+V-H25
+Capitation receipts per term and learner-count basis
+API-CAP-01, -02
+hidden unless capitation tracking is enabled
+V-P03
+Child selector, balance, line items, Pay button (STK) with amount and phone, live status, paybill fallback instructions with account number
+API-PAR-04, API-FIN-16, -17
+pending, cancelled, timed out, failed; double-tap guard
+V-P04
+Receipts and payment history with receipt PDF
+API-PAR-04, -09
+—
+API
+Method and path
+Roles
+Notes
+API-FIN-01
+CRUD /fee-structures
+BURSAR (W), HEAD (A)
+Versioned
+API-FIN-02
+POST /invoice-runs
+BURSAR
+Dry-run flag; async J-01
+API-FIN-03
+GET /invoices
+BURSAR, HEAD, CLERK
+Filters
+API-FIN-04
+GET /learners/:id/statement
+BURSAR, CLERK
+JSON and PDF
+API-FIN-05
+POST /payments
+BURSAR, CLERK
+Manual cash/bank; Idempotency-Key required
+API-FIN-06
+GET /payments
+BURSAR, CLERK, HEAD
+—
+API-FIN-07
+GET /reconciliation/queue
+BURSAR
+UNMATCHED rows with suggestions
+API-FIN-08
+POST /reconciliation/:txn/match
+BURSAR
+Allocates and audits
+API-FIN-09
+POST /reconciliation/:txn/flag-refund
+BURSAR
+Starts refund request
+API-FIN-10
+POST /adjustments
+BURSAR (request), HEAD (approve)
+Reason required
+API-FIN-11
+POST /refunds
+BURSAR, HEAD
+Two-step approval
+API-FIN-12
+GET /finance/dashboard
+BURSAR, HEAD
+—
+API-FIN-13
+GET /finance/reports/:type
+BURSAR, HEAD
+CSV or PDF
+API-FIN-14
+POST /arrears/reminders
+BURSAR
+Uses M11; consent gate
+API-FIN-15
+GET /arrears
+BURSAR, HEAD
+Aged buckets
+API-FIN-16
+POST /pay/stk-push
+PARENT
+Creates request; one pending per child per 2 min [A]
+API-FIN-17
+GET /pay/stk-status/:id
+PARENT
+Polls request state
+API-CAP-01
+CRUD /capitation/receipts
+BURSAR, HEAD
+Only when capitation tracking is enabled
+API-CAP-02
+GET /capitation/summary
+BURSAR, HEAD
+—
+WH-MPESA-01
+POST /webhooks/mpesa/c2b/validate
+Safaricom
+Only if validation is activated (R-FIN-07)
+WH-MPESA-02
+POST /webhooks/mpesa/c2b/confirm
+Safaricom
+Persist, ack, enqueue (R-FIN-04)
+WH-MPESA-03
+POST /webhooks/mpesa/stk/callback
+Safaricom
+Updates STK request by CheckoutRequestID
+WH-MPESA-04
+POST /webhooks/mpesa/b2c/result and /timeout
+Safaricom
+Refund outcome
+Rules
+• R-FIN-01 Payments are immutable; corrections are REVERSAL adjustments with their own allocation rows. All money uses NUMERIC arithmetic, never floats.
+• R-FIN-02 Tenant resolution for C2B uses the BusinessShortCode on the payload mapped through school_integrations (replaced by school_payment_channels, see §13). D-02 is decided: each school has its own paybill and may register additional channels, so one school can map to several BusinessShortCodes, while a shortcode maps to exactly one school. [V] The C2B payload carries TransID, BillRefNumber and an MSISDN that appears masked in Safaricom's sample; other field names must be checked against the live Daraja documentation before coding (O).
+• R-FIN-03 Never match a payer by phone number (masked MSISDN [V sample]). Match by BillRefNumber. Convention: the admission number, normalised for case and spaces [A]. An unofficial doc says BillRefNumber is alphanumeric and under 20 characters, so keep admission numbers within 20 characters [V, weak source].
+• R-FIN-04 Webhook handler: authenticate the source (secret path token and allowlist where Safaricom provides IPs), store the raw payload first, return success fast, and do matching in a worker (J-03). Idempotent on TransID. Never block on SMS or ledger work in the request thread.
+• R-FIN-05 Auto-match only on exact normalised BillRefNumber with an ACTIVE learner. Everything else goes to the UNMATCHED queue with ranked suggestions by reference similarity.
+• R-FIN-06 Allocation: oldest invoice line first, category priority configurable; any surplus becomes a credit; balances never go negative silently.
+• R-FIN-07 [V] Validation is optional and must be activated by Safaricom; ResponseType decides whether M-Pesa completes or cancels when your validation URL is unreachable. Default to Completed so money is never rejected by an outage [A]. If validation is on, reject unknown references and inactive learners.
+• R-FIN-08 Receipt numbers come from a gapless per-tenant sequence assigned at allocation; receipt by PDF and message (consent-gated).
+• R-FIN-09 STK Push: one pending request per child per 2 minutes [A]; callback matched by CheckoutRequestID; if no callback arrives, a status query job resolves it; the UI shows pending, success, failed, cancelled, timed out.
+• R-FIN-10 Refunds go back via B2C [V: Daraja supports B2C] or to credit, require BURSAR request and HEAD approval, and use the guardian's phone on record, never the masked payload value.
+• R-FIN-11 Waivers and bursaries are adjustment rows with reason, type and approver; never edit an invoice line amount directly.
+• R-FIN-12 Issued invoices are immutable; later fee-structure changes apply to new invoices, with credit/debit notes for corrections.
+• R-FIN-13 Finance features are school-configured (D-03 decided): each school switches tuition invoicing, optional services, capitation tracking and its allowed fee categories on or off in school_finance_settings; PUBLIC and PRIVATE are only presets. [V] Free Primary Education capitation was KES 1,420 per learner with a plan to raise it to KES 2,300 from FY2026/27, and the Ministry warned heads against unauthorised levies. Treat amounts as configuration, not constants. Expenditure ledgers are out of v1 (D-11).
+• R-FIN-14 Daily reconciliation job J-04b compares confirmed Daraja totals with allocated plus unmatched totals and alerts on difference; an optional M-Pesa statement CSV import supports audit [A].
+• R-FIN-15 Arrears are unpaid lines past due date; reminders honour consent and a frequency cap of one per learner per 7 days by default [A].
+M11 — Communications (COM)
+Tables: message_templates (key, language, channel, body, variables), outbound_messages (guardian, learner?, channel, template, payload, status, provider_ref, attempts, scheduled_at), delivery_receipts, broadcasts (audience filter jsonb, created_by), opt_outs.
+View
+Shows
+Actions → API
+Special states
+V-H20
+Compose broadcast with audience builder (all, grade, stream, arrears over amount, custom), template and language, recipient count with excluded (no consent) count, schedule, cost estimate; message log; template editor; opt-outs
+API-COM-01..05
+zero recipients; provider outage banner; failed-message retry
+V-P06
+Notices list with read state
+API-PAR-06
+offline cached
+API
+Method and path
+Roles
+Notes
+API-COM-01
+CRUD /templates
+HEAD, DEPUTY
+Variables validated
+API-COM-02
+POST /broadcasts
+HEAD, DEPUTY, BURSAR (fees only)
+Dry-run returns counts
+API-COM-03
+GET /messages
+HEAD, DEPUTY, BURSAR
+Status log
+API-COM-04
+POST /messages/:id/retry
+HEAD, DEPUTY
+—
+API-COM-05
+GET, PUT /opt-outs
+HEAD
+Mirrors parent revocations
+WH-SMS-01
+POST /webhooks/sms/dlr
+provider
+Delivery reports
+WH-WA-01
+POST /webhooks/whatsapp
+provider
+Status and inbound (D-05)
+Rules
+• R-COM-01 Consent gate at send time (R-G07). Excluded recipients are counted in the preview and logged.
+• R-COM-02 Channel order: WhatsApp then SMS fallback [U: Africa's Talking fallback]; provider hidden behind a ChannelProvider interface (D-05).
+• R-COM-03 Templates exist per language (English, Kiswahili); a guardian's language preference chooses one.
+• R-COM-04 Quiet hours 21:00–06:00 for non-urgent messages; gate and payment messages exempt [A].
+• R-COM-05 Per-tenant usage counters (messages by channel) feed platform billing (M13).
+• R-COM-06 Triggers consumed: EV-04/05 (payment), EV-06 (invoice), EV-07 (gate tap), EV-08 (absence), EV-09 (report published). Each trigger has a default template and an enable switch per school.
+M12 — Compliance, Consent and Audit (CMP)
+Tables: consent_notices (purpose, version, text per language), consent_records (guardian, learner, purpose, notice_version, channel, identity_verified, recorded_by, granted_at, revoked_at, proof_ref), dsr_requests, breach_register, audit_events (partitioned by tenant), access_logs (sensitive reads), retention_policies, dpia_records.
+View
+Shows
+Actions → API
+Special states
+V-H21
+Consent coverage by purpose and grade, learners lacking consent, DSR queue, breach register, DPIA records, retention settings
+API-CMP-01..06, -09
+overdue DSR highlighted
+V-H22
+Searchable audit trail (who, what, when, device), diff view, export
+API-CMP-07, -08
+large exports async
+V-P07
+Purposes with status, notice text, grant and revoke
+API-PAR-07
+revocation confirmation; effect is immediate
+API
+Method and path
+Roles
+Notes
+API-CMP-01
+GET /consents?learner=
+HEAD, DEPUTY, CLERK
+—
+API-CMP-02
+POST /consents
+CLERK
+Records paper or verbal consent with proof upload
+API-CMP-03
+POST /consents/:id/revoke
+CLERK, PARENT
+—
+API-CMP-04
+GET /compliance/summary
+HEAD
+Coverage metrics
+API-CMP-05
+CRUD /dsr
+HEAD
+Access, correction, erasure requests
+API-CMP-06
+CRUD /breaches
+HEAD
+—
+API-CMP-07
+GET /audit
+HEAD, DEPUTY (limited)
+Filters
+API-CMP-08
+GET /audit/export
+HEAD
+Async
+API-CMP-09
+GET, PUT /retention-policies
+HEAD
+—
+Rules
+• R-CMP-01 Purposes: SMS, WHATSAPP, PORTAL, PHOTO, RFID_GATE, BIOMETRIC_GATE. Each is separate, versioned and revocable. [V summary] The Data Protection Act bars processing a child's data without verified parental consent and puts the burden of proof on the school; ODPC adopted children's-data guidance in November 2025. Have counsel confirm the final consent wording.
+• R-CMP-02 Data-subject request statuses: RECEIVED, IDENTITY_VERIFIED, IN_PROGRESS, COMPLETED, REJECTED. Statutory due dates are [O]: make them configurable and confirm with counsel.
+• R-CMP-03 Breach register stores detection time, scope, affected learners, actions and notification status. Notification timelines are [O]; confirm with counsel.
+• R-CMP-04 Erasure versus retention: where academic or financial records must be retained, anonymise personal identifiers rather than hard-delete. Retention periods are [O].
+• R-CMP-05 Each school is the controller and the platform a processor; onboarding includes processor-agreement acceptance and ODPC registration status fields [A; registration duties per ODPC guidance, to be confirmed].
+• R-CMP-06 Audit tables are append-only and partitioned per tenant; sensitive-field reads write to access_logs (R-G08).
+M13 — Platform / SaaS Root (PLT)
+Tables: plans, subscriptions (tenant, plan, status ACTIVE|IN_ARREARS|SUSPENDED, period), platform_invoices, tenant_usage (learners, messages, storage), impersonation_sessions, feature_flags, migration_runs.
+View
+Shows
+Actions → API
+Special states
+V-S01
+Active tenants, monthly recurring revenue, webhook success rate, SMS delivery rate, storage; alerts
+API-PLT-01, -10
+degraded integration banner
+V-S02
+Tenant grid: status, tier, learners, last activity; row actions: suspend, reactivate, force data migration, impersonate; detail tabs
+API-PLT-02, -04, -05, -06, -07
+confirm dialogs with reason
+V-S03
+Wizard: school details, admin user, funding mode, shortcode and registration steps, SMS sender ID, curriculum pin, processor-agreement acceptance, calendar seed; checklist
+API-PLT-03
+resumable draft
+V-S05
+Plans, per-tenant subscription, platform invoices, arrears
+API-PLT-09
+grace-period rules
+V-S06
+Per-tenant Daraja and STK success rates, callback lag, SMS and WhatsApp status, queue depth
+API-PLT-10
+—
+V-S07
+Start session: tenant, reason, duration; read-only banner during session; end session
+API-PLT-07, -08
+auto-expiry
+V-S08
+Search and export platform audit
+API-PLT-11
+—
+API
+Method and path
+Roles
+Notes
+API-PLT-01
+GET /platform/overview
+SAAS_*
+Aggregates only
+API-PLT-02
+GET /platform/tenants
+SAAS_*
+—
+API-PLT-03
+POST /platform/tenants
+SAAS_ADMIN
+Creates tenant, admin user, seeds
+API-PLT-04
+PATCH /platform/tenants/:id
+SAAS_ADMIN
+Tier, status
+API-PLT-05
+POST /platform/tenants/:id/suspend and /reactivate
+SAAS_ADMIN
+Reason required
+API-PLT-06
+POST /platform/tenants/:id/migrations
+SAAS_ADMIN
+Idempotent data-migration job
+API-PLT-07
+POST /platform/tenants/:id/impersonate
+SAAS_SUPPORT, SAAS_ADMIN
+Time-boxed
+API-PLT-08
+DELETE /platform/impersonations/:id
+same
+Ends session
+API-PLT-09
+CRUD /platform/plans and /subscriptions
+SAAS_ADMIN
+—
+API-PLT-10
+GET /platform/health/integrations
+SAAS_*
+Per-tenant and global
+API-PLT-11
+GET /platform/audit
+SAAS_ADMIN
+—
+Rules
+• R-PLT-01 Suspension makes the tenant read-only after a configurable grace period [A]. Payment webhooks are still recorded while suspended; money events are never dropped.
+• R-PLT-02 The platform uses one schema with RLS, so "force schema migration" is an idempotent, logged data-migration job per tenant, not per-tenant DDL [A].
+• R-PLT-03 Impersonation: reason required, maximum 60 minutes, read-only by default, school head notified, banner shown, all actions written to both the tenant and platform audit logs [A].
+• R-PLT-04 Sensitive fields (R-G08) stay masked even during impersonation unless a break-glass approval from the school head is recorded [A].
+• R-PLT-05 Pricing [A]: per learner per term with tiers. Market reference points [V, other vendors]: one lists KES 250 per learner per term per pack plus a KES 34,800 setup fee for its bursar pack; another sells flat per-term prices (KES 15,000 up to 200 learners, KES 35,000 up to 1,000). Prices are configuration.
+M14 — Analytics (ANL)
+View
+Shows
+Actions → API
+Special states
+V-H01
+Tiles: enrolment, today's attendance rate, term collection rate, SBA completion, unmatched payments, open moderation items
+API-ANL-01
+role-based tiles (HEAD sees all; DEPUTY no finance)
+V-H23
+Cohort distribution of EE/ME/AE/BE per learning area and term, trend across terms, class comparison, attendance and fee-collection views
+API-ANL-02..05
+empty until results are moderated
+V-T07
+Own class: level distribution per learning area, learners needing support
+API-ANL-02 (scoped)
+offline cached
+API
+Method and path
+Roles
+Notes
+API-ANL-01
+GET /analytics/overview
+HEAD, DEPUTY
+Tiles
+API-ANL-02
+GET /analytics/cohort-progress
+HEAD, DEPUTY, TEACHER (own)
+By grade, class, area, term
+API-ANL-03
+GET /analytics/learning-areas
+HEAD, DEPUTY
+Trend
+API-ANL-04
+GET /analytics/attendance
+HEAD, DEPUTY
+—
+API-ANL-05
+GET /analytics/finance
+HEAD, BURSAR
+Reuses FIN read models
+Rules: R-ANL-01 Read models are refreshed nightly by J-06 and on demand for teacher class views; definitions live in code comments and tests. R-ANL-02 Default population is results in MODERATED or LOCKED state, with a toggle to include submitted [A]. R-ANL-03 No cross-tenant benchmarking in v1 [A]. R-ANL-04 Teachers see only their own classes (RLS plus role filter).
+M15 — Exports (EXP)
+View
+Shows
+Actions → API
+Special states
+V-H24
+Export catalogue, parameters, job history, download
+API-EXP-01..03
+file expired; job failed
+API
+Method and path
+Roles
+Notes
+API-EXP-01
+POST /exports
+HEAD, DEPUTY, CLERK
+Types below; async
+API-EXP-02
+GET /exports/:id
+requester
+Status and signed URL
+API-EXP-03
+GET /exports/templates
+staff
+Available types and formats
+Types: learner register (KEMIS/NEMIS-ready layout, [O] until a real template is obtained), assessment summaries, attendance summaries, finance reports, audit export, KNEC sheets (alias of API-KNE-03).
+Rules: R-EXP-01 Files expire after 24 hours and are served by signed URL. R-EXP-02 Sensitive columns are excluded unless the role allows it and a reason is given; every export is audited. R-EXP-03 Format templates are pluggable (D-09). R-EXP-04 [V] KEMIS is replacing NEMIS and was still being finalised as of September–October 2026, with roughly 13,000 schools flagged for flawed onboarding data; build file-based import/export and validation, and do not depend on a KEMIS API.
+7. Domain events (outbox)
+Events are written to an outbox table in the same transaction as the change (§1) and published by J-11. Consumers must be idempotent on event_id.
+ID
+Event
+Producer
+Consumers
+Key payload
+EV-01
+learner.enrolled
+M4
+M11, M12
+learner_id, class_group_id, year
+EV-02
+assessment.result.saved
+M6
+M7, M14
+result_id, event_id, level_code, version
+EV-03
+assessment.moderated
+M6
+M7, M14
+event_id, class_group_id
+EV-04
+payment.received
+WH-MPESA-02 / API-FIN-05
+J-03
+trans_id or payment_id, amount, bill_ref
+EV-05
+payment.allocated
+M10
+M11, M14
+payment_id, learner_id, receipt_no, balance_after
+EV-06
+invoice.issued
+M10
+M11
+invoice_id, learner_id, total, due_date
+EV-07
+gate.tap.recorded
+M9
+M11
+learner_id, direction, ts, result
+EV-08
+attendance.absent.flagged
+M9
+M11
+learner_id, date
+EV-09
+report.published
+M8
+M11
+report_card_id, revision
+EV-10
+consent.changed
+M12
+M11, M9
+guardian_id, learner_id, purpose, granted
+EV-11
+curriculum.version.published
+M5
+M6, M13
+version_id, effective_from
+EV-12
+message.status.changed
+M11
+M13
+message_id, status
+EV-13
+knec.status.changed
+M7
+M14
+learner_id, area, status
+EV-14
+tenant.status.changed
+M13
+all
+tenant_id, status
+8. Background jobs
+ID
+Job
+Trigger
+Notes
+J-01
+Invoice run
+API-FIN-02
+Chunked, resumable, idempotent per learner and term
+J-02
+Report run (PDF generation)
+API-RPT-02
+Per-learner PDFs plus class bundle; keep files small
+J-03
+M-Pesa allocation worker
+EV-04
+Matching and allocation per R-FIN-05/06
+J-04
+STK status resolver
+timer
+Queries requests with no callback
+J-04b
+Daily M-Pesa reconciliation
+daily
+R-FIN-14
+J-05
+Arrears reminder scheduler
+daily
+Honours frequency cap and consent
+J-06
+Analytics refresh
+nightly, on demand
+R-ANL-01
+J-07
+Sync compaction
+nightly
+Purge old tombstones after all devices have synced past them [A]
+J-08
+Audit partition maintenance
+monthly
+Per-tenant partitions
+J-09
+KNEC deadline reminders
+daily in cycle
+Notifies HEAD and DEPUTY of incomplete cells
+J-10
+Retention and anonymisation
+monthly
+R-CMP-04
+J-11
+Outbox publisher
+continuous
+At-least-once delivery
+J-12
+Export generator
+API-EXP-01
+R-EXP-01
+J-13
+Subscription and suspension check
+daily
+R-PLT-01
+9. External integrations
+ID
+System
+Direction
+What is verified [V]
+Unknown or risk [O]
+X-01
+Safaricom Daraja C2B
+inbound webhooks
+Register URL is one-time in production; validation optional and must be activated by Safaricom; ResponseType controls complete/cancel when validation is unreachable; sample payload shows TransID, BillRefNumber and masked MSISDN
+Exact current payload fields, IP allowlist, response deadlines, per-shortcode registration process (D-02)
+X-02
+Daraja STK Push
+outbound + callback
+Used for parent-initiated payment
+Callback format and timeouts to be checked on live docs
+X-03
+Daraja B2C
+outbound + callback
+Supported for refunds; result and timeout URLs exist
+Business approval and limits
+X-04
+Africa's Talking SMS
+outbound + DLR
+Declared stack [U]
+Sender ID registration, pricing, DLR payload
+X-05
+WhatsApp Business
+outbound + status
+Declared in blueprint [U]
+Provider choice (D-05), template approval lead times
+X-06
+KNEC CBA portal
+manual by head
+Head logs in, downloads tools, captures outcomes per learning area, uploads
+No API found; real upload template unknown (R-KNE-06)
+X-07
+KEMIS / NEMIS
+file import/export
+KEMIS replacing NEMIS; rollout unstable; OTP-protected head actions expected
+No API assumed (D-09); official templates unknown
+X-08
+Object storage
+internal
+—
+Region and residency (D-10); virus scanning of uploads [A]
+10. Non-functional requirements [A unless marked]
+• Webhook availability: the Go ingest gateway is deployed and scaled separately from the main API, writes to durable storage first, and acknowledges quickly; downstream work runs from queues. Payment events must never be lost, including for suspended tenants.
+• Security: TLS everywhere, secrets in a secret manager, argon2id, per-tenant RLS with FORCE, PII redaction in logs, signed URLs for files, rate limits on auth, OTP and public webhooks.
+• Data protection: encryption at rest for sensitive fields (R-G08); backups encrypted; residency decision D-10; consent and audit per R-G05/R-G07.
+• Performance: grading grid under 2 s on 3G (R-ASM-10); parent pages under 30 KB JSON (R-PAR-03); gate tap-to-result under 1.5 s online (R-GATE-07); webhook handler persists and acknowledges without calling external services.
+• Device and network: low-end Android Chrome is the baseline for S2, S3 and S5; installable PWAs; large touch targets (minimum 44 px) in S2 and S5; high-contrast kiosk theme in S5.
+• Accessibility: target WCAG 2.1 AA for S1, S3, S4.
+• Reliability targets: recovery point objective 15 minutes and recovery time objective 4 hours as starting values; daily backup restore test.
+• Observability: structured logs with request_id and tenant_id; metrics for webhook success rate, callback lag, sync backlog, message delivery rates (feeds V-S01 and V-S06).
+• Mandatory automated tests: cross-tenant leak test per tenant table; pooled-connection tenant-context test; webhook idempotency and replay test; payment allocation property tests (sum of allocations equals payment; balances never negative); sync conflict tests (offline edits from two devices); consent-gate tests on every outbound path; role-matrix tests from §2; load test of the webhook path before go-live [U: blueprint's Sprint 1 asks for behaviour under load].
+11. Paper cross-check results and build order
+11.1 Cross-check method and findings
+Method: every view in §5 was checked against the API tables (does each action have an endpoint?) and every endpoint against the view tables (does something call it?). Endpoints with no view by design: API-AUTH-05/06 (infrastructure), all WH-* webhooks, API-GATE-02 (device WebSocket), API-GATE-03 (device replay), J-* jobs.
+The check found these gaps. They are amendments to §5 and §6 and take effect now; the registry count becomes 67 views.
+#
+Gap
+Amendment
+G-01
+API-GATE-05 (assign tags) and API-GATE-07 (gate policy) have no view
+Add V-H26 Gate devices, tags and policy (S1; HEAD, CLERK). Calls API-GATE-04, -05, -07
+G-02
+API-PLT-KNE-01 (national KNEC windows) and calendar templates (API-CAL-04 source) have no maintenance view
+Add V-S09 National reference data (S4; SAAS_ADMIN): KNEC windows, calendar templates, weighting profiles
+G-03
+weighting_profiles are read-only via API-ASM-13; nothing creates them
+Add API-PLT-ASM-01 CRUD /platform/weighting-profiles (SAAS_ADMIN), used by V-S09
+G-04
+Staff invitations (API-STF-02) have no accept endpoint or view
+Add V-A05 Accept invitation and API-AUTH-11 POST /auth/invite/accept
+G-05
+KNEC tracker has no way to mark a learner as not applicable (transferred, absent, SNE exempt)
+Add API-KNE-06 POST /knec/exemptions (HEAD, DEPUTY; reason required), new status NOT_APPLICABLE, used by V-H17
+G-06
+Optional fee services (learner_fee_options) have no API
+Add API-FIN-18 CRUD /learners/:id/fee-options (BURSAR), used by V-B06
+G-07
+Staff cannot reprint a receipt
+Add API-FIN-19 GET /payments/:id/receipt (BURSAR, CLERK), used by V-B04
+G-08
+Parents cannot submit data-subject requests
+Add API-PAR-10 POST /parent/dsr, used by V-P07; feeds API-CMP-05
+G-09
+Head comment on report cards has no endpoint
+Add API-RPT-07 PUT /report-cards/:id/comments (HEAD, class teacher for own comment), used by V-H18 preview
+11.2 Open facts that need a real document before the affected code
+1. KNEC CBA portal manual and upload template (M7).
+2. KEMIS/NEMIS import/export templates (M4, M15).
+3. Live Safaricom Daraja documentation: C2B payload fields, validation activation, IP allowlist, STK and B2C callback formats and timeouts (M10).
+4. KICD curriculum design files, parsed into strands and sub-strands (M5).
+5. KNEC SBA record shape per learning area or sub-strand (M6).
+6. Whether primary report cards show sub-levels; weighting display (D-07).
+7. ODPC data-subject-request and breach-notification timelines, retention periods, and biometric classification (M12, M9).
+8. 2027 school calendar (M3).
+9. Official formats of institution codes, TSC numbers and UPI (M2, M3, M4).
+11.3 Build order (vertical slices)
+Each slice ships working views end to end. Slices respect your original three sprints; Slice 0 and 1 hold the minimum prerequisites that Sprint 1 silently needs (a tenant, users, and learners to match payments against).
+Slice
+Modules
+Views delivered
+Maps to your sprint
+Exit tests
+0 Foundation
+M1, tenant core, RLS harness, audit trigger framework, outbox, i18n scaffolding, design system
+V-A01..V-A05
+prerequisite
+leak tests, pooled-context test, audit append-only test
+1 People and structure
+M2, M3, M4 (APIs first, then wizards)
+V-H02..V-H13
+prerequisite
+role matrix tests, import tests
+2 Money core
+M10 backend and webhooks, then Bursar views; minimal M12 consent and M11 SMS
+V-B01..V-B09, V-H03, V-H20 (basic), V-H21 (basic)
+Sprint 1
+webhook idempotency/replay, allocation properties, load test
+3 Teaching core
+M5, M6, M7; teacher PWA
+V-H14..V-H17, V-T01..V-T04, V-T06, V-S04, V-S09
+Sprint 2
+sync conflict tests, offline e2e on low-end device
+4 Parents and reports
+M8, parent facade, M14, M11 full, M12 full
+V-H18, V-P01..V-P08, V-H01, V-H22, V-H23, V-T07
+Sprint 3
+consent-gate tests, page-weight budget
+5 Attendance and gate
+M9
+V-T05, V-H19, V-H26, V-G01..V-G03
+Sprint 3
+offline kiosk replay, duplicate-tap tests
+6 Platform and hardening
+M13, M15
+V-S01..V-S08, V-H24, V-H25
+after Sprint 3
+impersonation audit tests, load and failover tests
+11.4 How this document feeds the coding phase
+After you review this matrix and resolve §4 decisions plus the §11.1 amendments, the next documents are: (1) an OpenAPI 3.1 file generated from the API tables, (2) SQL migrations from the table lists, (3) a per-view component and wireframe inventory, (4) the test plan from §10, and (5) the agent instruction file for Kilo Code (rules from §0, per-slice task lists with token-sized scopes). Nothing in those documents may contradict this one; changes go here first.
+12. Sources for [V] facts
+Check primary documents (KNEC, KICD, Safaricom, ODPC) before production reliance; several sources below are news coverage or third-party mirrors.
+• Grading and scale: The Star, "KNEC explains new KJSEA grading system" (15 Dec 2025); Education News Hub, "How Grade 9 students were graded by KNEC in KJSEA exam results"; Citizen Digital, "2025 KJSEA: KNEC explains how learners' results were calculated".
+• Weightings: The Star, "KNEC sets July 30 deadline to verify KPSEA, KJSEA assessment scores" (3 Jul 2026); Kenyans.co.ke, same topic; Mwananchi (Nation), "Grade 6 learners to sit multiple choice exams" (20% per grade, five papers); Eastleigh Voice reported the KPSEA split reversed (treated as an outlier).
+• KNEC CBA portal: Education News Hub items on the 2026 Grade 4 and 5 SBA guidelines and the 2026 SBA schedule (tools 28 Sep, upload by 23 Oct); The Kenya Times, "Last chance as KNEC sets new deadline" (portal steps); Kenyans.co.ke, "KNEC to release Grade 4 and 5 assessment results on May 29" (record retention); Education News Hub, "KNEC issues timelines for Grade 3-5, JSS assessment" (PDF and digital tool formats).
+• KEMIS/NEMIS: Education News Hub (go-live announcement for 9 Jan 2026; KEMIS feature article); The Standard, "The KEMIS mess" (5 Sep 2026); Citizen Digital, "Education PS grilled over replacement of NEMIS in school capitation" (27 Aug 2026); Kenyans.co.ke and Capital FM (six-character UPI, 2017); Kenyans.co.ke, "NEMIS: How to register" (four-character institution identifier).
+• Curriculum: People Daily, "Ministry moves to reduce workload for CBC learners" (Dec 2023); Capital FM, "Jogoo House slashes CBC lessons"; KICD upper-primary curriculum designs (lesson allocation tables, Feb 2024 uploads).
+• Calendar and funding: HapaKenya and The Standard (2026 calendar); Dawan Africa, "Government releases capitation funds as schools begin third term" (24 Aug 2026); Education News Hub, capitation increase from KES 1,420 to KES 2,300 for FY2026/27.
+• Data protection: ODPC Guidance Note for the Education Sector (2024) and Guidance Note for Processing Children's Data (adopted 6 Nov 2025); DLA Piper Kenya data-protection overview; a law-firm practitioner summary of ODPC rulings against Nova Pioneer and Friends School Keveye (secondary source).
+• M-Pesa Daraja: Safaricom Daraja C2B documentation (as mirrored by a third-party documentation repository); McTaba Labs, "C2B vs B2C vs B2B on Daraja"; unofficial Daraja wrapper documentation; OpenEduCat Kenya pages (STK Push, C2B, B2C refunds).
+• Market pricing: Mzizi School ERP brochure; a flat-rate Kenyan school-software pricing page. The six vendors named in your brief (EBingwa, SQUL, Zeraki, Gegohub SMS, SkulManager, Cloud School System) were not independently researched; their feature descriptions in your brief are [U].
+13. Decision log (19 Oct 2026)
+D-02 and D-03 are decided and override any earlier wording in §4, R-G14, M2 and M10.
+ID
+Decision
+Effect
+D-02
+Each school has its own M-Pesa paybill, and each school can add more to it
+school_integrations M-Pesa fields are replaced by a school_payment_channels registry: one school, many channels; every shortcode belongs to one school
+D-03
+Finance features for public vs private schools are custom-set by each school
+funding_mode becomes a preset label only; real switches live in school_finance_settings
+Interpretation to confirm: "add more to it" is read as additional payment channels (more paybills, tills or bank accounts) under the same school. If you meant something else, such as extra fee categories on the one paybill, say so and this section changes.
+13.1 Additions this causes
+Item
+Definition
+school_payment_channels
+school_id, channel_type PAYBILL | TILL | BANK, shortcode_or_account, label, environment, is_default, status, reference_format (ADMISSION_NO or ADMISSION_NO+SUFFIX) [A], routed fee categories (optional), secret_refs, channel_token. Shortcode unique across the platform
+school_finance_settings
+tuition_invoicing, optional_services, capitation_tracking, allowed_fee_categories, arrears_reminders, report_withholding (D-04, default off), gate_arrears_denial (D-04, default off), preset label
+channel_id column
+Added to mpesa_transactions, mpesa_stk_requests and payments
+API-TEN-06
+CRUD /school/payment-channels (HEAD): add, edit, disable; secrets write-only; returns C2B registration state per channel. A shortcode change creates a new channel and disables the old one; never edit in place [A]
+API-TEN-07
+GET, PUT /school/finance-settings (HEAD write, BURSAR read); audited; changes affect new invoices only (R-FIN-12)
+API-TEN-03
+Now covers SMS sender ID and WhatsApp settings only
+API-TEN-04
+Now takes a channel_id and registers C2B URLs for that channel; R-TEN-02 (one-time registration) and R-TEN-04 (change needs reason and audit) apply per channel
+V-H03
+Tabs: Payment channels, Finance settings, SMS and WhatsApp. Calls API-TEN-03 to -07
+Webhook URLs
+Each channel gets its own path token: /webhooks/mpesa/c2b/confirm/{channel_token} and .../validate/{channel_token}. If the payload's BusinessShortCode differs from the channel's shortcode, quarantine the event and alert; never process it [A]
+STK Push
+Uses the school's default channel, or the channel routed for the fee category being paid
+Capability gates
+V-H25 and API-CAP-* need capitation_tracking; tuition lines in V-B02/V-B03 need tuition_invoicing; reminders in V-B07 need arrears_reminders
+13.2 Matching rules per channel type
+• PAYBILL: payer types an account number, so R-FIN-03 applies (BillRefNumber = admission number, plus the channel's suffix rule if set).
+• TILL (Buy Goods): as far as I know, a till payer does not enter an account reference, and the payer's phone number arrives masked (R-FIN-03), so automatic matching is not possible. All till payments would land in the reconciliation queue (V-B05). [O] Verify against the live Daraja documentation before offering tills for anything that needs automatic matching; prefer extra paybills for those cases.
+• BANK: no webhook. Recorded through API-FIN-05 with source BANK or imported from a statement CSV (R-FIN-14).
+13.3 Guardrail kept despite school control
+The system warns, and does not block, when a school typed PUBLIC enables tuition-style charges or a fee category outside its allowed list, because the Ministry has warned heads against unauthorised levies [V]. Every switch change is audited and visible to the school head and to the platform audit (V-S08).
+13.4 Decisions still open
+D-01 frontend framework, D-04 fee-arrears gate and report withholding (both default off), D-05 WhatsApp provider, D-06 biometric storage, D-07 sub-levels on report cards, D-08 backdating threshold, D-09 KEMIS file-only stance, D-10 hosting region, D-11 capitation accounting depth.

@@ -1,0 +1,30 @@
+{
+  "name": "SkulApp - Teacher PWA",
+  "short_name": "SkulApp Teacher",
+  "description": "Kenyan primary school teacher PWA for grading, attendance, and offline sync",
+  "start_url": "/teacher/classes",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFFFFF",
+  "theme_color": "#CE1126",
+  "id": "/teacher/",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "productivity"],
+  "lang": "en",
+  "dir": "ltr",
+  "shortcuts": [
+    { "name": "My Classes", "url": "/teacher/classes", "icons": [{ "src": "/vite.svg", "sizes": "any" }] },
+    { "name": "Grading", "url": "/teacher/grading", "icons": [{ "src": "/vite.svg", "sizes": "any" }] },
+    { "name": "Attendance", "url": "/teacher/attendance", "icons": [{ "src": "/vite.svg", "sizes": "any" }] },
+    { "name": "Sync Centre", "url": "/teacher/sync", "icons": [{ "src": "/vite.svg", "sizes": "any" }] }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

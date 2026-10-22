@@ -1,0 +1,5 @@
+"skulapp" "skulapp_dev_change_in_prod"
+"skulapp_reader" "skulapp_reader_change_in_prod"
+"skulapp_writer" "skulapp_writer_change_in_prod"
+"skulapp_migrator" "skulapp_migrator_change_in_prod"
+"skulapp_app" "skulapp_app_change_in_prod"

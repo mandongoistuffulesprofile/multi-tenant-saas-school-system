@@ -1,0 +1,349 @@
+V: Kenyan Primary School Management System (SaaS Architecture Blueprint)
+Production-Grade Event-Driven Architecture Document for Competency-Based Curriculum (CBC) & Local Financial Integrations
+
+1. Executive System Overview & Architectural Strategy
+----------------------------------------------------
+
+This document outlines the system architecture for V, an enterprise-grade,
+high-volume Software-as-a-Service (SaaS) School Management System engineered
+specifically for the Kenyan primary education framework.
+
+Traditional architectures fail in the Kenyan primary school tech market due to
+two highly volatile operational realities:
+1. The M-Pesa Concurrency Problem: Sudden, high-volume transactional spikes
+   hitting payment collection webhooks simultaneously during school reopening weeks.
+2. The End-of-Term Grading Rush: Severe, concurrent write-heavy performance hits
+   on the server infrastructure when thousands of teachers upload continuous
+   assessment rubrics at the same time.
+
+To solve these constraints without driving cloud resource bills past subscription
+profitability metrics, V abandons monolithic synchronous APIs. Instead, it
+utilizes an asynchronous Event-Driven Architecture (EDA) built around a
+microservices pattern, clean data ingestion pipelines, and strict multi-tenant
+row-level data security frameworks.
+
+2. Comprehensive System Architecture Blueprint
+----------------------------------------------
+
+                      +---------------------------------------+
+                      |         Cloud Ingestion Layer         |
+                      |   Go / Gin-Engine Gateway (Lean API)  |
+                      +-------------------+-------------------+
+                                          |
+                        Publish Event     v     Asynchronous Pipe
+                      +---------------------------------------+
+                      |          Apache Kafka Broker          |
+                      |  Topics: mpesa.payments | cbc.grading |
+                      +-------------------+-------------------+
+                                          |
+            +-----------------------------+-----------------------------+
+            | Push Event Messages                                       | Push Event Messages
+            v                                                           v
++---------------------------------------+                   +---------------------------------------+
+|        Financial Microservice         |                   |          Academic Microservice        |
+|    Java / Spring Boot Ledger Engine   |                   |     Go Worker / Rule Processing Core  |
++-------------------+-------------------+                   +-------------------+-------------------+
+                    |                                                           |
+                    | Write Transaction Logs                                    | Write Evaluation Records
+                    +-----------------------------+-----------------------------+
+                                                  |
+                                                  v Batch Database Commits
+                                    +---------------------------+
+                                    |     The Multi-Tenant DB   |
+                                    |   PostgreSQL Engine + RLS |
+                                    +---------------------------+
+
+2.1 The Cloud Ingestion Layer (Go Engine)
+-----------------------------------------
+
+* Technology Choice: Go (Golang) using the Gin web framework.
+* Role: Acts as an ultra-fast, stateless HTTP proxy. It exposes public endpoints
+  for third-party webhooks (e.g., Safaricom Daraja C2B APIs) and teacher-facing
+  Progressive Web Apps (PWAs).
+* Execution Metric: Accepts JSON payloads, enforces structural validations,
+  pipes the request straight into an internal memory queue or Kafka topic within
+  microseconds, and returns an instant 200 OK or 202 Accepted status back to
+  the client. This protects upstream senders from connection timeouts.
+
+2.2 The Message Broker Architecture (Apache Kafka)
+--------------------------------------------------
+
+* Role: Decouples core database transaction locks from direct network connections.
+* Core Channels:
+  * payment.mpesa.received: High-priority partition topic streaming inbound payment verification files.
+  * assessment.cbc.bulk_submit: Compacted data stream queuing classroom competency vectors.
+
+2.3 Microservice Processing Core (Java / Spring Boot)
+-----------------------------------------------------
+
+* Technology Choice: Java / Spring Boot (for the Financial Domain Service).
+* Role: Consumes messages asynchronously from Kafka topics. It encapsulates
+  sophisticated enterprise domain behaviors—such as ledger balance allocation math,
+  historical change tracking via Hibernate, and background accounting reporting.
+
+2.4 Multi-Tenant Data Storage Core (PostgreSQL)
+-----------------------------------------------
+
+* Technology Choice: PostgreSQL configured with strict Row-Level Security (RLS).
+* Role: Holds the application's global operational state. By embedding a global
+  tenant_id column across every logical database model, data isolation is enforced
+  at the database driver layer rather than relying on application code filters.
+
+3. CBC Academic Engine & Data Schema Specs
+------------------------------------------
+
+Primary schools in Kenya operate entirely within the Competency-Based Curriculum
+(CBC) framework defined by the Kenya Institute of Curriculum Development (KICD).
+Traditional numerical averages (0-100%) are replaced by multi-tiered relational
+hierarchies evaluated across categorical performance descriptors.
+
+3.1 The KICD Primary Framework Schema Hierarchy
+-----------------------------------------------
+
+Your persistence design must enforce a rigid four-stage hierarchy to accurately
+trace learner outcomes through Early Years Education (EYE) and Primary Grades 1–6:
+1. Learning Area (Subject): e.g., Mathematics, Agriculture & Nutrition, Creative Arts.
+2. Strand (Theme): e.g., Numbers, Environmental Conservation.
+3. Sub-Strand (Topic): e.g., Fractions, Soil Preparation.
+4. Specific Learning Outcome: The isolated competency point assigned for evaluation.
+
+3.2 Performance Descriptor Matrix
+---------------------------------
+
+Continuous school-based evaluations must be persisted into database layers using
+a 4-point Likert scale structure. The system maps text tokens to numeric scales
+internally for analytical data processing:
+
+  Performance Label | System Token Abbreviation | Integer DB Mapping | Interpretation Framework
+  Exceeding Expectation | EE | 4 | Learner outperforms the baseline criteria independently.
+  Meeting Expectation   | ME | 3 | Learner meets all competency benchmarks accurately.
+  Approaching Expectation | AE | 2 | Learner demonstrates capability with teacher prompt/assistance.
+  Below Expectation     | BE | 1 | Learner requires deep remedial intervention pathways.
+
+3.3 The KPSEA Composite Mathematical Evaluation Framework
+---------------------------------------------------------
+
+National profiling at the conclusion of Grade 6 (Kenya Primary School Education
+Assessment - KPSEA) demands a composite formula. The score combines continuous
+internal school assessments across Grades 4, 5, and 6 alongside the final
+national summative exam.
+
+The system's analytical evaluation service calculates composite performance
+matrices using the following mathematical distribution:
+
+  Final Primary Composite Score =
+    (Grade 4 SBA × 0.20) + (Grade 5 SBA × 0.20) +
+    (Grade 6 SBA × 0.20) + (KPSEA Exam × 0.40)
+
+4. Production-Grade Event Specifications & Implementation Code
+--------------------------------------------------------------
+
+4.1 Financial Ledger Splitter Engine (Java / Spring Boot)
+
+This transaction worker processes payment items from Safaricom's Daraja platform
+without risking race conditions or timing timeouts.
+
+Event Payload Definition (payment.mpesa.received):
+{
+  "event_id": "evt_fee_983427109238",
+  "event_type": "payment.mpesa.received",
+  "timestamp": "2026-10-18T23:51:00Z",
+  "tenant_id": "school_nairobi_academy_001",
+  "payload": {
+    "transaction_id": "SRE45FT67X",
+    "amount": 15000.00,
+    "phone_number": "254712345678",
+    "bill_reference": "ADM-2024-8932",
+    "raw_callback_data": {
+      "MerchantRequestID": "29123-456711-2",
+      "CheckoutRequestID": "ws_CO_18102026235100"
+    }
+  }
+}
+
+Spring Boot Worker Code Implementation:
+
+package com.schoolsystem.finance.workers;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.Map;
+
+@Service
+public class FeeAllocationWorker {
+
+    private final StudentLedgerRepository ledgerRepository;
+    private final KafkaEventPublisher eventPublisher;
+
+    public FeeAllocationWorker(StudentLedgerRepository lr, KafkaEventPublisher ep) {
+        this.ledgerRepository = lr;
+        this.eventPublisher = ep;
+    }
+
+    @Transactional
+    public void processPaymentEvent(String rawJsonEvent) {
+        try {
+            // 1. Parse Inbound JSON Payload
+            Map<String, Object> event = new ObjectMapper().readValue(rawJsonEvent, Map.class);
+            Map<String, Object> payload = (Map<String, Object>) event.get("payload");
+
+            String tenantId = (String) event.get("tenant_id");
+            String admissionNumber = (String) payload.get("bill_reference");
+            Double remainingFunds = (Double) payload.get("amount");
+
+            // 2. Fetch Active Arrears Sorted by Strict Allocation Priority (Tuition -> Meals -> Transport)
+            var outstandingInvoices = ledgerRepository.findOutstandingBalances(tenantId, admissionNumber);
+
+            for (var invoiceItem : outstandingInvoices) {
+                if (remainingFunds <= 0) break;
+
+                Double currentOwed = invoiceItem.getAmountOwed();
+                Double allocation = Math.min(remainingFunds, currentOwed);
+
+                invoiceItem.setAmountOwed(currentOwed - allocation);
+                invoiceItem.setAmountPaid(invoiceItem.getAmountPaid() + allocation);
+                ledgerRepository.save(invoiceItem);
+
+                remainingFunds -= allocation;
+            }
+
+            // 3. Emit Downstream Confirmed Event for Async Notifications (WhatsApp/SMS)
+            String confirmationEvent = String.format(
+                "{"tenant_id":"%s","student":"%s","status":"SUCCESS"}",
+                tenantId, admissionNumber
+            );
+            eventPublisher.publish("fee-allocation-confirmed", confirmationEvent);
+
+        } catch (Exception e) {
+            // Route failure profiles immediately to a Dead Letter Queue (DLQ) to maintain financial audit paths
+            eventPublisher.publish("fee-allocation-failed-dlq", rawJsonEvent);
+        }
+    }
+}
+
+4.2 High-Speed Assessment Ingestion Router (Go)
+
+This service functions as the high-speed gateway that processes incoming data streams
+when an entire class submits grade sheets at the end of a school term.
+
+Event Payload Definition (assessment.cbc.bulk_submit):
+{
+  "event_id": "evt_grad_1102938475",
+  "event_type": "assessment.cbc.bulk_submit",
+  "timestamp": "2026-10-18T23:51:00Z",
+  "tenant_id": "school_nairobi_academy_001",
+  "payload": {
+    "teacher_id": "tch_kamau_453",
+    "learning_area_id": "la_math_g4",
+    "sub_strand_id": "sub_fractions_02",
+    "evaluations": [
+      { "student_id": "std_8932", "score_code": "EE" },
+      { "student_id": "std_8933", "score_code": "ME" }
+    ]
+  }
+}
+
+Go High-Speed Route Ingest Implementation:
+
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+)
+
+type CBCEvaluation struct {
+	StudentID string `json:"student_id"`
+	ScoreCode string `json:"score_code"`
+}
+
+type CBCAssessmentPayload struct {
+	EventID     string          `json:"event_id"`
+	EventType   string          `json:"event_type"`
+	Timestamp   time.Time       `json:"timestamp"`
+	TenantID    string          `json:"tenant_id"`
+	SubStrandID string          `json:"sub_strand_id"`
+	Evaluations []CBCEvaluation `json:"evaluations"`
+}
+
+// Memory Ring Buffer acting as an internal asynchronous high-speed execution pipeline
+var EventStreamBroker = make(chan CBCAssessmentPayload, 50000)
+
+func HandleBulkAssessmentSubmission(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload CBCAssessmentPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid Structural Layout", http.StatusBadRequest)
+		return
+	}
+
+	payload.EventID = "evt_internal_gen_" + time.Now().Format("20060102150405")
+	payload.Timestamp = time.Now()
+
+	// Push event asynchronously into broker pipeline.
+	// This immediately unblocks the teacher's browser connection layer.
+	EventStreamBroker <- payload
+
+	w.WriteHeader(http.StatusAccepted)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"queued","message":"Evaluation array buffered successfully"}`))
+}
+
+5. PostgreSQL Performance & Persistence Optimization
+----------------------------------------------------
+
+To update thousands of data points at the end of a term without overwhelming the
+file system, your backend consumer must avoid individual row inserts or sequential
+read-checks.
+
+Use PostgreSQL Upsert compilation loops combined with multi-row batch data binding.
+This approach updates records in a single database transaction:
+
+-- Ensure a unique composite constraint is set on the target entity matrix beforehand:
+-- ALTER TABLE student_cbc_assessments ADD CONSTRAINT unique_student_strand_idx UNIQUE (tenant_id, student_id, sub_strand_id);
+
+INSERT INTO student_cbc_assessments (tenant_id, student_id, sub_strand_id, score_code, updated_at)
+VALUES 
+  ('tenant_01', 'std_8932', 'sub_fractions_02', 'EE', NOW()),
+  ('tenant_01', 'std_8933', 'sub_fractions_02', 'ME', NOW()),
+  ('tenant_01', 'std_8934', 'sub_fractions_02', 'BE', NOW())
+ON CONFLICT (tenant_id, student_id, sub_strand_id)
+DO UPDATE SET
+  score_code = EXCLUDED.score_code,
+  updated_at = NOW();
+
+6. Critical Security & Infrastructure Architecture Realities
+------------------------------------------------------------
+
+6.1 Row-Level Security (RLS) Enforcement
+-----------------------------------------
+
+To run a safe SaaS platform where multiple schools share database infrastructure
+without data leaks, execute the following configuration on your tables:
+
+-- Enable Row Level Security explicitly on the target table space
+ALTER TABLE student_cbc_assessments ENABLE ROW LEVEL SECURITY;
+
+-- Construct an evaluation isolation security filter policy
+CREATE POLICY school_tenant_isolation_policy ON student_cbc_assessments
+    FOR ALL
+    USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+Before executing any transaction statement from your connection pool, your database
+abstract layer must run: SET LOCAL app.current_tenant_id = 'school_nairobi_academy_001';
+PostgreSQL will then drop any database records that don't match the active context.
+
+6.2 Low-Connectivity Failover Strategy (PWA Data Caching)
+----------------------------------------------------------
+
+Many primary schools face unstable internet access. The front-end application
+should use an Offline-First PWA storage pattern.
+* When a teacher logs in, the active data definitions (student rosters, sub-strand trees) are pulled and saved to the device's local browser storage (IndexedDB via PouchDB/RxDB).
+* Evaluation matrices are recorded locally when internet connection is lost.
+* A background system service worker monitors connection states. When internet access is restored, it securely packages the updates and uploads them to the Go ingestion routing layer using the assessment.cbc.bulk_submit pipeline structure.

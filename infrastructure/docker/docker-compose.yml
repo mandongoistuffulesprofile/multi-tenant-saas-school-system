@@ -1,0 +1,76 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: skulapp-postgres
+    environment:
+      POSTGRES_DB: skulapp
+      POSTGRES_USER: skulapp
+      POSTGRES_PASSWORD: skulapp_dev_change_in_prod
+    # No host port mapping in production: app reaches Postgres via PgBouncer.
+    # Kept mapped in dev only for direct psql/ops access; firewall to internal network in prod.
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skulapp -d skulapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    command: ["postgres", "-c", "max_connections=200", "-c", "log_statement=all", "-c", "log_min_duration_statement=500", "-c", "log_connections=on", "-c", "log_disconnections=on", "-c", "log_duration=on"]
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer:1.22
+    container_name: skulapp-pgbouncer
+    ports:
+      - "6432:6432"
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: skulapp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: skulapp-api
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://skulapp_app:skulapp_app_change_in_prod@pgbouncer:6432/skulapp?sslmode=disable
+      - REDIS_URL=redis://redis:6379
+      - JWT_SIGNING_KEY=dev-signing-key-change-in-production
+      - ENCRYPTION_KEY=dev-encryption-key-change-in-production-32chars
+      - APP_ENV=development
+      - PORT=8080
+      - DB_MAX_OPEN_CONNS=20
+      - DB_MAX_IDLE_CONNS=8
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
