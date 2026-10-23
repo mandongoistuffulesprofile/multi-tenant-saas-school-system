@@ -150,9 +150,9 @@ export default function App() {
             <Route path="/platform" element={guard(SCHOOL_ADMIN_ROLES, <PlatformPage />)} />
 
             {/* Presentation pages kept from the executive demo */}
-            <Route path="/fees" element={<Navigate to="/finance/invoices" replace />} />)} />
+            <Route path="/fees" element={<Navigate to="/finance/invoices" replace />} />
             <Route path="/cbc-assessment" element={guard(ACADEMIC_ROLES, <CBCAssessment />)} />
-            <Route path="/students" element={<Navigate to="/learners" replace />} />)} />
+            <Route path="/students" element={<Navigate to="/learners" replace />} />
             <Route path="/bom-oversight" element={guard(SCHOOL_ADMIN_ROLES, <BOMOversight />)} />
           </Route>
 
