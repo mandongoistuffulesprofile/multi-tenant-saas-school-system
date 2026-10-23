@@ -59,6 +59,18 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
+        <a href="/learners" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">
+          ➕ Add Learner
+        </a>
+        <a href="/finance/invoices" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">
+          💳 Generate Invoice
+        </a>
+        <a href="/teacher/attendance" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">
+          📝 Attendance Register
+        </a>
+      </div>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-display">{t("dashboard")}</h1>

@@ -6,6 +6,15 @@ import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
 export default function AcademicCalendarPage() {
+  const handleAddTerm = async (yearId: string, name: string) => {
+    try {
+      await api.post("/calendar/terms", { academic_year_id: yearId, term_name: name });
+      alert("Academic term added!");
+    } catch {
+      alert("Failed to create term");
+    }
+  };
+
   const [years, setYears] = useState<any[]>([]);
   const [terms, setTerms] = useState<any[]>([]);
   const [windows, setWindows] = useState<any[]>([]);

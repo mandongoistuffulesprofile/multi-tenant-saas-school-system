@@ -9,6 +9,15 @@ import DataTable from "../components/organisms/DataTable";
 import { Learner } from "../lib/types";
 
 export default function GradesStreamsPage() {
+  const handleCreateStream = async (gradeId: string, name: string) => {
+    try {
+      await api.post("/structure/streams", { grade_id: gradeId, name });
+      alert("Stream added successfully!");
+    } catch {
+      alert("Failed to add stream");
+    }
+  };
+
   const { t } = useTranslation();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [learners, setLearners] = useState<Learner[]>([]);
