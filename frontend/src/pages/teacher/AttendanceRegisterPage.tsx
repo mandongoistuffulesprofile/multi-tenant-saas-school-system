@@ -146,7 +146,14 @@ export default function AttendanceRegisterPage() {
       </Card>
 
       <div className="p-4">
-        <Button variant="primary" fullWidth onClick={() => {}}>
+        <Button variant="primary" fullWidth onClick={async () => {
+          if (!selected) return;
+          try {
+            const entries = Object.entries(marks).map(([learner_id, mark]) => ({ learner_id, mark }));
+            await api.post("/attendance/marks/batch", { register_id: selected.register_id, marks: entries });
+            alert("Attendance saved successfully!");
+          } catch (e) { alert("Failed to save attendance"); }
+        }}>
           {t("teacher.save_register", { defaultMessage: "Save Register" })}
         </Button>
       </div>

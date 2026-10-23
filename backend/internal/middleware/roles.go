@@ -11,6 +11,8 @@ package middleware
 // The groups below express what each family of operations requires so route
 // registration reads as policy rather than a list of strings.
 const (
+	RoleSaasAdmin   = "SAAS_ADMIN"
+	RoleSuperAdmin  = "SUPER_ADMIN"
 	RoleSchoolAdmin = "SCHOOL_ADMIN"
 	RoleHead        = "HEAD"
 	RoleDeputy      = "DEPUTY"
@@ -48,3 +50,7 @@ var RolePortalUsers = []string{RoleParent, RoleGuardian}
 var RoleAllStaff = []string{
 	RoleSchoolAdmin, RoleHead, RoleDeputy, RoleBursar, RoleClerk, RoleTeacher,
 }
+
+
+// RolePlatformAdministrators manage SaaS root operations, subscriptions and tenant onboarding.
+var RolePlatformAdministrators = []string{RoleSaasAdmin, RoleSuperAdmin}

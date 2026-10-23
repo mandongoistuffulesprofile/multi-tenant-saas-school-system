@@ -110,7 +110,7 @@ export default function StaffPage() {
               className="input-field"
               placeholder="TSC number"
               value={form.subjects ? "" : ""}
-              readOnly
+              
             />
           </div>
           <div className="flex justify-end gap-2 pt-4">

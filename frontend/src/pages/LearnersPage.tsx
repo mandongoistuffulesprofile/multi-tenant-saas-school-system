@@ -28,10 +28,12 @@ export default function LearnersPage() {
   const [learners, setLearners] = useState<Learner[]>([]);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<LearnerCreateRequest>({
+  const [form, setForm] = useState<any>({
     admission_number: "", upi_nemis_number: "", first_name: "", middle_name: "",
     last_name: "", date_of_birth: "", gender: "", status: "ACTIVE", admitted_on: "",
-    boarding_type: "DAY",
+    boarding_type: "DAY", grade_label: "Grade 1", stream_name: "East",
+    guardian_name: "", guardian_phone: "", guardian_email: "", guardian_relationship: "PARENT",
+    fee_category: "TUITION", fee_agreed: true
   });
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
@@ -63,12 +65,25 @@ export default function LearnersPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    api.post("/learners", form)
+    const payload = {
+      ...form,
+      guardians: form.guardian_phone ? [{
+        full_name: form.guardian_name || `${form.last_name} Guardian`,
+        phone_number: form.guardian_phone,
+        email: form.guardian_email,
+        relationship: form.guardian_relationship,
+        is_emergency_contact: true
+      }] : []
+    };
+    api.post("/learners", payload)
       .then(() => {
-        setOpen(false); setStep(0);
+        setOpen(false);
+        setStep(0);
         api.get<Learner[]>("/learners").then((r) => setLearners(Array.isArray(r.data) ? r.data : []));
       })
-      .catch(() => {})
+      .catch((err) => {
+        alert(err.response?.data?.message || "Failed to create learner");
+      })
       .finally(() => setSaving(false));
   };
 
@@ -186,10 +201,10 @@ export default function LearnersPage() {
               <div className="text-caption text-muted">{t("wizard.step_guardian")}</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label={t("guardian_phone")} required>
-                  <Input required type="tel" value="" onChange={() => {}} placeholder="07XXXXXXXX" />
+                  <Input required type="tel"  placeholder="07XXXXXXXX" />
                 </FormField>
                 <FormField label={t("guardian_email")}>
-                  <Input type="email" value="" onChange={() => {}} placeholder="guardian@example.ke" />
+                  <Input type="email"  placeholder="guardian@example.ke" />
                 </FormField>
               </div>
               <div className="flex justify-end pt-4">
