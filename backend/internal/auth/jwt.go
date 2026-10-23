@@ -11,10 +11,21 @@ import (
 // ErrInvalidToken is returned for malformed or unverifiable access tokens.
 var ErrInvalidToken = errors.New("invalid access token")
 
+const (
+	// TokenIssuer and TokenAudience bind a token to this service. Changing
+	// either invalidates every outstanding token, which is intentional.
+	TokenIssuer   = "skulapp"
+	TokenAudience = "skulapp-api"
+
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
+)
+
 type Claims struct {
-	UserID   string   `json:"user_id"`
-	TenantID string   `json:"tenant_id,omitempty"`
-	Roles    []string `json:"roles"`
+	UserID    string   `json:"user_id"`
+	TenantID  string   `json:"tenant_id,omitempty"`
+	Roles     []string `json:"roles"`
+	TokenType string   `json:"token_type,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -38,14 +49,20 @@ func NewJWTManager(signingKey string, accessTTL, refreshTTL time.Duration) *JWTM
 	}
 }
 
+// RefreshTTL is the lifetime of refresh tokens issued by this manager.
+func (jm *JWTManager) RefreshTTL() time.Duration { return jm.refreshTTL }
+
 func (jm *JWTManager) GenerateTokenPair(userID, tenantID string, roles []string) (*TokenPair, error) {
 	now := time.Now()
 
 	accessClaims := &Claims{
-		UserID:   userID,
-		TenantID: tenantID,
-		Roles:    roles,
+		UserID:    userID,
+		TenantID:  tenantID,
+		Roles:     roles,
+		TokenType: TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    TokenIssuer,
+			Audience:  jwt.ClaimStrings{TokenAudience},
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(jm.accessTTL)),
@@ -60,8 +77,12 @@ func (jm *JWTManager) GenerateTokenPair(userID, tenantID string, roles []string)
 	}
 
 	refreshClaims := &Claims{
-		UserID: userID,
+		UserID:    userID,
+		TenantID:  tenantID,
+		TokenType: TokenTypeRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    TokenIssuer,
+			Audience:  jwt.ClaimStrings{TokenAudience},
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(jm.refreshTTL)),
@@ -85,7 +106,12 @@ func (jm *JWTManager) GenerateTokenPair(userID, tenantID string, roles []string)
 func (jm *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return jm.signingKey, nil
-	})
+	},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithIssuer(TokenIssuer),
+		jwt.WithAudience(TokenAudience),
+		jwt.WithLeeway(60*time.Second),
+	)
 	if err != nil {
 		return nil, err
 	}

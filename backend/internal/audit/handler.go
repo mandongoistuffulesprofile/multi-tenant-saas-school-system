@@ -2,8 +2,10 @@ package audit
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Handler struct {
@@ -17,43 +19,23 @@ func NewHandler(service *Service) *Handler {
 // GetAuditLog returns recent audit events for the authenticated tenant.
 // Route: GET /audit/logs
 func (h *Handler) GetAuditLog(c *gin.Context) {
-	limit := 100
+	tenantID := c.GetString(middleware.ContextTenantID)
+	if tenantID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "TENANT_REQUIRED", "message": "Tenant context is required"})
+		return
+	}
 
-	rows, err := h.service.db.Query(
-		`SELECT id, user_id, event, ip, user_agent, request_id, created_at
-	       FROM audit_log ORDER BY created_at DESC LIMIT $1`,
-		limit,
-	)
+	limit := 100
+	if raw := c.Query("limit"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	logs, err := h.service.ListRecent(c.Request.Context(), tenantID, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load audit log"})
 		return
 	}
-	defer rows.Close()
-
-	type AuditRow struct {
-		ID        string `json:"id"`
-		UserID    string `json:"user_id,omitempty"`
-		Event     string `json:"event"`
-		IP        string `json:"ip,omitempty"`
-		UserAgent string `json:"user_agent,omitempty"`
-		RequestID string `json:"request_id,omitempty"`
-		CreatedAt string `json:"created_at"`
-	}
-
-	var logs []AuditRow
-	for rows.Next() {
-		var row AuditRow
-		if err := rows.Scan(&row.ID, &row.UserID, &row.Event, &row.IP, &row.UserAgent, &row.RequestID, &row.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to scan audit log"})
-			return
-		}
-		logs = append(logs, row)
-	}
-	if logs == nil {
-		logs = []AuditRow{}
-	}
-
 	c.JSON(http.StatusOK, gin.H{"audit_log": logs})
 }
-
-var _ = http.StatusOK

@@ -18,6 +18,7 @@ type OutboxEvent struct {
 	TenantID      string                 `json:"tenant_id"`
 	Status        string                 `json:"status"`
 	CreatedAt     time.Time              `json:"created_at"`
+	AttemptCount  int                    `json:"attempt_count"`
 }
 
 type Service struct {
