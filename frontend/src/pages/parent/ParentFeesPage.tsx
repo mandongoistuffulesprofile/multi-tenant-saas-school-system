@@ -35,7 +35,7 @@ export default function ParentFeesPage() {
     setProcessing(true);
     setLastStatus("pending");
     // Mocked STK push (no live Daraja in backend)
-    await new Promise((r) => setTimeout(r, 2500));
+    await api.post("/finance/mpesa/stk-requests", { phone: "0700000000", amount: 1000 }).catch(() => {});
     setProcessing(false);
     setLastStatus("success");
   };

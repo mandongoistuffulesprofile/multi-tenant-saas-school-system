@@ -36,7 +36,7 @@ export default function ParentConsentsPage() {
             { key: "purpose", header: t("purpose") },
             { key: "granted", header: t("status"), render: (row: any) => <BadgeVariant row={row} /> },
             { key: "date", header: t("updated_at") },
-            { key: "action" as keyof Consent, header: t("action"), render: () => <></> },
+            { key: "action" as keyof Consent, header: t("action"), render: (row: any) => (<button type="button" onClick={() => toggleConsent(row.id || row.notice_id)} className="px-3 py-1 text-xs font-semibold rounded-full bg-kenyan-green/10 text-kenyan-green border border-kenyan-green/30 hover:bg-kenyan-green/20">Toggle</button>) },
           ]}
           emptyMessage={t("no_consents", { defaultMessage: "No consents" })}
           keyField="id"
