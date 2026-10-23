@@ -1,3 +1,4 @@
+import { api } from "../../lib/api";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";
@@ -16,7 +17,7 @@ export default function ImpersonationPage() {
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
     setProcessing(true);
-    await new Promise((r) => setTimeout(r, 1000));
+    await api.post("/platform/impersonations", { tenant_id: selectedTenant, reason: "Administrative audit" });
     setProcessing(false);
     setActive(true);
   };

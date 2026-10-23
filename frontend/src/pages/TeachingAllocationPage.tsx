@@ -9,6 +9,15 @@ import DataTable from "../components/organisms/DataTable";
 import { LearningArea } from "../lib/types";
 
 export default function TeachingAllocationPage() {
+  const handleSaveAllocation = async (allocations: any) => {
+    try {
+      await api.post("/structure/teaching-allocations", allocations);
+      alert("Teaching allocations saved to database!");
+    } catch {
+      alert("Failed to save allocation");
+    }
+  };
+
   const { t } = useTranslation();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [areas, setAreas] = useState<LearningArea[]>([]);

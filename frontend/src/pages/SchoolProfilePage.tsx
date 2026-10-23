@@ -4,6 +4,15 @@ import { api } from "../lib/api";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
 export default function SchoolProfilePage() {
+  const handleSaveProfile = async (updates: any) => {
+    try {
+      await api.patch("/school", updates);
+      alert("School profile saved successfully!");
+    } catch {
+      alert("Failed to update school profile");
+    }
+  };
+
   const [school, setSchool] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();

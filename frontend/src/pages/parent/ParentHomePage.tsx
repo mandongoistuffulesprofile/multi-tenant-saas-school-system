@@ -49,7 +49,7 @@ export default function ParentHomePage() {
             </div>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" size="sm" fullWidth>{t("view")}</Button>
-              <Button variant="primary" size="sm" fullWidth>{t("parent.pay_fees", { defaultMessage: "Pay Fees" })}</Button>
+              <Button variant="primary" size="sm" fullWidth>{t("parent.pay_fees", { defaultMessage: <a href="/parent/fees" className="btn-primary text-xs px-3 py-1.5 rounded-lg">Pay Fees</a> })}</Button>
             </div>
           </Card>
         ))}
