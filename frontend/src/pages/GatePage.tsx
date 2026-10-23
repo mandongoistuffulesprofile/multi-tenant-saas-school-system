@@ -1,1 +1,0 @@
-// Gate functionality removed.

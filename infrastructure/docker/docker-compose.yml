@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: school_postgres
     restart: always
     environment:
@@ -13,21 +13,48 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ../../migrations:/docker-entrypoint-initdb.d:ro
+      # The official image only executes shell/SQL files directly inside
+      # initdb.d, so a wrapper applies the slice directories in order.
+      - ../../migrations:/migrations:ro
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-school_admin} -d ${POSTGRES_DB:-school_system}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: school_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   backend:
     build:
       context: ../../backend
-      dockerfile: ../infrastructure/docker/Dockerfile.backend
+      dockerfile: Dockerfile
     container_name: school_api
     restart: on-failure
     environment:
-      DATABASE_URL: postgres://school_admin:dev_secret_password@postgres:5432/school_system?sslmode=disable
+      APP_ENV: development
+      DATABASE_URL: postgres://${POSTGRES_USER:-school_admin}:${POSTGRES_PASSWORD:-dev_secret_password}@postgres:5432/${POSTGRES_DB:-school_system}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-dev-signing-key-change-in-production-min-32-chars}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-encryption-key-32-chars-long}
       PORT: 8080
     ports:
       - "8080:8080"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   pgdata:

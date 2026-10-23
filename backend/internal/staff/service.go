@@ -8,9 +8,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"golang.org/x/crypto/argon2"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 )
 
 type Service struct {
@@ -143,8 +143,8 @@ func (h *Handler) CreateStaff(c *gin.Context) {
 
 	if err == sql.ErrNoRows {
 		// Create new user with invite-only status; password set on first login
-	inviteHash, err := hashInviteToken()
-	if err != nil {
+		inviteHash, err := hashInviteToken()
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "SERVER_ERROR", "message": "Failed to generate invite hash"})
 			return
 		}

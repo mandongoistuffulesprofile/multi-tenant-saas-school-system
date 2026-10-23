@@ -1,133 +1,220 @@
-import React, { useState } from 'react';
-import { EnterpriseRBACNavigation, UserRole } from './components/EnterpriseRBACNavigation';
-import { PWAOfflineSyncBanner } from './components/PWAOfflineSyncBanner';
-import { QuickPinStaffroomModal } from './components/QuickPinStaffroomModal';
-import { FeesDesk } from './pages/FeesDesk';
-import { CBCAssessment } from './pages/CBCAssessment';
-import { StudentsDesk } from './pages/StudentsDesk';
-import { BOMOversight } from './pages/BOMOversight';
-import { ReportCardPrint } from './pages/ReportCardPrint';
-import { SaaSAdminDesk } from './pages/SaaSAdminDesk';
-import { Language, translations } from './utils/i18n';
+import React from "react";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { isTokenValid, useAuthStore } from "./lib/authStore";
+import {
+  ACADEMIC_ROLES,
+  ADMIN_ROLES,
+  FINANCE_ROLES,
+  SCHOOL_ADMIN_ROLES,
+  Role,
+} from "./lib/roles";
+import Layout from "./components/organisms/Layout";
+import ParentLayout from "./components/organisms/ParentLayout";
+import TeacherLayout from "./components/organisms/TeacherLayout";
+import SaaSLayout from "./components/organisms/SaaSLayout";
+import RequireRole from "./components/RequireRole";
+import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
 
-export const App: React.FC = () => {
-  const [currentRole, setCurrentRole] = useState<UserRole>('SUPER_ADMIN');
-  const [activePath, setActivePath] = useState<string>('/saas-admin');
-  const [lang, setLang] = useState<Language>('sw');
-  const [isScreenLocked, setIsScreenLocked] = useState<boolean>(false);
+import LoginPage from "./pages/LoginPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import DashboardPage from "./pages/DashboardPage";
+import SchoolPickerPage from "./pages/SchoolPickerPage";
+import SchoolProfilePage from "./pages/SchoolProfilePage";
+import IntegrationsPage from "./pages/IntegrationsPage";
+import AcademicCalendarPage from "./pages/AcademicCalendarPage";
+import StaffPage from "./pages/StaffPage";
+import LearnersPage from "./pages/LearnersPage";
+import GradesStreamsPage from "./pages/GradesStreamsPage";
+import TeachingAllocationPage from "./pages/TeachingAllocationPage";
+import CurriculumPage from "./pages/CurriculumPage";
+import AssessmentPage from "./pages/AssessmentPage";
+import AttendancePage from "./pages/AttendancePage";
+import ReportsPage from "./pages/ReportsPage";
+import KnecPage from "./pages/KnecPage";
+import CommsPage from "./pages/CommsPage";
+import CommsComposePage from "./pages/CommsComposePage";
+import CompliancePage from "./pages/CompliancePage";
+import BreachRegisterPage from "./pages/BreachRegisterPage";
+import ConsentNoticesPage from "./pages/ConsentNoticesPage";
+import DsrRequestsPage from "./pages/DsrRequestsPage";
+import FinanceFeeCategoriesPage from "./pages/FinanceFeeCategoriesPage";
+import FinanceFeeStructuresPage from "./pages/FinanceFeeStructuresPage";
+import FinanceInvoicesPage from "./pages/FinanceInvoicesPage";
+import FinancePaymentsPage from "./pages/FinancePaymentsPage";
+import FinanceMpesaPage from "./pages/FinanceMpesaPage";
+import FinanceReconciliationPage from "./pages/FinanceReconciliationPage";
+import FinanceCreditsPage from "./pages/FinanceCreditsPage";
+import FinanceAdjustmentsPage from "./pages/FinanceAdjustmentsPage";
+import FinanceRefundsPage from "./pages/FinanceRefundsPage";
+import PlatformPage from "./pages/PlatformPage";
+import ProfilePage from "./pages/ProfilePage";
 
-  const t = translations[lang];
+import ParentHomePage from "./pages/parent/ParentHomePage";
+import ParentActivatePage from "./pages/parent/ParentActivatePage";
+import ParentForgotPage from "./pages/parent/ParentForgotPage";
+import ParentAttendancePage from "./pages/parent/ParentAttendancePage";
+import ParentConsentsPage from "./pages/parent/ParentConsentsPage";
+import ParentFeesPage from "./pages/parent/ParentFeesPage";
+import ParentNoticesPage from "./pages/parent/ParentNoticesPage";
+import ParentProgressPage from "./pages/parent/ParentProgressPage";
+import ParentReceiptsPage from "./pages/parent/ParentReceiptsPage";
 
-  const renderActiveView = () => {
-    switch (activePath) {
-      case '/saas-admin':
-        return <SaaSAdminDesk />;
-      case '/fees':
-        return <FeesDesk />;
-      case '/cbc-assessment':
-        return <CBCAssessment />;
-      case '/students':
-        return <StudentsDesk />;
-      case '/bom-oversight':
-        return <BOMOversight />;
-      case '/reports':
-        return <ReportCardPrint />;
-      default:
-        return currentRole === 'SUPER_ADMIN' ? <SaaSAdminDesk /> : <FeesDesk />;
-    }
-  };
+import MyClassesPage from "./pages/teacher/MyClassesPage";
+import GradingGridPage from "./pages/teacher/GradingGridPage";
+import AttendanceRegisterPage from "./pages/teacher/AttendanceRegisterPage";
+import ClassProgressPage from "./pages/teacher/ClassProgressPage";
+import EvidenceCapturePage from "./pages/teacher/EvidenceCapturePage";
+import LearnerRemarksPage from "./pages/teacher/LearnerRemarksPage";
+import SyncCentrePage from "./pages/teacher/SyncCentrePage";
 
-  const handleRoleChange = (role: UserRole) => {
-    setCurrentRole(role);
-    if (role === 'SUPER_ADMIN') {
-      setActivePath('/saas-admin');
-    } else if (activePath === '/saas-admin') {
-      setActivePath('/fees');
-    }
-  };
+import OperationsCentrePage from "./pages/saas/OperationsCentrePage";
+import TenantRegistryPage from "./pages/saas/TenantRegistryPage";
+import TenantOnboardingPage from "./pages/saas/TenantOnboardingPage";
+import CurriculumConfiguratorPage from "./pages/saas/CurriculumConfiguratorPage";
+import SubscriptionsPage from "./pages/saas/SubscriptionsPage";
+import IntegrationHealthPage from "./pages/saas/IntegrationHealthPage";
+import ImpersonationPage from "./pages/saas/ImpersonationPage";
+import PlatformAuditPage from "./pages/saas/PlatformAuditPage";
 
+/* Demo-ready presentation pages (self-contained, no API required). */
+import FeesDesk from "./pages/FeesDesk";
+import { CBCAssessment } from "./pages/CBCAssessment";
+import { StudentsDesk } from "./pages/StudentsDesk";
+import { BOMOversight } from "./pages/BOMOversight";
+import { SaaSAdminDesk } from "./pages/SaaSAdminDesk";
+
+/** Requires a non-expired access token. */
+function Protected() {
+  const token = useAuthStore((state) => state.token);
+  if (!isTokenValid(token)) {
+    return <Navigate to="/login" replace />;
+  }
+  return <Outlet />;
+}
+
+/** Wraps a page in a role check. */
+function guard(roles: string[], element: React.ReactNode) {
+  return <RequireRole roles={roles}>{element}</RequireRole>;
+}
+
+const SAAS_ROLES = ["SAAS_ADMIN", "SUPER_ADMIN"];
+const PARENT_ROLES: string[] = [Role.Parent, Role.Guardian];
+
+export default function App() {
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
-      <PWAOfflineSyncBanner pendingCount={0} />
+    <>
+      <PWAOfflineSyncBanner />
+      <Routes>
+        {/* Public */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/parent/activate" element={<ParentActivatePage />} />
+        <Route path="/parent/forgot" element={<ParentForgotPage />} />
 
-      <EnterpriseRBACNavigation
-        currentRole={currentRole}
-        currentPath={activePath}
-        schoolName="MANDONGOI COMPREHENSIVE SCHOOL"
-        onNavigate={(path) => setActivePath(path)}
-      />
+        {/* Authenticated */}
+        <Route element={<Protected />}>
+          <Route path="/select-school" element={<SchoolPickerPage />} />
 
-      {/* Executive Demo Bar */}
-      <div className="bg-slate-900 border-b border-slate-800 text-white px-4 py-2 flex flex-wrap items-center justify-between text-xs print:hidden gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400 font-medium">Jukumu (Role):</span>
-          {(['SUPER_ADMIN', 'HEADTEACHER', 'BURSAR', 'TEACHER', 'BOM_MEMBER'] as UserRole[]).map((role) => (
-            <button
-              key={role}
-              onClick={() => handleRoleChange(role)}
-              className={`px-2.5 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
-                currentRole === role ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              {role === 'SUPER_ADMIN' ? '★ SAAS OWNER' : role}
-            </button>
-          ))}
-        </div>
+          <Route element={<Layout />}>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/school" element={guard(SCHOOL_ADMIN_ROLES, <SchoolProfilePage />)} />
+            <Route path="/integrations" element={guard(SCHOOL_ADMIN_ROLES, <IntegrationsPage />)} />
+            <Route path="/calendar" element={guard(ADMIN_ROLES, <AcademicCalendarPage />)} />
+            <Route path="/staff" element={guard(ADMIN_ROLES, <StaffPage />)} />
+            <Route path="/learners" element={guard(ACADEMIC_ROLES, <LearnersPage />)} />
+            <Route path="/grades-streams" element={guard(SCHOOL_ADMIN_ROLES, <GradesStreamsPage />)} />
+            <Route path="/teaching-allocation" element={guard(SCHOOL_ADMIN_ROLES, <TeachingAllocationPage />)} />
+            <Route path="/curriculum" element={guard(ACADEMIC_ROLES, <CurriculumPage />)} />
+            <Route path="/assessment" element={guard(ACADEMIC_ROLES, <AssessmentPage />)} />
+            <Route path="/attendance" element={guard(ACADEMIC_ROLES, <AttendancePage />)} />
+            <Route path="/reports" element={guard(ACADEMIC_ROLES, <ReportsPage />)} />
+            <Route path="/knec" element={guard(SCHOOL_ADMIN_ROLES, <KnecPage />)} />
+            <Route path="/comms" element={guard(ADMIN_ROLES, <CommsPage />)} />
+            <Route path="/comms/compose" element={guard(ADMIN_ROLES, <CommsComposePage />)} />
+            <Route path="/compliance" element={guard(SCHOOL_ADMIN_ROLES, <CompliancePage />)} />
+            <Route path="/compliance/breach-register" element={guard(SCHOOL_ADMIN_ROLES, <BreachRegisterPage />)} />
+            <Route path="/compliance/consent-notices" element={guard(SCHOOL_ADMIN_ROLES, <ConsentNoticesPage />)} />
+            <Route path="/compliance/dsr-requests" element={guard(SCHOOL_ADMIN_ROLES, <DsrRequestsPage />)} />
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsScreenLocked(true)}
-            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 rounded text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+            <Route path="/finance/fee-categories" element={guard(FINANCE_ROLES, <FinanceFeeCategoriesPage />)} />
+            <Route path="/finance/fee-structures" element={guard(FINANCE_ROLES, <FinanceFeeStructuresPage />)} />
+            <Route path="/finance/invoices" element={guard(FINANCE_ROLES, <FinanceInvoicesPage />)} />
+            <Route path="/finance/payments" element={guard(FINANCE_ROLES, <FinancePaymentsPage />)} />
+            <Route path="/finance/mpesa" element={guard(FINANCE_ROLES, <FinanceMpesaPage />)} />
+            <Route path="/finance/reconciliation" element={guard(FINANCE_ROLES, <FinanceReconciliationPage />)} />
+            <Route path="/finance/credits" element={guard(FINANCE_ROLES, <FinanceCreditsPage />)} />
+            <Route path="/finance/adjustments" element={guard(FINANCE_ROLES, <FinanceAdjustmentsPage />)} />
+            <Route path="/finance/refunds" element={guard(FINANCE_ROLES, <FinanceRefundsPage />)} />
+            <Route path="/platform" element={guard(SCHOOL_ADMIN_ROLES, <PlatformPage />)} />
+
+            {/* Presentation pages kept from the executive demo */}
+            <Route path="/fees" element={guard(FINANCE_ROLES, <FeesDesk />)} />
+            <Route path="/cbc-assessment" element={guard(ACADEMIC_ROLES, <CBCAssessment />)} />
+            <Route path="/students" element={guard(ACADEMIC_ROLES, <StudentsDesk />)} />
+            <Route path="/bom-oversight" element={guard(SCHOOL_ADMIN_ROLES, <BOMOversight />)} />
+          </Route>
+
+          {/* Parent portal */}
+          <Route
+            element={guard(
+              PARENT_ROLES,
+              <ParentLayout>
+                <Outlet />
+              </ParentLayout>,
+            )}
           >
-            <span>🔒 Funga Skrini</span>
-          </button>
+            <Route path="/parent" element={<ParentHomePage />} />
+            <Route path="/parent/attendance" element={<ParentAttendancePage />} />
+            <Route path="/parent/consents" element={<ParentConsentsPage />} />
+            <Route path="/parent/fees" element={<ParentFeesPage />} />
+            <Route path="/parent/notices" element={<ParentNoticesPage />} />
+            <Route path="/parent/progress" element={<ParentProgressPage />} />
+            <Route path="/parent/receipts" element={<ParentReceiptsPage />} />
+          </Route>
 
-          <div className="flex items-center bg-slate-800 rounded p-0.5 border border-slate-700">
-            <button
-              onClick={() => setLang('sw')}
-              className={`px-2 py-0.5 text-[11px] font-bold rounded cursor-pointer ${
-                lang === 'sw' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              🇰🇪 Kiswahili
-            </button>
-            <button
-              onClick={() => setLang('en')}
-              className={`px-2 py-0.5 text-[11px] font-bold rounded cursor-pointer ${
-                lang === 'en' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              🇬🇧 English
-            </button>
-          </div>
-
-          <button
-            onClick={() => setActivePath('/reports')}
-            className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded text-[11px] shadow cursor-pointer"
+          {/* Teacher workspace */}
+          <Route
+            element={guard(
+              ACADEMIC_ROLES,
+              <TeacherLayout>
+                <Outlet />
+              </TeacherLayout>,
+            )}
           >
-            {t.nav_reports}
-          </button>
-        </div>
-      </div>
+            <Route path="/teacher/classes" element={<MyClassesPage />} />
+            <Route path="/teacher/grading" element={<GradingGridPage />} />
+            <Route path="/teacher/attendance" element={<AttendanceRegisterPage />} />
+            <Route path="/teacher/progress" element={<ClassProgressPage />} />
+            <Route path="/teacher/evidence" element={<EvidenceCapturePage />} />
+            <Route path="/teacher/remarks" element={<LearnerRemarksPage />} />
+            <Route path="/teacher/sync" element={<SyncCentrePage />} />
+          </Route>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {renderActiveView()}
-      </main>
+          {/* Platform owner console */}
+          <Route
+            element={guard(
+              SAAS_ROLES,
+              <SaaSLayout>
+                <Outlet />
+              </SaaSLayout>,
+            )}
+          >
+            <Route path="/saas-admin" element={<SaaSAdminDesk />} />
+            <Route path="/platform/tenants" element={<TenantRegistryPage />} />
+            <Route path="/platform/onboard" element={<TenantOnboardingPage />} />
+            <Route path="/platform/curriculum" element={<CurriculumConfiguratorPage />} />
+            <Route path="/platform/subscriptions" element={<SubscriptionsPage />} />
+            <Route path="/platform/integrations" element={<IntegrationHealthPage />} />
+            <Route path="/platform/impersonate" element={<ImpersonationPage />} />
+            <Route path="/platform/audit" element={<PlatformAuditPage />} />
+            <Route path="/platform/operations" element={<OperationsCentrePage />} />
+          </Route>
+        </Route>
 
-      <QuickPinStaffroomModal
-        isOpen={isScreenLocked}
-        currentUser={`${currentRole}`}
-        onUnlock={(pin) => {
-          if (pin === '1234') {
-            setIsScreenLocked(false);
-            return true;
-          }
-          return false;
-        }}
-        onSwitchUser={() => setIsScreenLocked(false)}
-      />
-    </div>
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </>
   );
-};
-
-export default App;
+}

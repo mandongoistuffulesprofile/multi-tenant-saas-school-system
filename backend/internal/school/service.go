@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
 // GetSchoolResponse is the JSON-safe response shape — sql.NullString fields
@@ -115,20 +115,20 @@ func (s *Service) GetSchool(tenantID string) (*GetSchoolResponse, error) {
 }
 
 var updatableSchoolFields = map[string]struct{}{
-	"school_name":      {},
-	"subdomain":        {},
-	"school_type":      {},
-	"funding_mode":     {},
-	"county":           {},
-	"sub_county":       {},
-	"address":          {},
-	"logo_ref":         {},
-	"stamp_ref":        {},
+	"school_name":        {},
+	"subdomain":          {},
+	"school_type":        {},
+	"funding_mode":       {},
+	"county":             {},
+	"sub_county":         {},
+	"address":            {},
+	"logo_ref":           {},
+	"stamp_ref":          {},
 	"head_signature_ref": {},
-	"default_locale":   {},
-	"hosts_junior":     {},
-	"license_tier":     {},
-	"status":           {},
+	"default_locale":     {},
+	"hosts_junior":       {},
+	"license_tier":       {},
+	"status":             {},
 }
 
 func (s *Service) UpdateSchool(tenantID string, updates map[string]interface{}) (*GetSchoolResponse, error) {
@@ -169,12 +169,12 @@ func (s *Service) UpdateSchool(tenantID string, updates map[string]interface{}) 
 	}
 
 	return &GetSchoolResponse{
-		TenantID:      tid,
-		SchoolName:    schoolName,
-		Subdomain:     subdomain,
-		SchoolType:    schoolType,
-		FundingMode:   fundingMode,
-		Status:        status,
+		TenantID:    tid,
+		SchoolName:  schoolName,
+		Subdomain:   subdomain,
+		SchoolType:  schoolType,
+		FundingMode: fundingMode,
+		Status:      status,
 	}, nil
 }
 
