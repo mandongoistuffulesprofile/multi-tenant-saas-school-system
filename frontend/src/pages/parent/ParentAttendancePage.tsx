@@ -1,3 +1,4 @@
+import { api } from "../../lib/api";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";

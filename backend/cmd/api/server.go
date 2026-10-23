@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/assessment"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/attendance"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/calendar"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/comms"
@@ -23,6 +27,8 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/knec"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/learner"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/mpesa"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/outbox"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/platform"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/reports"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/school"
@@ -32,6 +38,8 @@ import (
 )
 
 func Run() error {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -64,6 +72,9 @@ func Run() error {
 		auth.SetDevSMSSender()
 		log.Printf("OTP delivery: stdout logger (development only)")
 	}
+
+	auditService := audit.NewService(database)
+	auditHandler := audit.NewHandler(auditService)
 
 	schoolService := school.NewService(database)
 	schoolHandler := school.NewHandler(schoolService)
@@ -110,9 +121,61 @@ func Run() error {
 	syncService := sync.NewService(database)
 	syncHandler := sync.NewHandler(syncService)
 
-	router := gin.Default()
+	// M-Pesa: the callback writes to a durable inbox; a background worker
+	// allocates the payment. The worker is cancelled during shutdown.
+	if cfg.AppEnv == "production" && os.Getenv("MPESA_WEBHOOK_TOKEN") == "" {
+		return fmt.Errorf("MPESA_WEBHOOK_TOKEN must be set in production")
+	}
+	mpesaService := mpesa.NewService(database)
+	mpesaCtx, stopMpesa := context.WithCancel(context.Background())
+	defer stopMpesa()
+	go mpesaService.StartWorker(mpesaCtx, 15*time.Second)
+
+	// Outbox worker. Consumers are introduced per event type; until a consumer
+	// exists the event is logged and acknowledged so the queue cannot grow
+	// without bound. Add real handlers here (receipt SMS, projections, ...).
+	outboxService := outbox.NewService(database)
+	go outboxService.StartWorker(mpesaCtx, 10*time.Second, func(ctx context.Context, event outbox.OutboxEvent) error {
+		slog.Info("outbox_event", "event_type", event.EventType, "aggregate_type", event.AggregateType,
+			"aggregate_id", event.AggregateID, "tenant_id", event.TenantID)
+		return nil
+	})
+
+	router := gin.New()
+	router.Use(gin.Recovery())
 	router.Use(middleware.RequestIDMiddleware())
+	router.Use(middleware.RequestLogger())
+	router.Use(middleware.MetricsMiddleware())
+	router.Use(middleware.SecurityHeaders())
+	router.Use(middleware.CORS(os.Getenv("CORS_ALLOWED_ORIGIN")))
+	router.Use(middleware.BodyLimit(2 << 20))
 	router.Use(middleware.TenantContextMiddleware(jwtManager, database))
+
+	// Broad per-tenant (or per-IP for anonymous) safety valve. Expensive route
+	// groups may add stricter limits later; this prevents one tenant or client
+	// from exhausting the API.
+	tenantLimiter := middleware.NewRedisRateLimiter(redisClient.Client, "rl:tenant", 600, time.Minute)
+	tenantLimit := middleware.RedisRateLimitMiddleware(tenantLimiter, func(c *gin.Context) string {
+		if tenant := c.GetString(middleware.ContextTenantID); tenant != "" {
+			return tenant
+		}
+		return "ip:" + c.ClientIP()
+	})
+	router.Use(func(c *gin.Context) {
+		// Probes and provider callbacks must not depend on Redis. The webhook
+		// has its own token check, and a Redis outage must not make the service
+		// look dead or drop M-Pesa callbacks.
+		path := c.Request.URL.Path
+		if path == "/health" || path == "/health/ready" || path == "/metrics" || strings.HasPrefix(path, "/webhooks/") {
+			c.Next()
+			return
+		}
+		tenantLimit(c)
+	})
+
+	// Public Safaricom callback. Authentication is the shared webhook token,
+	// not a user JWT; it must stay outside the authenticated groups.
+	router.POST("/webhooks/mpesa/c2b", mpesaService.HandleC2B)
 
 	apiV1 := router.Group("/api/v1")
 
@@ -156,6 +219,8 @@ func Run() error {
 		schoolGroup.GET("/finance-settings", schoolHandler.GetFinanceSettings)
 		schoolGroup.PUT("/finance-settings", middleware.RequireRole(middleware.RoleFinanceStaff...), schoolHandler.UpdateFinanceSettings)
 	}
+
+	apiV1.GET("/audit/logs", middleware.RequireAuth(), middleware.RequireRole(middleware.RoleSchoolAdministrators...), auditHandler.GetAuditLog)
 
 	// Calendar routes
 	calGroup := apiV1.Group("/calendar")
@@ -306,7 +371,7 @@ func Run() error {
 	{
 		reportsGroup.GET("/templates", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportTemplates)
 		reportsGroup.GET("/runs", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportRuns)
-		reportsGroup.GET("/cards", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportCards)
+		reportsGroup.GET("/cards", middleware.RequireRole(append(middleware.RoleAcademicStaff, middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.ListReportCards)
 		reportsGroup.GET("/cards/:card_id", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.GetReportCard)
 		reportsGroup.GET("/cards/:card_id/comments", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportCardComments)
 
@@ -403,32 +468,32 @@ func Run() error {
 	platformGroup := apiV1.Group("/platform")
 	platformGroup.Use(middleware.RequireAuth())
 	{
-		platformGroup.GET("/plans", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.ListPlans)
-		platformGroup.GET("/subscriptions", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.ListSubscriptions)
-		platformGroup.GET("/invoices", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.ListPlatformInvoices)
-		platformGroup.GET("/usage", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.ListTenantUsage)
-		platformGroup.GET("/exports", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.ListExports)
+		platformGroup.GET("/plans", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListPlans)
+		platformGroup.GET("/subscriptions", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListSubscriptions)
+		platformGroup.GET("/invoices", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListPlatformInvoices)
+		platformGroup.GET("/usage", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListTenantUsage)
+		platformGroup.GET("/exports", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListExports)
 
 		// Write side — tenant registry, billing, reference data and exports
-		platformGroup.GET("/tenants", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.ListTenants)
-		platformGroup.POST("/tenants", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.CreateTenant)
-		platformGroup.PATCH("/tenants/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.UpdateTenant)
-		platformGroup.PUT("/tenants/:id/status", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.SetTenantStatus)
-		platformGroup.GET("/impersonations", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.ListImpersonations)
-		platformGroup.POST("/impersonations", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.CreateImpersonation)
-		platformGroup.POST("/impersonations/:id/end", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.EndImpersonation)
-		platformGroup.POST("/plans", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.CreatePlan)
-		platformGroup.PATCH("/plans/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.UpdatePlan)
-		platformGroup.POST("/subscriptions", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.UpsertSubscription)
-		platformGroup.POST("/exports", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.CreateExport)
-		platformGroup.GET("/exports/templates", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.ExportTemplates)
-		platformGroup.POST("/curriculum/versions", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.CreateCurriculumVersion)
-		platformGroup.POST("/curriculum/versions/:version_id/publish", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.PublishCurriculumVersion)
+		platformGroup.GET("/tenants", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListTenants)
+		platformGroup.POST("/tenants", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateTenant)
+		platformGroup.PATCH("/tenants/:id", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpdateTenant)
+		platformGroup.PUT("/tenants/:id/status", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.SetTenantStatus)
+		platformGroup.GET("/impersonations", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListImpersonations)
+		platformGroup.POST("/impersonations", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateImpersonation)
+		platformGroup.POST("/impersonations/:id/end", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.EndImpersonation)
+		platformGroup.POST("/plans", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreatePlan)
+		platformGroup.PATCH("/plans/:id", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpdatePlan)
+		platformGroup.POST("/subscriptions", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpsertSubscription)
+		platformGroup.POST("/exports", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateExport)
+		platformGroup.GET("/exports/templates", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ExportTemplates)
+		platformGroup.POST("/curriculum/versions", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateCurriculumVersion)
+		platformGroup.POST("/curriculum/versions/:version_id/publish", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.PublishCurriculumVersion)
 		platformGroup.GET("/weighting-profiles", middleware.RequireRole(middleware.RoleAcademicStaff...), platformHandler.ListWeightingProfiles)
-		platformGroup.POST("/weighting-profiles", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.CreateWeightingProfile)
-		platformGroup.PATCH("/weighting-profiles/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.UpdateWeightingProfile)
-		platformGroup.POST("/knec/tools", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.CreateKNECTool)
-		platformGroup.PATCH("/knec/tools/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), platformHandler.UpdateKNECTool)
+		platformGroup.POST("/weighting-profiles", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateWeightingProfile)
+		platformGroup.PATCH("/weighting-profiles/:id", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpdateWeightingProfile)
+		platformGroup.POST("/knec/tools", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateKNECTool)
+		platformGroup.PATCH("/knec/tools/:id", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpdateKNECTool)
 	}
 
 	// Structure routes — grades, streams, class groups and teaching assignments.
@@ -462,21 +527,37 @@ func Run() error {
 
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "healthy",
+			"version": os.Getenv("APP_VERSION"),
+		})
 	})
 
-	// Readiness check - verifies DB dependency
+	// Prometheus-format counters. Protect with METRICS_TOKEN in production or
+	// block /metrics at the reverse proxy.
+	router.GET("/metrics", middleware.MetricsHandler())
+
+	// Readiness check - verifies DB and Redis dependencies
 	router.GET("/health/ready", func(c *gin.Context) {
 		if err := database.DB.PingContext(c); err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unready", "dependency": "database", "error": "database unreachable"})
+			return
+		}
+		if err := redisClient.Client.Ping(c.Request.Context()).Err(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unready", "dependency": "redis", "error": "redis unreachable"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ready"})
 	})
 
 	server := &http.Server{
-		Addr:    ":" + cfg.Port,
-		Handler: router,
+		Addr:              ":" + cfg.Port,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
@@ -487,10 +568,11 @@ func Run() error {
 	}()
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
 	log.Println("Shutting down server...")
+	stopMpesa()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

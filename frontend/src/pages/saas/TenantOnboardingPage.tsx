@@ -4,43 +4,78 @@ import Card from "../../components/atoms/Card";
 import Input from "../../components/atoms/Input";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
+import { api } from "../../lib/api";
 
 export default function TenantOnboardingPage() {
   const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const [processing, setProcessing] = useState(false);
-  const [form, setForm] = useState({ school_name: "", subdomain: "", county: "", admin_email: "", admin_phone: "", plan: "STANDARD" });
+  const [error, setError] = useState<string | null>(null);
+  const [createdTenant, setCreatedTenant] = useState<any>(null);
+  const [form, setForm] = useState({
+    school_name: "",
+    subdomain: "",
+    county: "",
+    admin_email: "",
+    admin_phone: "",
+    plan: "STANDARD",
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setProcessing(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    setProcessing(false);
-    setStep(2);
+    setError(null);
+    try {
+      const res = await api.post("/platform/tenants", {
+        school_name: form.school_name,
+        subdomain: form.subdomain.toLowerCase().trim(),
+        county: form.county,
+        admin_email: form.admin_email.trim(),
+        admin_phone: form.admin_phone.trim(),
+        plan: form.plan,
+      });
+      setCreatedTenant(res.data);
+      setStep(2);
+    } catch (err: any) {
+      setError(err.response?.data?.message || t("errors.failed_to_create_tenant", { defaultMessage: "Failed to create tenant" }));
+    } finally {
+      setProcessing(false);
+    }
   };
 
   if (step === 2) {
     return (
-      <ViewState state="content" message={t("saas.tenant_created", { defaultMessage: "Tenant created successfully" })} />
+      <div className="p-4 space-y-4">
+        <ViewState state="content" message={t("saas.tenant_created", { defaultMessage: "Tenant created successfully!" })} />
+        <Card className="p-6 max-w-lg mx-auto text-center space-y-3">
+          <p className="font-semibold text-lg text-kenyan-green">School Provisioned</p>
+          <p className="text-sm text-gray-600">Subdomain: <code className="bg-gray-100 px-2 py-1 rounded">{form.subdomain}</code></p>
+          <p className="text-sm text-gray-600">Admin: <span className="font-medium">{form.admin_email}</span></p>
+          <Button variant="primary" onClick={() => { setStep(0); setForm({ school_name: "", subdomain: "", county: "", admin_email: "", admin_phone: "", plan: "STANDARD" }); }}>
+            {t("saas.onboard_another", { defaultMessage: "Onboard Another Tenant" })}
+          </Button>
+        </Card>
+      </div>
     );
   }
 
   const steps = [
     { title: t("saas.school_details", { defaultMessage: "School Details" }), fields: [
-      { label: t("school_name"), key: "school_name" },
-      { label: t("subdomain"), key: "subdomain" },
-      { label: t("county"), key: "county" },
+      { label: t("school_name", { defaultMessage: "School Name" }), key: "school_name" },
+      { label: t("subdomain", { defaultMessage: "Subdomain" }), key: "subdomain" },
+      { label: t("county", { defaultMessage: "County" }), key: "county" },
     ] },
     { title: t("saas.admin_user", { defaultMessage: "Admin User" }), fields: [
-      { label: t("email"), key: "admin_email" },
-      { label: t("phone"), key: "admin_phone" },
-      { label: t("saas.plan"), key: "plan" },
+      { label: t("email", { defaultMessage: "Admin Email" }), key: "admin_email" },
+      { label: t("phone", { defaultMessage: "Admin Phone" }), key: "admin_phone" },
+      { label: t("saas.plan", { defaultMessage: "Plan" }), key: "plan" },
     ] },
   ];
 
   return (
     <div className="p-4 space-y-6">
       <h1 className="text-display font-display">{t("saas.onboard")}</h1>
+      {error && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">{error}</div>}
       <div className="flex gap-2 mb-6">
         {steps.map((s, i) => (
           <div key={i} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
@@ -55,18 +90,22 @@ export default function TenantOnboardingPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {steps[step].fields.map((f) => (
             <div key={f.key}>
-              <label className="label block">{f.label}</label>
-              <Input value={form[f.key as keyof typeof form]} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [f.key]: e.target.value })} />
+              <label className="label block mb-1">{f.label}</label>
+              <Input
+                value={form[f.key as keyof typeof form]}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [f.key]: e.target.value })}
+                required
+              />
             </div>
           ))}
           {step === 0 && (
             <div className="flex justify-end">
-              <Button variant="primary" onClick={() => setStep(1)}>{t("next")} →</Button>
+              <Button variant="primary" type="button" onClick={() => setStep(1)}>{t("next")} →</Button>
             </div>
           )}
           {step === 1 && (
             <div className="flex justify-between">
-              <Button variant="secondary" onClick={() => setStep(0)}>← {t("back")}</Button>
+              <Button variant="secondary" type="button" onClick={() => setStep(0)}>← {t("back")}</Button>
               <Button variant="primary" type="submit" loading={processing}>{t("saas.create_tenant")}</Button>
             </div>
           )}

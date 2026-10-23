@@ -12,7 +12,7 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { path: "/platform", labelKey: "saas.operations", icon: "📊" },
+  { path: "/platform/operations", labelKey: "saas.operations", icon: "📊" },
   { path: "/platform/tenants", labelKey: "saas.tenants", icon: "🏫" },
   { path: "/platform/onboard", labelKey: "saas.onboard", icon: "➕" },
   { path: "/platform/curriculum", labelKey: "saas.curriculum", icon: "📚" },
@@ -40,6 +40,12 @@ export default function SaaSLayout({ children }: SaaSLayoutProps) {
         </div>
         <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
           <Badge variant="default" className="text-xs">{t("online", { defaultMessage: "Online" })}</Badge>
+          <button
+            onClick={() => { localStorage.clear(); window.location.href = "/login"; }}
+            className="ml-3 text-xs text-gray-500 hover:text-kenyan-red font-medium transition"
+          >
+            {t("sign_out", { defaultMessage: "Sign Out" })}
+          </button>
         </div>
       </header>
 

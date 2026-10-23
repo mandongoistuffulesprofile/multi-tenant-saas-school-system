@@ -28,6 +28,7 @@ const SIDEBAR_ITEMS = [
   { path: "/attendance", label: "attendance", roles: ["SCHOOL_ADMIN", "TEACHER"] },
   { path: "/knec", label: "knec", roles: ["SCHOOL_ADMIN"] },
   { path: "/platform", label: "platform", roles: ["SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
+  { path: "/saas-admin", label: "saas_admin", roles: ["SAAS_ADMIN", "SUPER_ADMIN"] },
   { path: "/parent", label: "parent_portal", roles: ["PARENT", "GUARDIAN"] },
   { path: "/profile", label: "profile", roles: ["SCHOOL_ADMIN", "TEACHER", "PARENT", "GUARDIAN"] },
 ] as const;

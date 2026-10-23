@@ -33,7 +33,7 @@ export default function StaffPage() {
     setSaving(true);
     api.post("/staff", form)
       .then(() => { setOpen(false); api.get<StaffRow[]>("/staff").then((r) => setStaff(Array.isArray(r.data) ? r.data : [])); })
-      .catch(() => {})
+      .catch((err) => { alert(err.response?.data?.message || "Failed to save staff"); })
       .finally(() => setSaving(false));
   };
 
@@ -110,7 +110,7 @@ export default function StaffPage() {
               className="input-field"
               placeholder="TSC number"
               value={form.subjects ? "" : ""}
-              readOnly
+              
             />
           </div>
           <div className="flex justify-end gap-2 pt-4">

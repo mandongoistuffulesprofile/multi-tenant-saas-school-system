@@ -1,147 +1,307 @@
+// Package mpesa ingests Safaricom Daraja callbacks.
+//
+// The callback path is deliberately dumb: validate, resolve the tenant, write
+// one row to mpesa_raw_inbox, return 200. Allocation to invoices happens in a
+// worker. This keeps Safaricom's timeout budget (and its retries) away from
+// business logic, and makes every callback replayable.
 package mpesa
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/database"
+	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 )
 
-// C2BCallbackPayload represents the inbound Safaricom C2B confirmation JSON
+// C2BCallbackPayload is the Safaricom C2B confirmation body.
 type C2BCallbackPayload struct {
 	TransactionType   string  `json:"TransactionType"`
 	TransID           string  `json:"TransID"`
 	TransTime         string  `json:"TransTime"`
 	TransAmount       float64 `json:"TransAmount,string"`
 	BusinessShortCode string  `json:"BusinessShortCode"`
-	BillRefNumber     string  `json:"BillRefNumber"` // Student Admission Number
+	BillRefNumber     string  `json:"BillRefNumber"`
 	MSISDN            string  `json:"MSISDN"`
 	FirstName         string  `json:"FirstName"`
 }
 
-type DarajaService struct {
-	dbPool *pgxpool.Pool
+type Service struct {
+	database *db.DB
 }
 
-func NewDarajaService(pool *pgxpool.Pool) *DarajaService {
-	return &DarajaService{dbPool: pool}
+func NewService(database *db.DB) *Service {
+	return &Service{database: database}
 }
 
-// HandleValidation responds immediately to Safaricom C2B validation queries
-func (s *DarajaService) HandleValidation(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"ResultCode": 0, "ResultDesc": "Accepted"}`))
-}
+// HandleC2B is the public callback. It must never require a JWT: Safaricom
+// cannot present one. A shared token (and optional IP allowlist) is the
+// compensating control.
+func (s *Service) HandleC2B(c *gin.Context) {
+	if c.Request.Method != http.MethodPost {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"ResultCode": 1, "ResultDesc": "Method not allowed"})
+		return
+	}
 
-// HandleConfirmation processes payment, deduplicates by TransID, and auto-allocates to invoices
-func (s *DarajaService) HandleConfirmation(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !s.authorised(c) {
+		c.JSON(http.StatusUnauthorized, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
 		return
 	}
 
 	var payload C2BCallbackPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
+	if err := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)).Decode(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ResultCode": 1, "ResultDesc": "Invalid payload"})
+		return
+	}
+	if payload.TransID == "" || payload.BusinessShortCode == "" || payload.TransAmount <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"ResultCode": 1, "ResultDesc": "Missing TransID, BusinessShortCode or amount"})
 		return
 	}
 
-	defer func() {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"ResultCode": 0, "ResultDesc": "Confirmation processed"}`))
-	}()
-
-	if s.dbPool == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	var studentID, tenantID uuid.UUID
-	err := s.dbPool.QueryRow(ctx, `
-		SELECT id, tenant_id FROM students WHERE UPPER(admission_number) = UPPER($1) LIMIT 1
-	`, payload.BillRefNumber).Scan(&studentID, &tenantID)
-
+	tenantID, err := s.resolveTenant(c.Request.Context(), payload.BusinessShortCode)
 	if err != nil {
+		// Unknown shortcode: accept and park it for manual review rather than
+		// making Safaricom retry forever.
+		log.Printf("mpesa: unknown shortcode %s for trans %s: %v", payload.BusinessShortCode, payload.TransID, err)
+		c.JSON(http.StatusOK, gin.H{"ResultCode": 0, "ResultDesc": "Accepted for review"})
 		return
 	}
 
-	_ = database.RunInTenantTx(ctx, s.dbPool, tenantID, func(tx pgx.Tx) error {
-		rawJSON, _ := json.Marshal(payload)
-
-		var paymentID uuid.UUID
-		err := tx.QueryRow(ctx, `
-			INSERT INTO payments (tenant_id, student_id, mpesa_trans_id, payment_method, amount, phone_number, raw_payload)
-			VALUES ($1, $2, $3, 'MPESA', $4, $5, $6)
-			ON CONFLICT (mpesa_trans_id) DO NOTHING
-			RETURNING id
-		`, tenantID, studentID, payload.TransID, payload.TransAmount, payload.MSISDN, rawJSON).Scan(&paymentID)
-
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("failed to insert payment: %w", err)
-		}
-
-		rows, err := tx.Query(ctx, `
-			SELECT i.id, i.total_amount, COALESCE(SUM(fa.allocated_amount), 0) AS total_allocated
-			FROM invoices i
-			LEFT JOIN fee_allocations fa ON i.id = fa.invoice_id
-			WHERE i.tenant_id = $1 AND i.student_id = $2
-			GROUP BY i.id, i.total_amount, i.invoice_date
-			HAVING COALESCE(SUM(fa.allocated_amount), 0) < i.total_amount
-			ORDER BY i.invoice_date ASC
-		`, tenantID, studentID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		remainingAmount := payload.TransAmount
-
-		type InvBal struct {
-			ID      uuid.UUID
-			Balance float64
-		}
-		var invoicesToPay []InvBal
-
-		for rows.Next() {
-			var invID uuid.UUID
-			var totalAmt, allocAmt float64
-			if err := rows.Scan(&invID, &totalAmt, &allocAmt); err == nil {
-				invoicesToPay = append(invoicesToPay, InvBal{ID: invID, Balance: totalAmt - allocAmt})
-			}
-		}
-
-		for _, inv := range invoicesToPay {
-			if remainingAmount <= 0 {
-				break
-			}
-			alloc := remainingAmount
-			if alloc > inv.Balance {
-				alloc = inv.Balance
-			}
-			_, err = tx.Exec(ctx, `
-				INSERT INTO fee_allocations (tenant_id, invoice_id, payment_id, allocated_amount)
-				VALUES ($1, $2, $3, $4)
-			`, tenantID, inv.ID, paymentID, alloc)
-			if err != nil {
-				return err
-			}
-			remainingAmount -= alloc
-		}
-
-		return nil
+	raw, _ := json.Marshal(payload)
+	err = s.database.WithTenant(c.Request.Context(), tenantID, "", func(tx *db.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO mpesa_raw_inbox
+				(tenant_id, trans_id, sender_phone, sender_name, amount, account_reference, raw_payload)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (tenant_id, trans_id) DO NOTHING`,
+			tenantID, payload.TransID, payload.MSISDN, payload.FirstName,
+			payload.TransAmount, payload.BillRefNumber, raw)
+		return err
 	})
+	if err != nil {
+		// Do NOT acknowledge: a 5xx makes Safaricom retry.
+		log.Printf("mpesa: persist failed for trans %s: %v", payload.TransID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"ResultCode": 1, "ResultDesc": "Temporary failure"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ResultCode": 0, "ResultDesc": "Accepted"})
+}
+
+func (s *Service) authorised(c *gin.Context) bool {
+	if want := strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN")); want != "" {
+		if c.GetHeader("X-Webhook-Token") != want {
+			return false
+		}
+	}
+	if allow := strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS")); allow != "" {
+		client := c.ClientIP()
+		for _, ip := range strings.Split(allow, ",") {
+			if strings.TrimSpace(ip) == client {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func (s *Service) resolveTenant(ctx context.Context, shortcode string) (string, error) {
+	var tenantID string
+	err := s.database.QueryRowContext(ctx,
+		`SELECT tenant_id FROM school_payment_channels
+		 WHERE shortcode_or_account = $1 AND status = 'ACTIVE'
+		 LIMIT 2`, shortcode).Scan(&tenantID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("no active channel for shortcode %s", shortcode)
+	}
+	return tenantID, err
+}
+
+// ProcessInbox allocates pending callbacks. It is safe to run repeatedly and
+// from more than one worker: rows are claimed with SKIP LOCKED.
+func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
+	tx, err := s.database.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	// Cross-tenant read is explicit and confined to the worker transaction.
+	if _, err := tx.ExecContext(ctx, "SET LOCAL app.worker = 'on'"); err != nil {
+		return 0, err
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT inbox_id, tenant_id, trans_id, amount, COALESCE(account_reference,'')
+		FROM mpesa_raw_inbox
+		WHERE processing_status = 'PENDING' AND next_attempt_at <= now()
+		ORDER BY received_at
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED`, limit)
+	if err != nil {
+		return 0, err
+	}
+
+	type item struct {
+		id       string
+		tenantID string
+		transID  string
+		amount   float64
+		ref      string
+	}
+	var items []item
+	for rows.Next() {
+		var it item
+		if err := rows.Scan(&it.id, &it.tenantID, &it.transID, &it.amount, &it.ref); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		items = append(items, it)
+	}
+	rows.Close()
+
+	processed := 0
+	for _, it := range items {
+		if _, err := tx.ExecContext(ctx,
+			"SELECT set_config('app.current_tenant_id', $1, true)", it.tenantID); err != nil {
+			return processed, err
+		}
+
+		status, processErr := s.allocate(ctx, tx, it.tenantID, it.transID, it.ref, it.amount)
+		if processErr != nil {
+			status = "FAILED"
+			_, _ = tx.ExecContext(ctx, `
+				UPDATE mpesa_raw_inbox
+				SET attempts = attempts + 1,
+				    error_log = $1,
+				    next_attempt_at = now() + (LEAST(3600, power(2, attempts)) || ' seconds')::interval,
+				    processing_status = CASE WHEN attempts + 1 >= 10 THEN 'MANUAL_REVIEW' ELSE 'PENDING' END
+				WHERE inbox_id = $2`, processErr.Error(), it.id)
+			log.Printf("mpesa: allocation failed for %s: %v", it.transID, processErr)
+			continue
+		}
+
+		_, _ = tx.ExecContext(ctx, `
+			UPDATE mpesa_raw_inbox
+			SET processing_status = $1, processed_at = now(), error_log = NULL
+			WHERE inbox_id = $2`, status, it.id)
+		processed++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return processed, err
+	}
+	return processed, nil
+}
+
+func (s *Service) allocate(ctx context.Context, tx *sqlx.Tx, tenantID, transID, billRef string, amount float64) (string, error) {
+	var learnerID string
+	err := tx.QueryRowContext(ctx,
+		`SELECT learner_id FROM learners WHERE tenant_id = $1 AND upper(admission_number) = upper($2)`,
+		tenantID, billRef).Scan(&learnerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "MANUAL_REVIEW", fmt.Errorf("no learner with admission number %q", billRef)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	var paymentID string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO payments
+			(tenant_id, payment_reference, learner_id, source, amount, status, mpesa_trans_id, idempotency_key)
+		VALUES ($1, $2, $3, 'MPESA', $4, 'COMPLETED', $5, $6)
+		ON CONFLICT (tenant_id, mpesa_trans_id) WHERE mpesa_trans_id IS NOT NULL DO NOTHING
+		RETURNING payment_id`,
+		tenantID, "MPESA-"+transID, learnerID, amount, transID, tenantID+":"+transID).Scan(&paymentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "PROCESSED", nil // already allocated; replay is a no-op
+	}
+	if err != nil {
+		return "", err
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT invoice_id, amount_outstanding
+		FROM invoices
+		WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
+		  AND status IN ('ISSUED','PARTIALLY_PAID','OVERDUE')
+		ORDER BY due_date NULLS LAST, created_at`, tenantID, learnerID)
+	if err != nil {
+		return "", err
+	}
+	type openInvoice struct {
+		id      string
+		balance float64
+	}
+	var invoices []openInvoice
+	for rows.Next() {
+		var inv openInvoice
+		if err := rows.Scan(&inv.id, &inv.balance); err != nil {
+			rows.Close()
+			return "", err
+		}
+		invoices = append(invoices, inv)
+	}
+	rows.Close()
+
+	remaining := amount
+	for _, inv := range invoices {
+		if remaining <= 0 {
+			break
+		}
+		alloc := remaining
+		if alloc > inv.balance {
+			alloc = inv.balance
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (payment_id, invoice_id) DO NOTHING`,
+			tenantID, paymentID, inv.id, alloc); err != nil {
+			return "", err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE invoices
+			SET amount_paid = amount_paid + $1,
+			    amount_outstanding = GREATEST(amount_outstanding - $1, 0),
+			    status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
+			    paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN now() ELSE paid_at END,
+			    updated_at = now()
+			WHERE invoice_id = $2 AND tenant_id = $3`,
+			alloc, inv.id, tenantID); err != nil {
+			return "", err
+		}
+		remaining -= alloc
+	}
+
+	return "PROCESSED", nil
+}
+
+// StartWorker drains the inbox until ctx is cancelled.
+func (s *Service) StartWorker(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if n, err := s.ProcessInbox(ctx, 50); err != nil {
+				log.Printf("mpesa worker: %v", err)
+			} else if n > 0 {
+				log.Printf("mpesa worker: allocated %d payment(s)", n)
+			}
+		}
+	}
 }

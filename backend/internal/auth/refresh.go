@@ -8,23 +8,33 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
 func (h *Handler) Refresh(c *gin.Context) {
 	type RefreshRequest struct {
-		RefreshToken string `json:"refresh_token" binding:"required"`
+		RefreshToken string `json:"refresh_token"`
 	}
 
 	var req RefreshRequest
-	if errs := validation.BindJSON(c, &req); errs != nil {
-		validation.BadRequest(c, "Invalid request", errs)
+	if c.Request.ContentLength > 0 {
+		if errs := validation.BindJSON(c, &req); errs != nil {
+			validation.BadRequest(c, "Invalid request", errs)
+			return
+		}
+	}
+	if req.RefreshToken == "" {
+		if cookie, err := c.Cookie(RefreshCookie); err == nil {
+			req.RefreshToken = cookie
+		}
+	}
+	if req.RefreshToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_TOKEN", "message": "Refresh token required"})
 		return
 	}
 
 	claims, err := h.jwt.ValidateToken(req.RefreshToken)
-	if err != nil {
+	if err != nil || claims.TokenType != TokenTypeRefresh {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_TOKEN", "message": "Invalid refresh token"})
 		return
 	}
@@ -62,28 +72,29 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	// Re-fetch roles for the user's current tenant
-	var tenantID string
+	if claims.TenantID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_TOKEN", "message": "Refresh token is not tenant-scoped"})
+		return
+	}
+
+	// Re-fetch roles for the tenant baked into the refresh token. Do not use
+	// the user's first membership: that would silently switch tenants (and
+	// could combine roles from different schools).
 	var roles []string
 	rows, err := h.database.Query(
-		`SELECT tenant_id, role FROM tenant_memberships WHERE user_id = $1 AND status = 'ACTIVE'`,
-		claims.UserID,
+		`SELECT role FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2 AND status = 'ACTIVE'`,
+		claims.UserID, claims.TenantID,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load memberships"})
 		return
 	}
 	defer rows.Close()
-	first := true
 	for rows.Next() {
-		var tid, role string
-		if err := rows.Scan(&tid, &role); err != nil {
+		var role string
+		if err := rows.Scan(&role); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to scan membership"})
 			return
-		}
-		if first {
-			tenantID = tid
-			first = false
 		}
 		roles = append(roles, role)
 	}
@@ -92,39 +103,30 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	// Store new refresh token hash
-	newRefreshClaims := &Claims{
-		UserID: claims.UserID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   claims.UserID,
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(30 * 24 * time.Hour)),
-			NotBefore: jwt.NewNumericDate(time.Now()),
-		},
-	}
-	newRefreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, newRefreshClaims)
-	newRefreshTokenString, err := newRefreshToken.SignedString(h.jwt.signingKey)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "TOKEN_ERROR", "message": "Failed to generate refresh token"})
-		return
-	}
-	_, err = h.database.Exec(
-		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at, revoked_at)
-		 VALUES ($1, $2, $3, NULL)`,
-		claims.UserID, hashToken(newRefreshTokenString), time.Now().Add(30*24*time.Hour),
-	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to store refresh token"})
-		return
-	}
-
-	tokenPair, err := h.jwt.GenerateTokenPair(claims.UserID, tenantID, roles)
+	// Issue both tokens and persist the refresh token that is actually returned
+	// to the client. Creating a separate refresh token here was the source of a
+	// rotation bug: the stored hash and the returned token did not match.
+	tokenPair, err := h.jwt.GenerateTokenPair(claims.UserID, claims.TenantID, roles)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "TOKEN_ERROR", "message": "Failed to generate tokens"})
 		return
 	}
+	if err := h.persistRefreshToken(claims.UserID, tokenPair.RefreshToken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to store refresh token"})
+		return
+	}
 
+	h.setSessionCookies(c, tokenPair)
 	c.JSON(http.StatusOK, tokenPair)
+}
+
+func (h *Handler) persistRefreshToken(userID, token string) error {
+	_, err := h.database.Exec(
+		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at, revoked_at)
+		 VALUES ($1, $2, $3, NULL)`,
+		userID, hashToken(token), time.Now().Add(h.jwt.RefreshTTL()),
+	)
+	return err
 }
 
 func hashToken(token string) string {
@@ -183,6 +185,12 @@ func (h *Handler) TenantSwitch(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "TOKEN_ERROR", "message": "Failed to generate tokens"})
 		return
 	}
+	if err := h.persistRefreshToken(userID, tokenPair.RefreshToken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to store refresh token"})
+		return
+	}
+
+	h.setSessionCookies(c, tokenPair)
 
 	c.JSON(http.StatusOK, LoginResponse{
 		UserID:    userID,
@@ -190,6 +198,14 @@ func (h *Handler) TenantSwitch(c *gin.Context) {
 		Roles:     roles,
 		TokenPair: *tokenPair,
 	})
+}
+
+// LoginResponse is returned by login and tenant-switch flows.
+type LoginResponse struct {
+	UserID    string    `json:"user_id"`
+	TenantID  string    `json:"tenant_id"`
+	Roles     []string  `json:"roles"`
+	TokenPair TokenPair `json:"tokens"`
 }
 
 // Membership describes one school the current user belongs to.
@@ -276,9 +292,9 @@ func (h *Handler) GetMe(c *gin.Context) {
 
 func (h *Handler) UpdateMe(c *gin.Context) {
 	type UpdateRequest struct {
-		Locale    string `json:"locale"`
-		Phone     string `json:"phone"`
-		Email     string `json:"email"`
+		Locale string `json:"locale"`
+		Phone  string `json:"phone"`
+		Email  string `json:"email"`
 	}
 
 	var req UpdateRequest
@@ -399,7 +415,6 @@ func (h *Handler) InviteAccept(c *gin.Context) {
 	})
 }
 
-
 func (h *Handler) Logout(c *gin.Context) {
 	type LogoutRequest struct {
 		RefreshToken string `json:"refresh_token"`
@@ -421,5 +436,6 @@ func (h *Handler) Logout(c *gin.Context) {
 		userID,
 	)
 
+	clearSessionCookies(c)
 	c.JSON(http.StatusOK, gin.H{"code": "LOGGED_OUT", "message": "Logged out successfully"})
 }

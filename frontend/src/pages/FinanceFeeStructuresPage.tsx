@@ -8,6 +8,15 @@ import Dialog from "../components/dialog/Dialog";
 import Button from "../components/atoms/Button";
 
 export default function FinanceFeeStructuresPage() {
+  const handleCreateStructure = async (payload: any) => {
+    try {
+      await api.post("/finance/fee-structures", payload);
+      alert("Fee structure registered successfully!");
+    } catch {
+      alert("Failed to save fee structure");
+    }
+  };
+
   const [structures, setStructures] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [open, setOpen] = useState(false);

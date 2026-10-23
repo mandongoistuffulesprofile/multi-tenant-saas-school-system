@@ -1,80 +1,160 @@
 package auth
 
 import (
-	"context"
-	"encoding/json"
 	"net/http"
-	"time"
+	"strings"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/redis/go-redis/v9"
 )
 
+// Handler exposes the authentication HTTP endpoints. Token verification is
+// shared with middleware.TenantContextMiddleware; this type owns the flows that
+// create or rotate credentials.
 type Handler struct {
-	dbPool    *pgxpool.Pool
-	jwtSecret []byte
+	service  *AuthService
+	database *db.DB
+	jwt      *JWTManager
+	redis    *redis.Client
 }
 
-func NewHandler(pool *pgxpool.Pool, secret []byte) *Handler {
-	return &Handler{dbPool: pool, jwtSecret: secret}
+func NewHandler(service *AuthService, database *db.DB, jwt *JWTManager, redisClient *redis.Client) *Handler {
+	return &Handler{
+		service:  service,
+		database: database,
+		jwt:      jwt,
+		redis:    redisClient,
+	}
 }
 
-func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, `{"error": "Method not allowed"}`, http.StatusMethodNotAllowed)
+type loginRequest struct {
+	// Identifier accepts an email address or a phone number.
+	Identifier string `json:"identifier"`
+	// Email is accepted as an alias for identifier by older clients.
+	Email string `json:"email"`
+	// Password is the only credential; OTP sign-in lives on /auth/otp/*.
+	Password string `json:"password"`
+	// Subdomain or school_code narrows the lookup when an identifier exists in
+	// more than one school.
+	Subdomain  string `json:"subdomain"`
+	TenantCode string `json:"tenant_code"`
+}
+
+// Login validates a password and returns an access/refresh token pair.
+//
+// The canonical schema keeps identity in users and school membership in
+// tenant_memberships, so a user may belong to several schools with a different
+// role in each. The token is scoped to one membership.
+func (h *Handler) Login(c *gin.Context) {
+	var req loginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_REQUEST", "message": "Invalid request body"})
 		return
 	}
 
-	var req struct {
-		Subdomain string `json:"subdomain"`
-		Email     string `json:"email"`
-		Password  string `json:"password"`
+	identifier := strings.TrimSpace(req.Identifier)
+	if identifier == "" {
+		identifier = strings.TrimSpace(req.Email)
 	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error": "Invalid request payload"}`, http.StatusBadRequest)
+	if identifier == "" || req.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_REQUEST", "message": "Identifier and password are required"})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
+	tenantCode := strings.TrimSpace(req.Subdomain)
+	if tenantCode == "" {
+		tenantCode = strings.TrimSpace(req.TenantCode)
+	}
 
-	var userID, tenantID uuid.UUID
-	var passwordHash, role, firstName, lastName string
+	requestedTenant := ""
+	if tenantCode != "" {
+		if err := h.database.QueryRow(
+			`SELECT tenant_id FROM schools
+			  WHERE status = 'ACTIVE' AND (subdomain = $1 OR tenant_id = $1)
+			  LIMIT 1`,
+			tenantCode,
+		).Scan(&requestedTenant); err != nil {
+			// Do not reveal whether the school exists.
+			c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
+			return
+		}
+	}
 
-	err := h.dbPool.QueryRow(ctx, `
-		SELECT u.id, u.tenant_id, u.password_hash, u.role, u.first_name, u.last_name
-		FROM users u
-		JOIN tenants t ON u.tenant_id = t.id
-		WHERE t.subdomain = $1 AND (LOWER(u.email) = LOWER($2) OR u.phone_number = $2) AND u.is_active = true
-	`, req.Subdomain, req.Email).Scan(&userID, &tenantID, &passwordHash, &role, &firstName, &lastName)
+	const identityPredicate = `u.is_active = true
+		AND (u.email_norm = LOWER($1) OR LOWER(u.email) = LOWER($1) OR u.phone_number = $1)`
 
+	var (
+		userID       string
+		passwordHash string
+	)
+
+	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate
+	args := []any{identifier}
+	if requestedTenant != "" {
+		query = `SELECT u.user_id::text, u.password_hash
+		           FROM users u
+		           JOIN tenant_memberships m ON m.user_id = u.user_id
+		          WHERE m.tenant_id = $2 AND m.status = 'ACTIVE' AND ` + identityPredicate
+		args = append(args, requestedTenant)
+	}
+	query += ` LIMIT 1`
+
+	if err := h.database.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
+		!VerifyPassword(passwordHash, req.Password) {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
+		return
+	}
+
+	// Resolve the membership(s) that may mint a session for this user.
+	type membership struct {
+		TenantID string `db:"tenant_id"`
+		Role     string `db:"role"`
+	}
+	var memberships []membership
+	if err := h.database.Select(
+		&memberships,
+		`SELECT tenant_id, role FROM tenant_memberships
+		  WHERE user_id = $1 AND status = 'ACTIVE'
+		  ORDER BY created_at`,
+		userID,
+	); err != nil || len(memberships) == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
+		return
+	}
+
+	tenantID := requestedTenant
+	roles := make([]string, 0, 1)
+	for _, m := range memberships {
+		if tenantID == "" && m.TenantID != "" {
+			tenantID = m.TenantID
+		}
+		if m.TenantID == tenantID {
+			roles = append(roles, m.Role)
+		}
+	}
+	if tenantID == "" || len(roles) == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
+		return
+	}
+
+	tokenPair, err := h.jwt.GenerateTokenPair(userID, tenantID, roles)
 	if err != nil {
-		http.Error(w, `{"error": "Invalid credentials or inactive account"}`, http.StatusUnauthorized)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "TOKEN_ERROR", "message": "Failed to create session"})
 		return
 	}
 
-	valid, _ := ComparePassword(req.Password, passwordHash)
-	if !valid {
-		http.Error(w, `{"error": "Invalid credentials"}`, http.StatusUnauthorized)
+	if err := h.persistRefreshToken(userID, tokenPair.RefreshToken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to store refresh token"})
 		return
 	}
 
-	token, err := GenerateJWT(h.jwtSecret, userID, tenantID, role)
-	if err != nil {
-		http.Error(w, `{"error": "Failed to generate session token"}`, http.StatusInternalServerError)
-		return
-	}
+	h.setSessionCookies(c, tokenPair)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"token": token,
-		"user": map[string]any{
-			"id":         userID,
-			"tenant_id":  tenantID,
-			"first_name": firstName,
-			"last_name":  lastName,
-			"role":       role,
-		},
+	c.JSON(http.StatusOK, gin.H{
+		"token_pair": tokenPair,
+		"user_id":    userID,
+		"tenant_id":  tenantID,
+		"roles":      roles,
 	})
 }

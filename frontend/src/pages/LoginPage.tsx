@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 import { useToast } from "../components/toast/ToastProvider";
 
 export default function LoginPage() {
-  const [identifier, setIdentifier] = useState("");
+  const [tenantCode, setTenantCode] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,12 +20,32 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const response = await api.post("/auth/login", { identifier: email || identifier, password });
+      const payload: Record<string, string> = {
+        identifier: email.trim() || tenantCode.trim(),
+        password,
+      };
+      if (email.trim()) payload.email = email.trim();
+      if (tenantCode.trim()) {
+        payload.tenant_code = tenantCode.trim();
+        payload.subdomain = tenantCode.trim();
+      }
+
+      const response = await api.post("/auth/login", payload);
       const { token_pair, user_id, tenant_id, roles } = response.data;
       localStorage.setItem("access_token", token_pair.access_token);
       localStorage.setItem("refresh_token", token_pair.refresh_token);
       setAuth(token_pair.access_token, token_pair.refresh_token, user_id, tenant_id, roles);
-      navigate("/dashboard");
+
+      const roleList: string[] = Array.isArray(roles) ? roles : [roles];
+      if (roleList.includes("SAAS_ADMIN") || roleList.includes("SUPER_ADMIN")) {
+        navigate("/platform/operations", { replace: true });
+      } else if (roleList.includes("TEACHER")) {
+        navigate("/teacher/classes", { replace: true });
+      } else if (roleList.includes("PARENT") || roleList.includes("GUARDIAN")) {
+        navigate("/parent", { replace: true });
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
     } catch (err: any) {
       const message = err.response?.data?.message || t("errors.network_error");
       toast(message, { type: "error", title: t("error") });
@@ -44,15 +64,15 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="label" htmlFor="tenant-id">{t("tenant_id")}</label>
+            <label className="label" htmlFor="tenant-id">{t("tenant_id", { defaultMessage: "School Code (Optional)" })}</label>
             <input
               id="tenant-id"
               type="text"
               className="input-field"
-              placeholder={t("auth.school_code_placeholder")}
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              autoComplete="username"
+              placeholder={t("auth.school_code_placeholder", { defaultMessage: "e.g. smoke-school" })}
+              value={tenantCode}
+              onChange={(e) => setTenantCode(e.target.value)}
+              autoComplete="organization"
             />
           </div>
 
@@ -66,7 +86,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
-              aria-invalid="false"
+              required
             />
           </div>
 
@@ -81,13 +101,13 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
+                required
               />
               <button
                 type="button"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-kenyan-red transition"
                 onClick={() => setShowPassword(!showPassword)}
                 aria-label={showPassword ? t("auth.hide_password") : t("auth.show_password")}
-                aria-pressed={showPassword}
               >
                 {showPassword ? t("auth.hide_password") : t("auth.show_password")}
               </button>

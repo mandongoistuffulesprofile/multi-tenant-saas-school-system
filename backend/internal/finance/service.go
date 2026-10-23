@@ -10,8 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
 // ============ Fee Categories ============
@@ -131,7 +131,7 @@ func (s *Service) DeleteFeeCategory(tenantID, categoryID string) error {
 }
 
 // nullIfEmpty converts an empty string to nil so optional text columns are
-// stored as NULL rather than ''.
+// stored as NULL rather than ”.
 func nullIfEmpty(s string) interface{} {
 	if s == "" {
 		return nil

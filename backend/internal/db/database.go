@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -82,65 +83,35 @@ func (db *DB) Close() error {
 	return db.DB.Close()
 }
 
-// SetTenantContext sets the RLS tenant context for the current transaction.
-// It must be called inside a transaction (SET LOCAL) so the value does not leak
-// across pooled connections. Use BeginTenantTx / BeginReadTx which set it for you.
-func (db *DB) SetTenantContext(tenantID string) error {
-	_, err := db.Exec("SET LOCAL app.current_tenant_id = $1", tenantID)
-	if err != nil {
-		return fmt.Errorf("failed to set tenant context: %w", err)
-	}
-	return nil
-}
-
-// SetSessionContext sets tenant + user context at the session level so that
-// RLS policies are enforced for every query issued during the current
-// request/connection. Unlike SetTenantContext this is NOT scoped to a
-// transaction — it applies until explicitly reset or the connection is
-// returned to the pool.
+// WithTenant runs fn inside a transaction whose RLS context is scoped with
+// set_config(..., true). This is the only safe way to set tenant identity on a
+// pooled connection: the value is discarded on COMMIT/ROLLBACK and can never
+// leak to the next request that checks out the same connection.
 //
-// Call this from HTTP middleware before any handler runs. The values are
-// reset by ResetSessionContext or automatically when the connection is
-// closed/returned to the pool.
-func (db *DB) SetSessionContext(tenantID, userID string) error {
-	_, err := db.Exec("SET app.current_tenant_id = $1", tenantID)
+// Note: PostgreSQL's SET statement does not accept bind parameters, so
+// set_config is used instead of `SET LOCAL ... = $1`.
+func (db *DB) WithTenant(ctx context.Context, tenantID, userID string, fn func(*Tx) error) error {
+	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to set session tenant context: %w", err)
+		return fmt.Errorf("begin tenant tx: %w", err)
 	}
-	_, err = db.Exec("SET app.current_user_id = $1", userID)
-	if err != nil {
-		return fmt.Errorf("failed to set session user context: %w", err)
+	if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", tenantID); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("set tenant context: %w", err)
 	}
-	return nil
-}
+	if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("set user context: %w", err)
+	}
 
-// ResetSessionContext clears the session-level tenant/user settings.
-func (db *DB) ResetSessionContext() error {
-	_, err := db.Exec("RESET app.current_tenant_id")
-	if err != nil {
+	wrapped := &Tx{Tx: tx, tenantID: tenantID, userID: userID}
+	if err := fn(wrapped); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
-	_, err = db.Exec("RESET app.current_user_id")
-	return err
-}
-
-// SetUserContext sets the RLS user context for the current transaction.
-func (db *DB) SetUserContext(userID string) error {
-	_, err := db.Exec("SET LOCAL app.current_user_id = $1", userID)
-	if err != nil {
-		return fmt.Errorf("failed to set user context: %w", err)
-	}
-	return nil
-}
-
-// ResetContext clears tenant/user session settings (defensive; SET LOCAL rolls
-// back automatically at transaction end).
-func (db *DB) ResetContext() error {
-	if _, err := db.Exec("RESET app.current_tenant_id"); err != nil {
-		return err
-	}
-	if _, err := db.Exec("RESET app.current_user_id"); err != nil {
-		return err
+	if err := tx.Commit(); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("commit tenant tx: %w", err)
 	}
 	return nil
 }
@@ -153,17 +124,18 @@ type Tx struct {
 }
 
 // BeginTenantTx starts a read/write transaction and sets tenant + user context
-// via SET LOCAL so RLS policies are enforced for the duration of the tx.
+// with set_config(..., true) so RLS policies are enforced for the duration of
+// the transaction.
 func (db *DB) BeginTenantTx(tenantID, userID string) (*Tx, error) {
 	tx, err := db.Beginx()
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec("SET LOCAL app.current_tenant_id = $1", tenantID); err != nil {
+	if _, err := tx.Exec("SELECT set_config('app.current_tenant_id', $1, true)", tenantID); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
-	if _, err := tx.Exec("SET LOCAL app.current_user_id = $1", userID); err != nil {
+	if _, err := tx.Exec("SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
@@ -181,11 +153,11 @@ func (db *DB) BeginReadTx(tenantID, userID string) (*Tx, error) {
 		tx.Rollback()
 		return nil, err
 	}
-	if _, err := tx.Exec("SET LOCAL app.current_tenant_id = $1", tenantID); err != nil {
+	if _, err := tx.Exec("SELECT set_config('app.current_tenant_id', $1, true)", tenantID); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
-	if _, err := tx.Exec("SET LOCAL app.current_user_id = $1", userID); err != nil {
+	if _, err := tx.Exec("SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
 		tx.Rollback()
 		return nil, err
 	}

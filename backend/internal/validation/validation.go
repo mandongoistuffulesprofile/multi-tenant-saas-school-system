@@ -18,11 +18,11 @@ type FieldError struct {
 
 // ErrorResponse is the standard error envelope used across all API responses.
 type ErrorResponse struct {
-	Code         string        `json:"code"`
-	Message      string        `json:"message"`
-	FieldErrors  []FieldError  `json:"field_errors,omitempty"`
-	RequestID    string        `json:"request_id"`
-	StatusCode   int           `json:"-"`
+	Code        string       `json:"code"`
+	Message     string       `json:"message"`
+	FieldErrors []FieldError `json:"field_errors,omitempty"`
+	RequestID   string       `json:"request_id"`
+	StatusCode  int          `json:"-"`
 }
 
 // Errors converts a validator.ValidationError into structured field errors.

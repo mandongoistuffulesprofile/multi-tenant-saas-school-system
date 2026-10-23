@@ -4,19 +4,28 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 
-	"github.com/lib/pq"
+	_ "github.com/lib/pq"
 
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 )
 
-// Creates (or updates) a development user with the given role so that
-// role-based access control can be exercised locally.
+// Creates (or updates) a development school and user so role-based access can
+// be exercised locally.
 //
 // Usage:
-//   DEV_EMAIL=teacher@skulapp.test DEV_PHONE=254700000002 DEV_ROLE=TEACHER \
-//     DEV_PASSWORD='Teacher1234!' go run ./cmd/devuser
+//
+//	DATABASE_URL=postgres://... DEV_EMAIL=teacher@skulapp.test \
+//	  DEV_PHONE=254700000002 DEV_ROLE=TEACHER DEV_TENANT=dev-school-001 \
+//	  DEV_PASSWORD='Teacher1234!' go run ./cmd/devuser
 func main() {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		fmt.Fprintln(os.Stderr, "DATABASE_URL is required")
+		os.Exit(1)
+	}
+
 	email := env("DEV_EMAIL", "teacher@skulapp.test")
 	phone := env("DEV_PHONE", "254700000002")
 	role := env("DEV_ROLE", "TEACHER")
@@ -29,8 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := sql.Open("postgres",
-		"postgres://skulapp_app:skulapp_app_change_in_prod@localhost:5432/skulapp?sslmode=disable")
+	db, err := sql.Open("postgres", url)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "connect: %v\n", err)
 		os.Exit(1)
@@ -44,9 +52,18 @@ func main() {
 	}
 	defer tx.Rollback()
 
-	// users.email / users.phone_number carry plain indexes rather than unique
-	// constraints, so resolve the row explicitly instead of relying on
-	// ON CONFLICT.
+	// The school is the tenant root; memberships and every domain row point at
+	// schools.tenant_id.
+	if _, err := tx.Exec(
+		`INSERT INTO schools (tenant_id, school_name, subdomain)
+		 VALUES ($1, $2, $1)
+		 ON CONFLICT (tenant_id) DO NOTHING`,
+		tenantID, "Development School",
+	); err != nil {
+		fmt.Fprintf(os.Stderr, "upsert school: %v\n", err)
+		os.Exit(1)
+	}
+
 	var userID string
 	err = tx.QueryRow(
 		`SELECT user_id FROM users WHERE phone_number = $1 OR email = $2 LIMIT 1`,
@@ -54,13 +71,14 @@ func main() {
 	).Scan(&userID)
 	if err == sql.ErrNoRows {
 		err = tx.QueryRow(
-			`INSERT INTO users (email, phone_number, password_hash, status)
-			 VALUES ($1, $2, $3, 'ACTIVE') RETURNING user_id`,
-			email, phone, hash,
+			`INSERT INTO users (email, phone_number, password_hash, status, email_norm)
+			 VALUES ($1, $2, $3, 'ACTIVE', $4) RETURNING user_id`,
+			email, phone, hash, strings.ToLower(email),
 		).Scan(&userID)
-	} else {
+	} else if err == nil {
 		_, err = tx.Exec(
-			`UPDATE users SET password_hash = $1, status = 'ACTIVE' WHERE user_id = $2`,
+			`UPDATE users SET password_hash = $1, status = 'ACTIVE', email_norm = LOWER(email)
+			 WHERE user_id = $2`,
 			hash, userID,
 		)
 	}
@@ -69,32 +87,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	_, err = tx.Exec(
-		`UPDATE tenant_memberships SET role = $1, status = 'ACTIVE'
-		 WHERE user_id = $2 AND tenant_id = $3`,
-		role, userID, tenantID,
-	)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "update membership: %v\n", err)
+	if _, err := tx.Exec(
+		`INSERT INTO tenant_memberships (user_id, tenant_id, role, status)
+		 VALUES ($1, $2, $3, 'ACTIVE')
+		 ON CONFLICT (user_id, tenant_id) DO UPDATE
+		 SET role = EXCLUDED.role, status = 'ACTIVE'`,
+		userID, tenantID, role,
+	); err != nil {
+		fmt.Fprintf(os.Stderr, "upsert membership: %v\n", err)
 		os.Exit(1)
-	}
-
-	// Insert the membership only when it does not exist yet.
-	var membershipCount int
-	_ = tx.QueryRow(
-		`SELECT COUNT(*) FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2`,
-		userID, tenantID,
-	).Scan(&membershipCount)
-	if membershipCount == 0 {
-		_, err = tx.Exec(
-			`INSERT INTO tenant_memberships (user_id, tenant_id, role, status)
-			 VALUES ($1, $2, $3, 'ACTIVE')`,
-			userID, tenantID, role,
-		)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "insert membership: %v\n", err)
-			os.Exit(1)
-		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -111,5 +112,3 @@ func env(key, fallback string) string {
 	}
 	return fallback
 }
-
-var _ = pq.Error{}

@@ -22,7 +22,5 @@ yarn-error.log*
 *.key
 
 # Temporary files
-*.sh
-!infrastructure/docker/*.sh
 .DS_Store
 Thumbs.db

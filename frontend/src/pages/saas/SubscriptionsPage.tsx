@@ -1,3 +1,4 @@
+import { api } from "../../lib/api";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";
@@ -13,18 +14,18 @@ export default function SubscriptionsPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
 
+  
   useEffect(() => {
-    setPlans([
-      { plan_id: "p1", plan_code: "BASIC", name: "Basic", price_monthly: 2999, price_yearly: 29990, currency: "KES", max_learners: 200, max_staff: 20, features: "[]", is_active: true, created_at: "", updated_at: "" },
-      { plan_id: "p2", plan_code: "STANDARD", name: "Standard", price_monthly: 5999, price_yearly: 59990, currency: "KES", max_learners: 500, max_staff: 50, features: "[]", is_active: true, created_at: "", updated_at: "" },
-      { plan_id: "p3", plan_code: "PREMIUM", name: "Premium", price_monthly: 9999, price_yearly: 99990, currency: "KES", max_learners: 2000, max_staff: 200, features: "[]", is_active: true, created_at: "", updated_at: "" },
-    ]);
-    setSubs([
-      { subscription_id: "s1", tenant_id: "t1", plan_id: "p2", status: "ACTIVE", started_at: "2024-01-01", ends_at: "2024-12-31", auto_renew: true, created_by: "", created_at: "", updated_at: "" },
-      { subscription_id: "s2", tenant_id: "t2", plan_id: "p1", status: "PAST_DUE", started_at: "2024-01-01", ends_at: "2024-06-30", auto_renew: false, created_by: "", created_at: "", updated_at: "" },
-    ]);
-    setState("content");
+    Promise.all([
+      api.get("/platform/subscriptions").then(r => Array.isArray(r.data) ? r.data : []).catch(() => []),
+      api.get("/platform/plans").then(r => Array.isArray(r.data) ? r.data : []).catch(() => [])
+    ]).then(([s, p]) => {
+      if (s.length > 0) setSubscriptions(s);
+      if (p.length > 0) setPlans(p);
+      setState("content");
+    });
   }, []);
+
 
   if (state === "loading") return <ViewState state="loading" />;
 
