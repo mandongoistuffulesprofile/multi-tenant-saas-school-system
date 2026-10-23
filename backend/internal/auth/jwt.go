@@ -1,11 +1,15 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// ErrInvalidToken is returned for malformed or unverifiable access tokens.
+var ErrInvalidToken = errors.New("invalid access token")
 
 type Claims struct {
 	UserID   string   `json:"user_id"`

@@ -1,59 +1,72 @@
-# Kenyan Primary School Management System (SaaS)
-# Implementation Plan: docs/idea1.doc - idea5.doc
-# Plan: /home/yna/.local/share/kilo/plans/kenyan-primary-saas-implementation-plan.md
+# Shule Yetu — Kenyan Primary School Management SaaS
 
-## Quick Start
+Multi-tenant school management system: **Go + Gin + PostgreSQL (row-level security) + Redis** API and a **React + TypeScript + Vite** frontend.
 
-### Prerequisites
-- Docker & Docker Compose
-- Go 1.21+ (for backend development)
-- Node.js 18+ (for frontend development)
+## Repository layout
 
-### 1. Start Infrastructure
+| Path | Purpose |
+| --- | --- |
+| `backend/` | Go API. Entrypoint `cmd/api` (`main.go` → `server.go`). Domain packages live in `internal/<domain>/` (`service.go` reads, `write.go` mutations). |
+| `frontend/` | React/Vite app. Entry `index.html` → `src/main.tsx` → `src/App.tsx`; pages in `src/pages/`. |
+| `migrations/` | Ordered SQL slices (`slice0` … `slice8`). Applied automatically on first container start. |
+| `infrastructure/docker/` | Docker Compose for Postgres, Redis and the API. |
+| `docs/`, `design/`, `DBA_DESIGN.md` | Product and database design notes. |
+| `src/` + root `package.json` | Legacy standalone Node auth prototype. Not part of the running system. |
+
+## Quick start (Docker)
+
 ```bash
 cd infrastructure/docker
-docker-compose up -d
+docker compose up -d --build
 ```
 
-### 2. Run Database Migrations
-```bash
-# Apply Slice 0 migrations
-psql -h localhost -U skulapp -d skulapp -f migrations/slice0/001_foundation.sql
-```
+- API: http://localhost:8080 (`/health`, `/health/ready`)
+- PostgreSQL: `localhost:5432` (`school_admin` / `dev_secret_password` / `school_system`)
+- Redis: `localhost:6379`
 
-### 3. Backend (Go)
+Migrations are applied in filename order by `infrastructure/docker/initdb/00_migrations.sh` and recorded in `schema_migrations`.
+
+## Local development
+
+### Backend
+
 ```bash
 cd backend
-cp .env.example .env
-# Edit .env with your values
-go mod tidy
-go run cmd/api/main.go
+cp .env.example .env       # DATABASE_URL, REDIS_URL, JWT_SIGNING_KEY, ENCRYPTION_KEY
+go mod download
+go run ./cmd/api
 ```
 
-### 4. Frontend
+Requires Go 1.25+ (the dependency set targets current Gin). Run `go build ./...` before committing.
+
+Apply migrations against a fresh local database (the Docker setup does this automatically):
+
+```bash
+for f in $(find ../migrations -type f -name '*.sql' | sort); do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+done
+```
+
+### Frontend
+
 ```bash
 cd frontend
-cp .env.example .env
+cp .env.example .env       # VITE_API_BASE=/api/v1
 npm install
-npm run dev
+npm run dev                # http://localhost:5173, proxies /api to :8080
 ```
 
-### 5. Access
-- API: http://localhost:8080
-- Frontend: http://localhost:5173
-- PostgreSQL: localhost:5432
+`npm run build` performs a production build. Type-check with `npx tsc --noEmit`.
 
-## Architecture
+## Architecture notes
 
-See `/home/yna/.local/share/kilo/plans/kenyan-primary-saas-implementation-plan.md` for full details.
+- **Multi-tenancy:** shared PostgreSQL with `FORCE ROW LEVEL SECURITY`; every service transaction calls `BeginTenantTx`/`BeginReadTx` so `app.current_tenant_id` is set with `SET LOCAL`.
+- **Auth:** JWT access + refresh tokens (`internal/auth`), Redis-backed rate limiting, argon2id password hashing. `middleware.TenantContextMiddleware` verifies the bearer token once per request.
+- **Money:** invoice → payment → allocation model, M-Pesa (Daraja) with transaction-id idempotency.
+- **CBC:** assessment events + result history rather than overwriting rows.
+- **Offline:** PWA service worker and queued sync (`/sync/push`, `/sync/pull`).
+- **i18n:** English and Kiswahili.
 
-## Key Design Decisions
+## Known constraint
 
-- **Multi-tenancy:** Shared PostgreSQL with RLS FORCED on all tenant tables
-- **Authentication:** JWT + refresh tokens, argon2id password hashing
-- **CBC Assessment:** Event-based history (not single-row overwrite)
-- **Fees:** Allocation-based (not amount_paid on invoices)
-- **Offline-first:** Teacher PWA with IndexedDB (RxDB/PouchDB)
-- **M-Pesa:** Daraja C2B/STK/B2C with TransID idempotency
-- **i18n:** English + Kiswahili
-# multi-tenant-saas-school-system
+The migration history contains two schema generations (`users.id` + `tenants` in `slice0` versus `users.user_id` + `schools`/`tenant_memberships` referenced by later slices). Code and API build cleanly, but a fresh database should be validated before production use; consolidating those two generations into one migration baseline is the next database task.

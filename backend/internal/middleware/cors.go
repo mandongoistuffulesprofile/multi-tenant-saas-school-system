@@ -2,22 +2,31 @@ package middleware
 
 import (
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
-// CORSMiddleware enables secure cross-origin requests for the frontend SPA/PWA
-func CORSMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Can be restricted to specific school domains in prod
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tenant-ID")
-		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, X-Tenant-ID")
+// CORS allows the Vite dev server and same-site SPAs to call the API.
+// The allowed origin can be narrowed with CORS_ALLOWED_ORIGIN in production.
+func CORS(allowedOrigin string) gin.HandlerFunc {
+	if allowedOrigin == "" {
+		allowedOrigin = "*"
+	}
 
-		// Handle preflight OPTIONS request immediately
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", allowedOrigin)
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tenant-ID, X-Request-ID")
+		c.Header("Access-Control-Expose-Headers", "Content-Length, X-Tenant-ID, X-Request-ID")
+		if allowedOrigin != "*" {
+			c.Header("Vary", "Origin")
+		}
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 
-		next.ServeHTTP(w, r)
-	})
+		c.Next()
+	}
 }

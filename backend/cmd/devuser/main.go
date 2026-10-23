@@ -14,8 +14,9 @@ import (
 // role-based access control can be exercised locally.
 //
 // Usage:
-//   DEV_EMAIL=teacher@skulapp.test DEV_PHONE=254700000002 DEV_ROLE=TEACHER \
-//     DEV_PASSWORD='Teacher1234!' go run ./cmd/devuser
+//
+//	DEV_EMAIL=teacher@skulapp.test DEV_PHONE=254700000002 DEV_ROLE=TEACHER \
+//	  DEV_PASSWORD='Teacher1234!' go run ./cmd/devuser
 func main() {
 	email := env("DEV_EMAIL", "teacher@skulapp.test")
 	phone := env("DEV_PHONE", "254700000002")

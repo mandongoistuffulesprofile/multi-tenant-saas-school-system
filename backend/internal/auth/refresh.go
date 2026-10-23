@@ -276,9 +276,9 @@ func (h *Handler) GetMe(c *gin.Context) {
 
 func (h *Handler) UpdateMe(c *gin.Context) {
 	type UpdateRequest struct {
-		Locale    string `json:"locale"`
-		Phone     string `json:"phone"`
-		Email     string `json:"email"`
+		Locale string `json:"locale"`
+		Phone  string `json:"phone"`
+		Email  string `json:"email"`
 	}
 
 	var req UpdateRequest
@@ -398,7 +398,6 @@ func (h *Handler) InviteAccept(c *gin.Context) {
 		"message": "Invite acceptance is not yet available",
 	})
 }
-
 
 func (h *Handler) Logout(c *gin.Context) {
 	type LogoutRequest struct {

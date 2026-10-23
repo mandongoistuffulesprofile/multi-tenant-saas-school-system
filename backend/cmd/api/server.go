@@ -111,6 +111,7 @@ func Run() error {
 	syncHandler := sync.NewHandler(syncService)
 
 	router := gin.Default()
+	router.Use(middleware.CORS(os.Getenv("CORS_ALLOWED_ORIGIN")))
 	router.Use(middleware.RequestIDMiddleware())
 	router.Use(middleware.TenantContextMiddleware(jwtManager, database))
 
