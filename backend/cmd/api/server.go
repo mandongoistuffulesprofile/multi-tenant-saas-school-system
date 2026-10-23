@@ -371,7 +371,7 @@ func Run() error {
 	{
 		reportsGroup.GET("/templates", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportTemplates)
 		reportsGroup.GET("/runs", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportRuns)
-		reportsGroup.GET("/cards", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportCards)
+		reportsGroup.GET("/cards", middleware.RequireRole(append(middleware.RoleAcademicStaff..., middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.ListReportCards)
 		reportsGroup.GET("/cards/:card_id", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.GetReportCard)
 		reportsGroup.GET("/cards/:card_id/comments", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportCardComments)
 
