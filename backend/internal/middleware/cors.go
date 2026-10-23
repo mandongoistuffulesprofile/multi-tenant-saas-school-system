@@ -51,15 +51,3 @@ func CORS(allowedOrigins string) gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-// SecurityHeaders injects OWASP recommended HTTP protection headers.
-func SecurityHeaders() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("X-Frame-Options", "SAMEORIGIN")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-XSS-Protection", "1; mode=block")
-		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		c.Next()
-	}
-}
