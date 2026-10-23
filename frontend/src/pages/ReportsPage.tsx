@@ -6,6 +6,21 @@ import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
 export default function ReportsPage() {
+  const [generating, setGenerating] = useState(false);
+  const handleGenerateRun = async (termId?: string) => {
+    setGenerating(true);
+    try {
+      await api.post("/reports/runs", { term_id: termId || "current", template_id: "standard_cbc" });
+      alert("Report cards generation initiated!");
+      // Reload reports
+      api.get("/reports/cards").then((r) => setCards(Array.isArray(r.data) ? r.data : []));
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Failed to generate report run");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const [templates, setTemplates] = useState<any[]>([]);
   const [runs, setRuns] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);

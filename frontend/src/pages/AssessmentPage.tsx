@@ -6,6 +6,18 @@ import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
 export default function AssessmentPage() {
+  const handleBatchSubmit = async (eventId: string, learnerId: string, rubricLevel: string, score: number) => {
+    try {
+      await api.post("/assessment/results/batch", {
+        assessment_event_id: eventId,
+        results: [{ learner_id: learnerId, rubric_level: rubricLevel, raw_score: score }]
+      });
+      alert("CBC score recorded!");
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Failed to save assessment mark");
+    }
+  };
+
   const [events, setEvents] = useState<any[]>([]);
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
