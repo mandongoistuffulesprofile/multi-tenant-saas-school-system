@@ -6,6 +6,31 @@ import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
 export default function FinanceInvoicesPage() {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({ learner_id: "", term_id: "", amount: "", description: "Term Tuition" });
+  const [creating, setCreating] = useState(false);
+
+  const handleCreateInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      await api.post("/finance/invoices", {
+        learner_id: invoiceForm.learner_id,
+        term_id: invoiceForm.term_id,
+        amount: parseFloat(invoiceForm.amount) || 0,
+        description: invoiceForm.description,
+      });
+      alert("Invoice generated successfully!");
+      setModalOpen(false);
+      // Refresh list
+      api.get("/finance/invoices").then((r) => setInvoices(Array.isArray(r.data) ? r.data : []));
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Failed to create invoice");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();

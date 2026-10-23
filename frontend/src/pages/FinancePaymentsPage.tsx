@@ -6,6 +6,30 @@ import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
 export default function FinancePaymentsPage() {
+  const [payModal, setPayModal] = useState(false);
+  const [payForm, setPayForm] = useState({ invoice_id: "", amount: "", payment_method: "MPESA", reference: "" });
+  const [recording, setRecording] = useState(false);
+
+  const handleRecordPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecording(true);
+    try {
+      await api.post("/finance/payments", {
+        invoice_id: payForm.invoice_id,
+        amount: parseFloat(payForm.amount) || 0,
+        payment_method: payForm.payment_method,
+        reference: payForm.reference.trim(),
+      });
+      alert("Payment recorded and allocated successfully!");
+      setPayModal(false);
+      api.get("/finance/payments").then((r) => setPayments(Array.isArray(r.data) ? r.data : []));
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Failed to record payment");
+    } finally {
+      setRecording(false);
+    }
+  };
+
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
