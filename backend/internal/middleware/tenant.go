@@ -1,11 +1,11 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 )
@@ -15,13 +15,13 @@ import (
 //  1. If a bearer token is present it is verified once and the user, tenant and
 //     role claims are copied into the gin context.
 //  2. Otherwise the tenant may still be resolved from the X-Tenant-ID header
-//     (tenant UUID, subdomain or school code) for public, tenant-aware routes.
+//     (tenant id or subdomain) for public, tenant-aware routes.
 //
 // Handlers read the values with c.GetString("tenant_id") etc., and pass them to
 // db.BeginTenantTx so PostgreSQL RLS enforces isolation inside each transaction.
 func TenantContextMiddleware(jwtManager *auth.JWTManager, database *db.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claims, err := ParseBearerToken(c, jwtManager)
+		claims, fromCookie, err := ParseAccessToken(c, jwtManager)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"code":       "UNAUTHORIZED",
@@ -31,7 +31,37 @@ func TenantContextMiddleware(jwtManager *auth.JWTManager, database *db.DB) gin.H
 			return
 		}
 
+		// Login and refresh establish a session; they cannot present a CSRF
+		// token yet (or may carry an expired access cookie alongside a valid
+		// refresh cookie). Every other cookie-authenticated mutation needs it.
+		skipCSRF := c.Request.URL.Path == "/api/v1/auth/login" || c.Request.URL.Path == "/api/v1/auth/refresh"
+		if claims != nil && fromCookie && isUnsafeMethod(c.Request.Method) && !skipCSRF {
+			cookie, _ := c.Cookie(auth.CSRFCookie)
+			header := c.GetHeader("X-CSRF-Token")
+			if cookie == "" || subtle.ConstantTimeCompare([]byte(cookie), []byte(header)) != 1 {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+					"code":       "CSRF_FAILED",
+					"message":    "Missing or invalid CSRF token",
+					"request_id": c.GetString(ContextRequestID),
+				})
+				return
+			}
+		}
+
 		if claims != nil {
+			// A header may not override the signed tenant claim. Fail closed if
+			// it names a different tenant (including an unknown one).
+			if headerTenant := strings.TrimSpace(c.GetHeader("X-Tenant-ID")); headerTenant != "" {
+				if resolveTenantValue(database, headerTenant) != claims.TenantID {
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+						"code":       "TENANT_MISMATCH",
+						"message":    "X-Tenant-ID does not match the access token",
+						"request_id": c.GetString(ContextRequestID),
+					})
+					return
+				}
+			}
+
 			c.Set(ContextUserID, claims.UserID)
 			c.Set("current_user_id", claims.UserID)
 			c.Set(ContextTenantID, claims.TenantID)
@@ -52,7 +82,7 @@ func TenantContextMiddleware(jwtManager *auth.JWTManager, database *db.DB) gin.H
 }
 
 // resolveTenant reads X-Tenant-ID, falling back to the subdomain of the host.
-// Values may be a tenant UUID, a subdomain or a school code.
+// Values may be a tenant id or a subdomain; both are verified against schools.
 func resolveTenant(c *gin.Context, database *db.DB) string {
 	value := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
 	if value == "" {
@@ -65,25 +95,34 @@ func resolveTenant(c *gin.Context, database *db.DB) string {
 			value = parts[0]
 		}
 	}
-	if value == "" {
+	if value == "" || database == nil {
 		return ""
 	}
 
-	if parsed, err := uuid.Parse(value); err == nil {
-		return parsed.String()
-	}
+	return resolveTenantValue(database, value)
+}
 
-	// Allow subdomains and school codes, but never treat them as a tenant ID
-	// without verifying they exist.
-	if database == nil {
+func resolveTenantValue(database *db.DB, value string) string {
+	if database == nil || value == "" {
 		return ""
 	}
 	var tenantID string
 	if err := database.QueryRow(
-		`SELECT id::text FROM tenants WHERE subdomain = $1 OR school_code = $1 LIMIT 1`,
+		`SELECT tenant_id FROM schools
+		  WHERE status = 'ACTIVE' AND (tenant_id = $1 OR subdomain = $1)
+		  LIMIT 1`,
 		value,
 	).Scan(&tenantID); err != nil {
 		return ""
 	}
 	return tenantID
+}
+
+func isUnsafeMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
 }

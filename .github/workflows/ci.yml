@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main, stabilization]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: skulapp_app
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: skulapp_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U skulapp_app -d skulapp_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://skulapp_app:test_password@localhost:5432/skulapp_ci?sslmode=disable
+      TEST_DATABASE_URL: postgres://skulapp_app:test_password@localhost:5432/skulapp_ci?sslmode=disable
+      REDIS_URL: redis://localhost:6379/0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Build
+        working-directory: backend
+        run: go build ./...
+
+      - name: Vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: Apply migrations to a fresh database
+        working-directory: backend
+        run: go run ./cmd/migrate -dir ../migrations
+
+      - name: Tenant isolation, unit and integration tests
+        working-directory: backend
+        run: go test ./... -count=1
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Type check (non-blocking until the G workstream lands)
+        working-directory: frontend
+        continue-on-error: true
+        run: npx tsc --noEmit
+
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: skulapp_app
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: skulapp_migrate_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U skulapp_app -d skulapp_migrate_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://skulapp_app:test_password@localhost:5432/skulapp_migrate_ci?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Migrate twice (idempotency)
+        working-directory: backend
+        run: |
+          go run ./cmd/migrate -dir ../migrations
+          go run ./cmd/migrate -dir ../migrations
+      - name: Baseline table count
+        run: |
+          count=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+          echo "public tables: $count"
+          test "$count" -ge 100

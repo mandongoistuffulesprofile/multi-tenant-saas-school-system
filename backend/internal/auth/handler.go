@@ -36,12 +36,16 @@ type loginRequest struct {
 	// Password is the only credential; OTP sign-in lives on /auth/otp/*.
 	Password string `json:"password"`
 	// Subdomain or school_code narrows the lookup when an identifier exists in
-	// more than one tenant.
+	// more than one school.
 	Subdomain  string `json:"subdomain"`
 	TenantCode string `json:"tenant_code"`
 }
 
 // Login validates a password and returns an access/refresh token pair.
+//
+// The canonical schema keeps identity in users and school membership in
+// tenant_memberships, so a user may belong to several schools with a different
+// role in each. The token is scoped to one membership.
 func (h *Handler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -53,8 +57,7 @@ func (h *Handler) Login(c *gin.Context) {
 	if identifier == "" {
 		identifier = strings.TrimSpace(req.Email)
 	}
-	password := req.Password
-	if identifier == "" || password == "" {
+	if identifier == "" || req.Password == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_REQUEST", "message": "Identifier and password are required"})
 		return
 	}
@@ -64,75 +67,94 @@ func (h *Handler) Login(c *gin.Context) {
 		tenantCode = strings.TrimSpace(req.TenantCode)
 	}
 
-	tenantID := ""
+	requestedTenant := ""
 	if tenantCode != "" {
-		// tenants is an identity table and is readable before authentication.
 		if err := h.database.QueryRow(
-			`SELECT id::text FROM tenants WHERE subdomain = $1 OR school_code = $1 LIMIT 1`,
+			`SELECT tenant_id FROM schools
+			  WHERE status = 'ACTIVE' AND (subdomain = $1 OR tenant_id = $1)
+			  LIMIT 1`,
 			tenantCode,
-		).Scan(&tenantID); err != nil {
+		).Scan(&requestedTenant); err != nil {
 			// Do not reveal whether the school exists.
 			c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
 			return
 		}
 	}
 
+	const identityPredicate = `u.is_active = true
+		AND (u.email_norm = LOWER($1) OR LOWER(u.email) = LOWER($1) OR u.phone_number = $1)`
+
 	var (
 		userID       string
-		userTenantID string
 		passwordHash string
-		role         string
-		firstName    string
-		lastName     string
 	)
 
-	query := `SELECT id::text, tenant_id::text, password_hash, role, first_name, last_name
-	          FROM users
-	          WHERE is_active = true AND (LOWER(email) = LOWER($1) OR phone_number = $1)`
+	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate
 	args := []any{identifier}
-	if tenantID != "" {
-		query += ` AND tenant_id = $2`
-		args = append(args, tenantID)
+	if requestedTenant != "" {
+		query = `SELECT u.user_id::text, u.password_hash
+		           FROM users u
+		           JOIN tenant_memberships m ON m.user_id = u.user_id
+		          WHERE m.tenant_id = $2 AND m.status = 'ACTIVE' AND ` + identityPredicate
+		args = append(args, requestedTenant)
 	}
 	query += ` LIMIT 1`
 
-	var err error
-	if tenantID != "" {
-		// Set the RLS context for the lookup instead of relying on a role that
-		// can bypass row-level security.
-		tx, txErr := h.database.BeginReadTx(tenantID, "")
-		if txErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Sign-in is temporarily unavailable"})
-			return
-		}
-		defer tx.Rollback()
-		err = tx.QueryRow(query, args...).Scan(&userID, &userTenantID, &passwordHash, &role, &firstName, &lastName)
-	} else {
-		err = h.database.QueryRow(query, args...).Scan(&userID, &userTenantID, &passwordHash, &role, &firstName, &lastName)
-	}
-	if err != nil || !VerifyPassword(passwordHash, password) {
+	if err := h.database.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
+		!VerifyPassword(passwordHash, req.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
 		return
 	}
 
-	roles := []string{role}
-	tokenPair, err := h.jwt.GenerateTokenPair(userID, userTenantID, roles)
+	// Resolve the membership(s) that may mint a session for this user.
+	type membership struct {
+		TenantID string `db:"tenant_id"`
+		Role     string `db:"role"`
+	}
+	var memberships []membership
+	if err := h.database.Select(
+		&memberships,
+		`SELECT tenant_id, role FROM tenant_memberships
+		  WHERE user_id = $1 AND status = 'ACTIVE'
+		  ORDER BY created_at`,
+		userID,
+	); err != nil || len(memberships) == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
+		return
+	}
+
+	tenantID := requestedTenant
+	roles := make([]string, 0, 1)
+	for _, m := range memberships {
+		if tenantID == "" && m.TenantID != "" {
+			tenantID = m.TenantID
+		}
+		if m.TenantID == tenantID {
+			roles = append(roles, m.Role)
+		}
+	}
+	if tenantID == "" || len(roles) == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
+		return
+	}
+
+	tokenPair, err := h.jwt.GenerateTokenPair(userID, tenantID, roles)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "TOKEN_ERROR", "message": "Failed to create session"})
 		return
 	}
 
+	if err := h.persistRefreshToken(userID, tokenPair.RefreshToken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to store refresh token"})
+		return
+	}
+
+	h.setSessionCookies(c, tokenPair)
+
 	c.JSON(http.StatusOK, gin.H{
 		"token_pair": tokenPair,
 		"user_id":    userID,
-		"tenant_id":  userTenantID,
+		"tenant_id":  tenantID,
 		"roles":      roles,
-		"user": gin.H{
-			"id":         userID,
-			"tenant_id":  userTenantID,
-			"first_name": firstName,
-			"last_name":  lastName,
-			"role":       role,
-		},
 	})
 }

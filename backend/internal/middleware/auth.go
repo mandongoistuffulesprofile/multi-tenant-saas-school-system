@@ -73,21 +73,45 @@ func RequestIDMiddleware() gin.HandlerFunc {
 	}
 }
 
-// ParseBearerToken extracts and validates an access token from the
-// Authorization header. It returns nil when no token was supplied.
+// ParseBearerToken extracts a token from the Authorization header only.
 func ParseBearerToken(c *gin.Context, jwtManager *auth.JWTManager) (*auth.Claims, error) {
 	header := c.GetHeader("Authorization")
 	if header == "" {
 		return nil, nil
 	}
-
 	if !strings.HasPrefix(header, "Bearer ") {
 		return nil, auth.ErrInvalidToken
 	}
-
 	claims, err := jwtManager.ValidateToken(strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
 	if err != nil {
 		return nil, err
 	}
+	if claims.TokenType != auth.TokenTypeAccess {
+		return nil, auth.ErrInvalidToken
+	}
 	return claims, nil
+}
+
+// ParseAccessToken resolves the access token from the bearer header first, then
+// from the HttpOnly cookie. The bool reports whether cookie authentication was
+// used, which determines whether CSRF double-submit is required.
+func ParseAccessToken(c *gin.Context, jwtManager *auth.JWTManager) (*auth.Claims, bool, error) {
+	header := c.GetHeader("Authorization")
+	if header != "" {
+		claims, err := ParseBearerToken(c, jwtManager)
+		return claims, false, err
+	}
+
+	cookie, err := c.Cookie(auth.AccessCookie)
+	if err != nil || strings.TrimSpace(cookie) == "" {
+		return nil, false, nil
+	}
+	claims, err := jwtManager.ValidateToken(strings.TrimSpace(cookie))
+	if err != nil {
+		return nil, true, err
+	}
+	if claims.TokenType != auth.TokenTypeAccess {
+		return nil, true, auth.ErrInvalidToken
+	}
+	return claims, true, nil
 }

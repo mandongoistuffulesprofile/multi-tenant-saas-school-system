@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # The canonical baseline (migrations/0001_baseline.sql) was dumped from
+    # PostgreSQL 18 and uses named NOT NULL constraints, so pin the major.
+    image: postgres:18-alpine
     container_name: school_postgres
     restart: always
     environment:
@@ -13,10 +15,6 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # The official image only executes shell/SQL files directly inside
-      # initdb.d, so a wrapper applies the slice directories in order.
-      - ../../migrations:/migrations:ro
-      - ./initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-school_admin} -d ${POSTGRES_DB:-school_system}"]
       interval: 5s
@@ -35,6 +33,24 @@ services:
       timeout: 3s
       retries: 10
 
+  # One-shot migration job. It runs as a separate service so multiple API
+  # replicas never race DDL; cmd/migrate also holds an advisory lock.
+  migrate:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: school_migrate
+    restart: "no"
+    entrypoint: ["/app/migrate"]
+    command: ["-dir", "/migrations"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-school_admin}:${POSTGRES_PASSWORD:-dev_secret_password}@postgres:5432/${POSTGRES_DB:-school_system}?sslmode=disable
+    volumes:
+      - ../../migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     build:
       context: ../../backend
@@ -47,6 +63,7 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-dev-signing-key-change-in-production-min-32-chars}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-encryption-key-32-chars-long}
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-http://localhost:5173}
       PORT: 8080
     ports:
       - "8080:8080"
@@ -55,6 +72,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:

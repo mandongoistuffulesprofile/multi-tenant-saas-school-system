@@ -1,0 +1,124 @@
+# Production single-VPS stack: Postgres, Redis, migrations, API, SPA, Caddy.
+# Copy .env.prod.example to .env.prod, fill secrets, then:
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Only Caddy publishes ports. Postgres, Redis and the API stay on the private
+# Docker network.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-skulapp_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-skulapp}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-skulapp_app} -d ${POSTGRES_DB:-skulapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  migrate:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    image: skulapp-api:${APP_VERSION:-latest}
+    # The image entrypoint is ./api; override it for the one-shot migrator.
+    entrypoint: ["/app/migrate"]
+    command: ["-dir", "/migrations"]
+    restart: "no"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-skulapp_app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-skulapp}?sslmode=disable
+    volumes:
+      - ../../migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  api:
+    image: skulapp-api:${APP_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_VERSION: ${APP_VERSION:-latest}
+      PORT: "8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-skulapp_app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-skulapp}?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
+      CORS_ALLOWED_ORIGIN: https://${DOMAIN:?set DOMAIN}
+      MPESA_WEBHOOK_TOKEN: ${MPESA_WEBHOOK_TOKEN:?set MPESA_WEBHOOK_TOKEN}
+      MPESA_ALLOWED_IPS: ${MPESA_ALLOWED_IPS:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN}
+    expose:
+      - "8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [internal]
+
+  web:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    image: skulapp-web:${APP_VERSION:-latest}
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:

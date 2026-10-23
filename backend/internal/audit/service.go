@@ -1,73 +1,89 @@
 package audit
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 )
 
-// Service writes audit events to the audit_log table.
-// Events are fire-and-forget — failures are logged, never block the request.
+// Service writes tenant-scoped audit events to audit_events. Writes are
+// best-effort: a failed audit insert is logged but never fails the business
+// transaction. Use PublishWithTx when the audit row must be atomic with the
+// change it describes.
 type Service struct {
-	db *sqlx.DB
+	db *db.DB
 }
 
-func NewService(db *sqlx.DB) *Service {
-	return &Service{db: db}
+func NewService(database *db.DB) *Service {
+	return &Service{db: database}
 }
 
-// Event represents a single audit entry.
 type Event struct {
-	ID        int64
-	UserID    *string
-	Event     string
-	IP        *string
-	UserAgent *string
-	RequestID *string
-	Metadata  map[string]any
-	CreatedAt time.Time
+	TenantID  string
+	UserID    string
+	Action    string
+	TableName string
+	RecordID  string
+	OldValues map[string]any
+	NewValues map[string]any
+	IPAddress string
+	RequestID string
 }
 
-// Log writes an audit event. Non-blocking — errors are swallowed.
-func (s *Service) Log(event string, userID *string, ip, userAgent, requestID *string, metadata map[string]any) {
-	if metadata == nil {
-		metadata = map[string]any{}
+func (s *Service) Log(ctx context.Context, event Event) {
+	if event.TenantID == "" {
+		return
 	}
-	go func() {
-		_, err := s.db.Exec(
-			`INSERT INTO audit_log (user_id, event, ip, user_agent, request_id, metadata)
-			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			userID, event, ip, userAgent, requestID, metadata,
-		)
-		if err != nil {
-			fmt.Printf("audit log failed: %v\n", err)
-		}
-	}()
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO audit_events
+		    (tenant_id, user_id, action, table_name, record_id, old_values, new_values, ip_address, request_id)
+		VALUES ($1, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, '')::uuid, $6, $7, NULLIF($8, '')::inet, $9)`,
+		event.TenantID, event.UserID, event.Action, event.TableName, event.RecordID,
+		event.OldValues, event.NewValues, event.IPAddress, event.RequestID,
+	); err != nil {
+		// Do not log the values: they may contain PII.
+		fmt.Printf("audit write failed: %v\n", err)
+	}
 }
 
-// ListRecent returns the most recent audit events.
-func (s *Service) ListRecent(limit int) ([]Event, error) {
-	rows, err := s.db.Query(
-		`SELECT id, user_id, event, ip, user_agent, request_id, created_at
-	       FROM audit_log ORDER BY created_at DESC LIMIT $1`,
-		limit,
-	)
+type Row struct {
+	AuditID   string    `json:"audit_id"`
+	UserID    string    `json:"user_id,omitempty"`
+	Action    string    `json:"action"`
+	TableName string    `json:"table_name"`
+	RecordID  string    `json:"record_id,omitempty"`
+	RequestID string    `json:"request_id,omitempty"`
+	IPAddress string    `json:"ip_address,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (s *Service) ListRecent(ctx context.Context, tenantID string, limit int) ([]Row, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT audit_id::text, COALESCE(user_id::text, ''), action, table_name,
+		       COALESCE(record_id::text, ''), COALESCE(request_id, ''),
+		       COALESCE(host(ip_address), ''), created_at
+		FROM audit_events
+		WHERE tenant_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2`, tenantID, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var events []Event
+	out := make([]Row, 0)
 	for rows.Next() {
-		var e Event
-		if err := rows.Scan(&e.ID, &e.UserID, &e.Event, &e.IP, &e.UserAgent, &e.RequestID, &e.CreatedAt); err != nil {
+		var row Row
+		if err := rows.Scan(&row.AuditID, &row.UserID, &row.Action, &row.TableName,
+			&row.RecordID, &row.RequestID, &row.IPAddress, &row.CreatedAt); err != nil {
 			return nil, err
 		}
-		events = append(events, e)
+		out = append(out, row)
 	}
-	return events, nil
+	return out, rows.Err()
 }
-
-var _ = sql.ErrNoRows

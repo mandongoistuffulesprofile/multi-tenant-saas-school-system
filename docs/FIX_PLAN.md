@@ -335,3 +335,56 @@ Buffer is intentionally thin. If C slips (most likely), cut J5/J6 before cutting
 4. Stand up the backup script and take one encrypted dump **before** touching the schema.
 5. Open the CI skeleton with build-only jobs; add the DB job when C6 lands.
 
+
+---
+
+## 18. Execution log — 2026-10-23
+
+Branch: `stabilization`. The pre-plan working tree was committed first. This is what was actually completed, what is partial, and what remains blocked.
+
+### Completed and verified
+
+| Area | Result | Evidence |
+| --- | --- | --- |
+| A1/A3/A7/A8 | Backend builds, vets and tests; one auth implementation; `internal/database`, `cmd/server` and `pkg/*` retired | `go build ./...`, `go vet ./...`, `go test ./...` offline |
+| A5/A6 | CI (backend, fresh-DB migration twice, frontend, typecheck); blanket `*.sh` ignore removed | `.github/workflows/ci.yml`, `.gitignore` |
+| C1–C7 | Single baseline from the working database; checksummed/advisory-locked `cmd/migrate`; legacy slices archived; docs updated | `0001_baseline.sql`, `backend/cmd/migrate`, `migrations/README.md` |
+| C8 | Idempotent demo seed | `migrations/seed/0001_demo.sql`; login and `/school` smoke test passed |
+| B1/B2 | Tenant claim is authoritative; `X-Tenant-ID` mismatch returns 403; `WithTenant`/`BeginTenantTx`/`BeginReadTx` fixed to use `set_config(..., true)`; header-only tenant resolution remains for public routes | `internal/middleware/tenant.go`, `internal/db/database.go` |
+| B6 | Cross-tenant read/update test passes with RLS forced on the test tables | `backend/internal/db/rls_test.go` |
+| B8 | HS256 enforced, issuer/audience validated, 60 s leeway | `internal/auth/jwt.go` |
+| B9 | Redis per-tenant/IP limiter (600/min) plus stricter auth limiter | `cmd/api/server.go` |
+| E1–E5 | Public C2B callback, shared token, inbox-first, worker, canonical learners/payments/allocations, shortcode uniqueness | callback 200; inbox `PROCESSED`; payment `COMPLETED`; allocation applied; invoice `PARTIALLY_PAID`, outstanding `500.00` |
+| D1–D3 | Backup, restore and restore-verification scripts; verified 104 tables / 86 policies | `scripts/backup.sh`, `scripts/restore.sh`, `scripts/verify_backup.sh` |
+| F1/F3/F7 | JSON request logs, request IDs, metrics, DB+Redis readiness, server timeouts, SIGTERM shutdown | `/health`, `/health/ready`, `/metrics` smoke tests |
+| G2/G3 (server side) | HttpOnly access/refresh cookies, CSRF double-submit for cookie-authenticated writes, refresh rotation persisted, CORS allowlist, security headers | cookie-only `/school` 200; cookie logout without CSRF 403; refresh rotation 200 |
+| H1 | Outbox drainer with `FOR UPDATE SKIP LOCKED`, attempt/backoff/last_error, worker wired | test event `PENDING → PUBLISHED` |
+| I1–I2/I8 | Non-root multi-binary image; prod Compose with Postgres 18, Redis, migrate, API, SPA, Caddy; only Caddy published; HTTP timeouts/body cap | `backend/Dockerfile`, `frontend/Dockerfile`, `infrastructure/docker/docker-compose.prod.yml`, `Caddyfile` |
+| Audit | Audit reads/writes unified on tenant-scoped `audit_events` instead of the global `audit_log` | `internal/audit`, `0007_audit_request_id.sql` |
+
+### Partial / deliberately deferred
+
+- **B3/B4 (full RLS enforcement).** Policies are enabled and strict, but `FORCE` is opt-in because the app role owns tables and most handlers still query the pool directly with explicit tenant filters. `WithTenant` is used for M-Pesa, outbox and other critical transactions. Applying `migrations/optional/0005_force_rls.sql` before the handler refactor would make unfiltered reads return zero rows and break backups. This is documented in `README.md`, `migrations/README.md` and `docs/RUNBOOK.md`.
+- **B5 (least-privilege roles).** `scripts/provision_roles.sh` prepares `skulapp_app`/`reader`/`writer`/`migrator`, but the stack still connects as the owner until B3 is complete.
+- **B7 (route coverage audit).** Guarded groups were reviewed manually; no table-driven route test was added.
+- **D1 encryption/offsite.** The backup script supports `BACKUP_S3` but does not encrypt with `age`/gpg and no timer/heartbeat was installed.
+- **E6–E9.** Reconciliation/manual match, STK polling, failure-semantics integration tests and secret-store wiring are still open.
+- **F2/F4/F5/F6.** No Sentry SDK, alert config or live dashboard; runbook and SLOs are written but untested. Metrics are counters only (no latency histogram).
+- **G1/G4–G6.** Frontend service-worker audit, cookie/CSRF migration of the SPA, offline UX, pagination and error boundaries remain. Server-side CORS allowlist and headers are in place.
+- **H2–H4.** No cron framework (`job_runs`), SMS worker or opt-out enforcement.
+- **I3/I4/I5/I7/I9.** Deploy script and pool math documented; no automated image rollback test, secret manager, feature-flag helper, PgBouncer or encrypted volume.
+- **J1–J6.** No k6 load tests, cursor pagination audit, reference-data cache or read-replica trigger test.
+
+### Blocked by environment
+
+- **Frontend install/build (A4/G).** npm registries are unreachable/failing from this host (`registry.npmjs.org`, `registry.npmmirror.com`, `registry.yarnpkg.com`). A slow mirror attempt resolved only `axios` and `i18next` before stalling. `frontend/node_modules` is incomplete and `npm run build` / `tsc --noEmit` could not be run. The CI job is written and will exercise this on a networked runner.
+- **Docker build/run.** The Docker daemon was not available for an end-to-end Compose run; images and compose files were reviewed and compile-time verified only via `go build`.
+- **Full `go mod tidy`.** The real `mimetype` and `go-urn` modules were fetched and the local `third_party` fallbacks were removed. A full offline tidy still fails only on test-only modules of dependencies (`go-cmp`, `testify`, `kr/text`, etc.); build/vet/test pass with the current `go.sum`, and CI with network can run tidy.
+
+### Recommended next actions
+
+1. Restore npm connectivity, run `npm install && npm run build && npx tsc --noEmit`, then move the SPA to cookie auth (`withCredentials`, CSRF header, no localStorage tokens).
+2. Finish the request-scoped tenant transaction refactor, then apply `migrations/optional/0005_force_rls.sql` and switch to the non-owner app role.
+3. Add M-Pesa failure-semantics and auth/route coverage tests; run the k6 duplicate-callback scenario.
+4. Stand up the staging VPS, run `scripts/deploy.sh`, and execute a restore drill with the backup heartbeat.
+5. Run a networked `go mod tidy` to prune test-only sums; the real `mimetype`/`go-urn` modules are already in use.
