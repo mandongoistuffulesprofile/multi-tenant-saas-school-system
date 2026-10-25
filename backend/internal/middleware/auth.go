@@ -1,117 +1,99 @@
 package middleware
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 )
 
-// Context keys shared by the middleware and the service handlers.
+type contextKey string
+
 const (
-	ContextUserID    = "user_id"
-	ContextTenantID  = "tenant_id"
-	ContextRoles     = "roles"
-	ContextRole      = "role"
-	ContextRequestID = "X-Request-ID"
+	TenantIDKey contextKey = "tenant_id"
+	UserIDKey   contextKey = "user_id"
+	UserRoleKey contextKey = "user_role"
 )
 
-// RequireAuth rejects requests that did not carry a valid access token.
-// TenantContextMiddleware performs the actual token verification and stores the
-// identity; this guard simply enforces that authentication happened.
-func RequireAuth() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if c.GetString(ContextUserID) == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"code":       "UNAUTHORIZED",
-				"message":    "Authentication required",
-				"request_id": c.GetString(ContextRequestID),
-			})
-			return
-		}
-		c.Next()
-	}
-}
+// TenantResolver resolves tenant ID from subdomain (e.g. school1.domain.com) or X-Tenant-ID header
+func TenantResolver(db *sql.DB) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var tenantID uuid.UUID
 
-// RequireRole allows the request when the authenticated user holds at least one
-// of the supplied roles.
-func RequireRole(allowedRoles ...string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		value, _ := c.Get(ContextRoles)
-		roles, _ := value.([]string)
-
-		for _, have := range roles {
-			for _, want := range allowedRoles {
-				if have == want {
-					c.Next()
-					return
+			// 1. Check custom header (useful for mobile apps & API testing)
+			headerTenant := r.Header.Get("X-Tenant-ID")
+			if headerTenant != "" {
+				parsed, err := uuid.Parse(headerTenant)
+				if err == nil {
+					tenantID = parsed
 				}
 			}
-		}
 
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-			"code":       "FORBIDDEN",
-			"message":    "Insufficient permissions",
-			"request_id": c.GetString(ContextRequestID),
+			// 2. Fallback to subdomain resolution
+			if tenantID == uuid.Nil {
+				host := r.Host
+				parts := strings.Split(host, ".")
+				if len(parts) >= 2 {
+					subdomain := strings.ToLower(parts[0])
+					_ = db.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE subdomain = $1", subdomain).Scan(&tenantID)
+				}
+			}
+
+			ctx := context.WithValue(r.Context(), TenantIDKey, tenantID)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// RequestIDMiddleware assigns a correlation ID to every request. Incoming
-// X-Request-ID values are preserved so traces survive a proxy hop.
-func RequestIDMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		requestID := strings.TrimSpace(c.GetHeader(ContextRequestID))
-		if requestID == "" {
-			requestID = uuid.NewString()
-		}
-		c.Header(ContextRequestID, requestID)
-		c.Set(ContextRequestID, requestID)
-		c.Next()
+// RequireAuth validates JWT and verifies that the tenant in token matches request tenant
+func RequireAuth(authService *auth.AuthService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+				http.Error(w, `{"error":"unauthorized: missing or invalid token"}`, http.StatusUnauthorized)
+				return
+			}
+
+			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+			claims, err := authService.ParseToken(tokenStr)
+			if err != nil {
+				http.Error(w, `{"error":"unauthorized: token invalid or expired"}`, http.StatusUnauthorized)
+				return
+			}
+
+			// Ensure tenant isolation boundary: Token tenant MUST match request tenant if resolved
+			reqTenant, _ := r.Context().Value(TenantIDKey).(uuid.UUID)
+			if reqTenant != uuid.Nil && claims.TenantID != reqTenant {
+				http.Error(w, `{"error":"forbidden: cross-tenant access denied"}`, http.StatusForbidden)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
+			ctx = context.WithValue(ctx, TenantIDKey, claims.TenantID)
+			ctx = context.WithValue(ctx, UserRoleKey, claims.Role)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
 	}
 }
 
-// ParseBearerToken extracts a token from the Authorization header only.
-func ParseBearerToken(c *gin.Context, jwtManager *auth.JWTManager) (*auth.Claims, error) {
-	header := c.GetHeader("Authorization")
-	if header == "" {
-		return nil, nil
+// RequireRoles restricts routes to specific school roles (e.g. 'school_admin', 'accountant', 'teacher')
+func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role, _ := r.Context().Value(UserRoleKey).(string)
+			for _, allowed := range allowedRoles {
+				if role == allowed {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			http.Error(w, `{"error":"forbidden: insufficient role permissions"}`, http.StatusForbidden)
+		})
 	}
-	if !strings.HasPrefix(header, "Bearer ") {
-		return nil, auth.ErrInvalidToken
-	}
-	claims, err := jwtManager.ValidateToken(strings.TrimSpace(strings.TrimPrefix(header, "Bearer ")))
-	if err != nil {
-		return nil, err
-	}
-	if claims.TokenType != auth.TokenTypeAccess {
-		return nil, auth.ErrInvalidToken
-	}
-	return claims, nil
-}
-
-// ParseAccessToken resolves the access token from the bearer header first, then
-// from the HttpOnly cookie. The bool reports whether cookie authentication was
-// used, which determines whether CSRF double-submit is required.
-func ParseAccessToken(c *gin.Context, jwtManager *auth.JWTManager) (*auth.Claims, bool, error) {
-	header := c.GetHeader("Authorization")
-	if header != "" {
-		claims, err := ParseBearerToken(c, jwtManager)
-		return claims, false, err
-	}
-
-	cookie, err := c.Cookie(auth.AccessCookie)
-	if err != nil || strings.TrimSpace(cookie) == "" {
-		return nil, false, nil
-	}
-	claims, err := jwtManager.ValidateToken(strings.TrimSpace(cookie))
-	if err != nil {
-		return nil, true, err
-	}
-	if claims.TokenType != auth.TokenTypeAccess {
-		return nil, true, auth.ErrInvalidToken
-	}
-	return claims, true, nil
 }
