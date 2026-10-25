@@ -1,8 +1,3 @@
--- =============================================================================
--- Production Multi-Tenant Schema with PostgreSQL Row-Level Security (RLS)
--- =============================================================================
-
--- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. Tenants Table
@@ -14,18 +9,31 @@ CREATE TABLE IF NOT EXISTS tenants (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Students Table
+-- 2. Users & Roles Table
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    email VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    role VARCHAR(32) NOT NULL CHECK (role IN ('admin', 'teacher', 'accountant', 'parent')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_tenant_user_email UNIQUE (tenant_id, email)
+);
+
+-- 3. Students Roster
 CREATE TABLE IF NOT EXISTS students (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     admission_number VARCHAR(64) NOT NULL,
     full_name VARCHAR(255) NOT NULL,
     grade_level VARCHAR(32) NOT NULL,
+    parent_email VARCHAR(255),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT uq_tenant_admission UNIQUE (tenant_id, admission_number)
 );
 
--- 3. CBC Rubric Assessments Table (with composite idempotency key)
+-- 4. CBC Rubric Assessments
 CREATE TABLE IF NOT EXISTS cbc_assessments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -38,7 +46,7 @@ CREATE TABLE IF NOT EXISTS cbc_assessments (
     CONSTRAINT uq_tenant_student_substrand UNIQUE (tenant_id, student_id, sub_strand_id)
 );
 
--- 4. Fee Balances Ledger
+-- 5. Student Fee Ledgers
 CREATE TABLE IF NOT EXISTS fee_balances (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -49,7 +57,7 @@ CREATE TABLE IF NOT EXISTS fee_balances (
     CONSTRAINT uq_student_balance UNIQUE (tenant_id, student_id)
 );
 
--- 5. Daraja M-Pesa Transactions Table (Strict Idempotency by Receipt)
+-- 6. M-Pesa Daraja Transactions
 CREATE TABLE IF NOT EXISTS fee_payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -63,29 +71,29 @@ CREATE TABLE IF NOT EXISTS fee_payments (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable Row-Level Security
+-- Row-Level Security
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cbc_assessments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fee_balances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fee_payments ENABLE ROW LEVEL SECURITY;
 
--- Dynamic Tenant Context Isolation Policy
+DROP POLICY IF EXISTS tenant_isolation_policy ON users;
+CREATE POLICY tenant_isolation_policy ON users FOR ALL
+  USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+
 DROP POLICY IF EXISTS tenant_isolation_policy ON students;
-CREATE POLICY tenant_isolation_policy ON students
-    FOR ALL
-    USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+CREATE POLICY tenant_isolation_policy ON students FOR ALL
+  USING (tenant_id::text = current_setting('app.current_tenant_id', true));
 
 DROP POLICY IF EXISTS tenant_isolation_policy ON cbc_assessments;
-CREATE POLICY tenant_isolation_policy ON cbc_assessments
-    FOR ALL
-    USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+CREATE POLICY tenant_isolation_policy ON cbc_assessments FOR ALL
+  USING (tenant_id::text = current_setting('app.current_tenant_id', true));
 
 DROP POLICY IF EXISTS tenant_isolation_policy ON fee_balances;
-CREATE POLICY tenant_isolation_policy ON fee_balances
-    FOR ALL
-    USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+CREATE POLICY tenant_isolation_policy ON fee_balances FOR ALL
+  USING (tenant_id::text = current_setting('app.current_tenant_id', true));
 
 DROP POLICY IF EXISTS tenant_isolation_policy ON fee_payments;
-CREATE POLICY tenant_isolation_policy ON fee_payments
-    FOR ALL
-    USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+CREATE POLICY tenant_isolation_policy ON fee_payments FOR ALL
+  USING (tenant_id::text = current_setting('app.current_tenant_id', true));
