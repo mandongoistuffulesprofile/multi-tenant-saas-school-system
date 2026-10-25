@@ -9,17 +9,19 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/cbc"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/handlers"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sms"
 )
 
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5432/school_saas?sslmode=disable"
+		dbURL = "postgres://postgres:postgrespassword@localhost:5432/school_saas?sslmode=disable"
 	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -32,49 +34,57 @@ func main() {
 		port = "8080"
 	}
 
-	// Connect to PostgreSQL connection pool
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Database connection error: %v", err)
 	}
 	defer db.Close()
+
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(5 * time.Minute)
-
-	if err := db.Ping(); err != nil {
-		log.Printf("Warning: Database ping failed (%v). Ensure Postgres is running.", err)
-	}
 
 	// Instantiate Core Services
 	authSvc := auth.NewAuthService(jwtSecret)
 	mpesaSvc := daraja.NewMpesaService(db)
 	cbcSvc := cbc.NewCBCService(db)
-	api := handlers.NewAPIHandlers(db, authSvc, mpesaSvc, cbcSvc)
+	smsSvc := sms.NewSMSService()
+	auditLogger := audit.NewAuditLogger(db)
+
+	api := handlers.NewAPIHandlers(db, authSvc, mpesaSvc, cbcSvc, smsSvc, auditLogger)
 
 	mux := http.NewServeMux()
 
-	// Base Public Routes
+	// Public Health Endpoint
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"healthy","time":"%s"}`, time.Now().UTC().Format(time.RFC3339))
 	})
 
-	// Tenant Public Onboarding & Auth
+	// Public Auth & Onboarding
 	mux.HandleFunc("/api/v1/auth/register-school", api.RegisterSchoolHandler)
 	mux.HandleFunc("/api/v1/auth/login", api.LoginHandler)
 
-	// Daraja M-Pesa Webhook Endpoints (Isolated via Tenant Resolver)
+	// Safaricom Webhook Endpoints
 	mux.HandleFunc("/api/v1/daraja/c2b/validation", api.DarajaC2BCallbackHandler)
 	mux.HandleFunc("/api/v1/daraja/c2b/confirmation", api.DarajaC2BCallbackHandler)
+	mux.HandleFunc("/api/v1/daraja/stk/callback", api.STKCallbackHandler)
 
-	// Protected Routes (Require Authentication + Tenant Context)
-	authMiddleware := middleware.RequireAuth(authSvc)
-	teacherGuard := middleware.RequireRoles("school_admin", "teacher")
+	// Protected Endpoints
+	authMW := middleware.RequireAuth(authSvc)
+	teacherMW := middleware.RequireRoles("school_admin", "teacher")
+	adminMW := middleware.RequireRoles("school_admin", "accountant")
 
-	mux.Handle("/api/v1/cbc/assessments/sync", authMiddleware(teacherGuard(http.HandlerFunc(api.CBCSyncHandler))))
+	// STK Push Trigger
+	mux.Handle("/api/v1/daraja/stk/initiate", authMW(http.HandlerFunc(api.InitiateSTKPushHandler)))
 
-	// Wrap root with TenantResolver
+	// C2B Registration (Admin Only)
+	mux.Handle("/api/v1/daraja/c2b/register", authMW(adminMW(http.HandlerFunc(api.RegisterC2BHandler))))
+
+	// CBC Offline Sync
+	mux.Handle("/api/v1/cbc/assessments/sync", authMW(teacherMW(http.HandlerFunc(api.CBCSyncHandler))))
+
+	// Root wrapped with Subdomain Tenant Resolver
 	tenantWrapped := middleware.TenantResolver(db)(mux)
 
 	server := &http.Server{
@@ -85,8 +95,8 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("School SaaS Backend running on port %s", port)
+	log.Printf("School SaaS Backend online at :%s", port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Server failed: %v", err)
+		log.Fatalf("Server stopped: %v", err)
 	}
 }

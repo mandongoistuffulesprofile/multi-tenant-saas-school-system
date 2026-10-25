@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/cbc"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sms"
 )
 
 type APIHandlers struct {
@@ -20,18 +23,21 @@ type APIHandlers struct {
 	AuthService  *auth.AuthService
 	MpesaService *daraja.MpesaService
 	CBCService   *cbc.CBCService
+	SMSService   *sms.SMSService
+	AuditLogger  *audit.AuditLogger
 }
 
-func NewAPIHandlers(db *sql.DB, authSvc *auth.AuthService, mpesaSvc *daraja.MpesaService, cbcSvc *cbc.CBCService) *APIHandlers {
+func NewAPIHandlers(db *sql.DB, authSvc *auth.AuthService, mpesaSvc *daraja.MpesaService, cbcSvc *cbc.CBCService, smsSvc *sms.SMSService, auditLog *audit.AuditLogger) *APIHandlers {
 	return &APIHandlers{
 		DB:           db,
 		AuthService:  authSvc,
 		MpesaService: mpesaSvc,
 		CBCService:   cbcSvc,
+		SMSService:   smsSvc,
+		AuditLogger:  auditLog,
 	}
 }
 
-// RegisterSchoolHandler provisions a new tenant and school_admin user
 func (h *APIHandlers) RegisterSchoolHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -102,7 +108,6 @@ func (h *APIHandlers) RegisterSchoolHandler(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// LoginHandler authenticates users and issues tenant-scoped tokens
 func (h *APIHandlers) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -153,6 +158,46 @@ func (h *APIHandlers) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// InitiateSTKPushHandler initiates payment prompt on parent phone
+func (h *APIHandlers) InitiateSTKPushHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	tenantID, _ := r.Context().Value(middleware.TenantIDKey).(uuid.UUID)
+	var req daraja.STKPushRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	resp, err := h.MpesaService.InitiateSTKPush(r.Context(), tenantID, req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// STKCallbackHandler processes incoming Daraja STK Push callbacks
+func (h *APIHandlers) STKCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"ResultCode":1,"ResultDesc":"Failed to read body"}`, http.StatusBadRequest)
+		return
+	}
+
+	tenantIDStr := r.URL.Query().Get("tenant_id")
+	tenantID, _ := uuid.Parse(tenantIDStr)
+
+	_ = h.MpesaService.ProcessSTKCallback(r.Context(), tenantID, body, h.SMSService)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ResultCode": 0, "ResultDesc": "Success"})
+}
+
 // DarajaC2BCallbackHandler processes incoming Safaricom M-Pesa IPNs
 func (h *APIHandlers) DarajaC2BCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -171,6 +216,24 @@ func (h *APIHandlers) DarajaC2BCallbackHandler(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// RegisterC2BHandler registers C2B validation and confirmation URLs
+func (h *APIHandlers) RegisterC2BHandler(w http.ResponseWriter, r *http.Request) {
+	consumerKey := os.Getenv("MPESA_CONSUMER_KEY")
+	consumerSecret := os.Getenv("MPESA_CONSUMER_SECRET")
+	shortcode := os.Getenv("MPESA_SHORTCODE")
+	valURL := os.Getenv("MPESA_VALIDATION_URL")
+	confURL := os.Getenv("MPESA_CONFIRMATION_URL")
+	isSandbox := os.Getenv("MPESA_ENV") != "production"
+
+	res, err := daraja.RegisterC2BURLs(consumerKey, consumerSecret, shortcode, valURL, confURL, isSandbox)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 // CBCSyncHandler accepts offline batch assessments from teacher PWAs
