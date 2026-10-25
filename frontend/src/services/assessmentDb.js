@@ -1,4 +1,3 @@
-// Native IndexedDB helper with zero external dependencies
 const DB_NAME = 'SchoolCBC_DB';
 const DB_VERSION = 1;
 const STORE_NAME = 'rubric_assessments';

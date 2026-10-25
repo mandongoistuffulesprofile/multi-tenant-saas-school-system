@@ -70,7 +70,7 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
         return;
       }
 
-      const res = await fetch('/api/v1/assessments/cbc/bulk-sync', {
+      const res = await fetch('http://localhost:4000/api/v1/assessments/cbc/bulk-sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -91,11 +91,11 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
   };
 
   return (
-    <div style={{ maxWidth: '960px', margin: '0 auto', padding: '16px', fontFamily: 'sans-serif' }}>
+    <div style={{ maxWidth: '960px', margin: '0 auto', fontFamily: 'sans-serif' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h2>CBC 4-Level Assessment Screen</h2>
-          <p style={{ color: '#4b5563', margin: 0 }}>
+          <h3 style={{ margin: 0 }}>CBC 4-Level Assessment Screen</h3>
+          <p style={{ color: '#4b5563', margin: '4px 0 0', fontSize: '14px' }}>
             Sub-Strand: <strong>{subStrand?.name || 'General Competency'}</strong>
           </p>
         </div>
@@ -109,19 +109,19 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
             background: isOnline ? '#dcfce7' : '#fee2e2',
             color: isOnline ? '#15803d' : '#b91c1c'
           }}>
-            {isOnline ? 'Online' : 'Offline Mode'}
+            {isOnline ? '● Online' : '○ Offline Mode'}
           </span>
           <div style={{ fontSize: '13px', marginTop: '6px' }}>
             {pendingCount > 0 ? (
               <button 
                 onClick={triggerSync} 
                 disabled={syncing || !isOnline}
-                style={{ cursor: isOnline ? 'pointer' : 'not-allowed', padding: '4px 8px' }}
+                style={{ cursor: isOnline ? 'pointer' : 'not-allowed', padding: '4px 10px', borderRadius: '4px', border: '1px solid #d1d5db', background: '#f8fafc' }}
               >
                 {syncing ? 'Syncing...' : `Sync ${pendingCount} Local Changes`}
               </button>
             ) : (
-              <span style={{ color: '#16a34a' }}>All changes saved</span>
+              <span style={{ color: '#16a34a' }}>✓ All changes saved</span>
             )}
           </div>
         </div>
