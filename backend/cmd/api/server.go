@@ -118,7 +118,7 @@ func Run() error {
 	structureService := structure.NewService(database)
 	structureHandler := structure.NewHandler(structureService)
 
-	syncService := sync.NewService(database)
+	syncService := sync.NewService()
 	syncHandler := sync.NewHandler(syncService)
 
 	// M-Pesa: the callback writes to a durable inbox; a background worker
