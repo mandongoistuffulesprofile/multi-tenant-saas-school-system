@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -34,6 +35,11 @@ type invoiceDraft struct {
 // CreateInvoiceRun generates invoices for a set of learners from the fee
 // structures in force. A dry run reports the totals without writing.
 func (h *Handler) CreateInvoiceRun(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		AcademicYearID string   `json:"academic_year_id" binding:"required"`
 		TermID         string   `json:"term_id" binding:"required"`
@@ -68,7 +74,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 	}
 	query += " ORDER BY l.admission_number"
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -121,7 +127,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 	for _, d := range drafts {
 		// Skip learners who already have an invoice for this year and term.
 		var existing int
-		if err := h.service.database.QueryRow(
+		if err := tx.QueryRow(
 			`SELECT COUNT(*) FROM invoices WHERE tenant_id = $1 AND learner_id = $2 AND academic_year_id = $3 AND term_id = $4`,
 			tenantID, d.learnerID, req.AcademicYearID, req.TermID).Scan(&existing); err == nil && existing > 0 {
 			skipped++
@@ -130,7 +136,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 
 		invoiceNumber := "INV-" + req.AcademicYearID + "-" + d.admissionNo
 		var invoiceID string
-		err := h.service.database.QueryRow(
+		err := tx.QueryRow(
 			`INSERT INTO invoices (tenant_id, invoice_number, learner_id, academic_year_id, term_id, status, total_amount, amount_paid, amount_outstanding, issue_date, due_date, created_by)
 			 VALUES ($1, $2, $3, $4, $5, 'ISSUED', $6, 0, $6, CURRENT_DATE, $7, $8)
 			 ON CONFLICT (tenant_id, invoice_number) DO NOTHING
@@ -147,7 +153,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 		}
 
 		for _, l := range d.lines {
-			_, _ = h.service.database.Exec(
+			_, _ = tx.Exec(
 				`INSERT INTO invoice_lines (tenant_id, invoice_id, category_id, description, quantity, unit_amount, line_amount, academic_year_id, term_id)
 				 VALUES ($1, $2, $3, $4, 1, $5, $5, $6, $7)`,
 				tenantID, invoiceID, l.categoryID, l.description, l.amount, req.AcademicYearID, req.TermID)
@@ -172,13 +178,18 @@ func sumAmounts(drafts []invoiceDraft) float64 {
 
 // ArrearsReport returns learners with outstanding balances, bucketed by age.
 func (h *Handler) ArrearsReport(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	minAmount := 0.0
 	if v := c.Query("min_amount"); v != "" {
 		minAmount = parseFloat(v)
 	}
 
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT l.learner_id, l.admission_number, l.first_name, l.last_name,
 			COALESCE(g.grade_label, ''), COALESCE(s.stream_name, ''),
 			COALESCE(SUM(i.amount_outstanding), 0),
@@ -245,6 +256,11 @@ func arrearsBucket(amount float64) string {
 
 // SendArrearsReminders queues reminder messages for selected learners.
 func (h *Handler) SendArrearsReminders(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		LearnerIDs []string `json:"learner_ids" binding:"required"`
 		TemplateID string   `json:"template_id"`
@@ -269,7 +285,7 @@ func (h *Handler) SendArrearsReminders(c *gin.Context) {
 	queued := 0
 	excluded := 0
 	for _, learnerID := range req.LearnerIDs {
-		rows, err := h.service.database.Query(
+		rows, err := tx.Query(
 			`SELECT gd.guardian_id, gd.phone_number
 			 FROM learner_guardians lg
 			 JOIN guardians gd ON gd.guardian_id = lg.guardian_id
@@ -283,7 +299,7 @@ func (h *Handler) SendArrearsReminders(c *gin.Context) {
 			if err := rows.Scan(&guardianID, &address); err != nil {
 				continue
 			}
-			_, err := h.service.database.Exec(
+			_, err := tx.Exec(
 				`INSERT INTO outbound_messages (tenant_id, template_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, created_by)
 				 VALUES ($1, $2, 'GUARDIAN', $3, 'SMS', $4, $5, 'QUEUED', $6)`,
 				tenantID, templateID, guardianID, address, body, nullableString(userID))
@@ -301,6 +317,11 @@ func (h *Handler) SendArrearsReminders(c *gin.Context) {
 
 // MatchReconciliation links an unmatched M-Pesa transaction to an invoice.
 func (h *Handler) MatchReconciliation(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	transactionID := c.Param("txn_id")
 	var req struct {
 		InvoiceID string  `json:"invoice_id" binding:"required"`
@@ -316,7 +337,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 
 	var transactionAmount float64
 	var billRef, status string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT amount, COALESCE(bill_ref, ''), status FROM mpesa_transactions WHERE trans_id = $1 AND tenant_id = $2`,
 		transactionID, tenantID).Scan(&transactionAmount, &billRef, &status)
 	if err == sql.ErrNoRows {
@@ -336,7 +357,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 	// never from the phone number.
 	learnerID := req.LearnerID
 	if learnerID == "" && billRef != "" {
-		_ = h.service.database.QueryRow(
+		_ = tx.QueryRow(
 			`SELECT learner_id FROM learners WHERE tenant_id = $1 AND admission_number = $2`,
 			tenantID, billRef).Scan(&learnerID)
 	}
@@ -354,7 +375,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 
 	// Record the payment and allocate it to the invoice.
 	var paymentID string
-	err = h.service.database.QueryRow(
+	err = tx.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, mpesa_trans_id, recorded_by)
 		 VALUES ($1, $2, $3, 'MPESA', $4, 'COMPLETED', $5, $6) RETURNING payment_id`,
 		tenantID, "MPESA-"+shortID(transactionID), learnerID, amount, transactionID, nullableString(userID)).Scan(&paymentID)
@@ -363,19 +384,19 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		return
 	}
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		tenantID, paymentID, req.InvoiceID, amount, nullableString(userID))
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`UPDATE invoices SET amount_paid = amount_paid + $1,
 		   amount_outstanding = GREATEST(amount_outstanding - $1, 0),
 		   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
 		   updated_at = now()
 		 WHERE invoice_id = $2 AND tenant_id = $3`, amount, req.InvoiceID, tenantID)
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`UPDATE mpesa_transactions SET status = 'MATCHED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,
 		transactionID, tenantID)
 
@@ -384,6 +405,11 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 
 // FlagRefundForReconciliation marks a transaction for a refund.
 func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	transactionID := c.Param("txn_id")
 	var req struct {
 		Reason string `json:"reason" binding:"required"`
@@ -397,7 +423,7 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 
 	var learnerID string
 	var amount float64
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT COALESCE(bill_ref, ''), amount FROM mpesa_transactions WHERE trans_id = $1 AND tenant_id = $2`,
 		transactionID, tenantID).Scan(&learnerID, &amount)
 	if err == sql.ErrNoRows {
@@ -412,13 +438,13 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 	// The refund references a payment row, so make sure one exists for this
 	// transaction before raising the refund.
 	var paymentID string
-	err = h.service.database.QueryRow(
+	err = tx.QueryRow(
 		`SELECT payment_id FROM payments WHERE tenant_id = $1 AND mpesa_trans_id = $2 LIMIT 1`,
 		tenantID, transactionID).Scan(&paymentID)
 	if err == sql.ErrNoRows {
 		resolvedLearner := learnerID
 		if resolvedLearner == "" {
-			_ = h.service.database.QueryRow(
+			_ = tx.QueryRow(
 				`SELECT learner_id FROM learners WHERE tenant_id = $1 AND admission_number = $2`,
 				tenantID, learnerID).Scan(&resolvedLearner)
 		}
@@ -428,7 +454,7 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 			})
 			return
 		}
-		err = h.service.database.QueryRow(
+		err = tx.QueryRow(
 			`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, mpesa_trans_id, recorded_by)
 			 VALUES ($1, $2, $3, 'MPESA', $4, 'COMPLETED', $5, $6) RETURNING payment_id`,
 			tenantID, "MPESA-"+shortID(transactionID), resolvedLearner, amount, transactionID,
@@ -443,7 +469,7 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 	}
 
 	var refundID string
-	err = h.service.database.QueryRow(
+	err = tx.QueryRow(
 		`INSERT INTO refunds (tenant_id, payment_id, amount, reason, status, created_by)
 		 VALUES ($1, $2, $3, $4, 'PENDING', $5) RETURNING refund_id`,
 		tenantID, paymentID, amount, req.Reason, nullableString(userID)).Scan(&refundID)
@@ -452,7 +478,7 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 		return
 	}
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`UPDATE mpesa_transactions SET status = 'REFUND_FLAGGED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,
 		transactionID, tenantID)
 
@@ -461,11 +487,16 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 
 // LearnerStatement returns everything owed and paid for one learner.
 func (h *Handler) LearnerStatement(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	learnerID := c.Param("learner_id")
 	tenantID := c.GetString("tenant_id")
 
 	var learnerName, admissionNo string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT first_name || ' ' || last_name, admission_number FROM learners WHERE learner_id = $1 AND tenant_id = $2`,
 		learnerID, tenantID).Scan(&learnerName, &admissionNo)
 	if err == sql.ErrNoRows {
@@ -478,7 +509,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 	}
 
 	invoices := make([]gin.H, 0)
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT invoice_id, invoice_number, status, total_amount, amount_paid, amount_outstanding, due_date
 		 FROM invoices WHERE tenant_id = $1 AND learner_id = $2 ORDER BY issue_date DESC`, tenantID, learnerID)
 	if err != nil {
@@ -505,7 +536,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 	rows.Close()
 
 	payments := make([]gin.H, 0)
-	rows, err = h.service.database.Query(
+	rows, err = tx.Query(
 		`SELECT payment_id, payment_reference, source, amount, status, received_at
 		 FROM payments WHERE tenant_id = $1 AND learner_id = $2 ORDER BY received_at DESC LIMIT 50`, tenantID, learnerID)
 	if err != nil {
@@ -528,7 +559,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 	rows.Close()
 
 	adjustments := make([]gin.H, 0)
-	rows, err = h.service.database.Query(
+	rows, err = tx.Query(
 		`SELECT a.adjustment_id, a.adjustment_type, a.amount, a.reason, a.created_at
 		 FROM adjustments a JOIN invoices i ON i.invoice_id = a.invoice_id
 		 WHERE a.tenant_id = $1 AND i.learner_id = $2 ORDER BY a.created_at DESC`, tenantID, learnerID)
@@ -564,21 +595,26 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 
 // FinanceDashboard returns the tiles the bursar dashboard shows.
 func (h *Handler) FinanceDashboard(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 
 	var collected, outstanding float64
 	var invoiceCount, unmatched int
-	_ = h.service.database.QueryRow(
+	_ = tx.QueryRow(
 		`SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&collected)
-	_ = h.service.database.QueryRow(
+	_ = tx.QueryRow(
 		`SELECT COALESCE(SUM(amount_outstanding), 0) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&outstanding)
-	_ = h.service.database.QueryRow(
+	_ = tx.QueryRow(
 		`SELECT COUNT(*) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&invoiceCount)
-	_ = h.service.database.QueryRow(
+	_ = tx.QueryRow(
 		`SELECT COUNT(*) FROM mpesa_transactions WHERE tenant_id = $1 AND status = 'UNMATCHED'`, tenantID).Scan(&unmatched)
 
 	byGrade := make([]gin.H, 0)
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT COALESCE(g.grade_label, 'Unassigned'),
 			COALESCE(SUM(i.total_amount), 0),
 			COALESCE(SUM(i.amount_paid), 0),
@@ -623,8 +659,13 @@ func collectionRate(collected, outstanding float64) float64 {
 
 // CapitationSummary totals the capitation receipts received by the school.
 func (h *Handler) CapitationSummary(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT receipt_number, capitation_period, learner_count, amount_per_learner, total_amount, status, received_at
 		 FROM capitation_receipts WHERE tenant_id = $1 ORDER BY capitation_period DESC`, tenantID)
 	if err != nil {
@@ -661,6 +702,11 @@ func (h *Handler) CapitationSummary(c *gin.Context) {
 
 // CreateCapitationReceipt records a capitation grant received.
 func (h *Handler) CreateCapitationReceipt(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		ReceiptNumber    string  `json:"receipt_number" binding:"required"`
 		CapitationPeriod string  `json:"capitation_period" binding:"required"`
@@ -678,7 +724,7 @@ func (h *Handler) CreateCapitationReceipt(c *gin.Context) {
 
 	total := float64(req.LearnerCount) * req.AmountPerLearner
 	var receiptID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO capitation_receipts
 		 (tenant_id, receipt_number, capitation_period, learner_count, amount_per_learner, total_amount, received_at, reference, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING receipt_id`,
@@ -694,11 +740,16 @@ func (h *Handler) CreateCapitationReceipt(c *gin.Context) {
 
 // STKStatus reports the state of an STK push.
 func (h *Handler) STKStatus(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	stkID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
 	var status, checkoutRequestID string
 	var callbackPayload []byte
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT status, checkout_request_id, callback_payload FROM mpesa_stk_requests WHERE stk_id = $1 AND tenant_id = $2`,
 		stkID, tenantID).Scan(&status, &checkoutRequestID, &callbackPayload)
 	if err == sql.ErrNoRows {
@@ -717,6 +768,11 @@ func (h *Handler) STKStatus(c *gin.Context) {
 // RecordPayment handles the bursar's manual cash/bank receipt. The
 // idempotency key makes a double submit harmless.
 func (h *Handler) RecordPayment(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		PaymentReference string  `json:"payment_reference" binding:"required"`
 		LearnerID        string  `json:"learner_id" binding:"required"`
@@ -756,7 +812,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 
 	// Replay protection: the same key returns the original payment.
 	var existingID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT payment_id FROM payments WHERE tenant_id = $1 AND idempotency_key = $2`,
 		tenantID, idempotencyKey).Scan(&existingID)
 	if err == nil {
@@ -765,7 +821,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	}
 
 	var paymentID string
-	err = h.service.database.QueryRow(
+	err = tx.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, recorded_by, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6, $7) RETURNING payment_id`,
 		tenantID, req.PaymentReference, req.LearnerID, source, req.Amount,
@@ -779,7 +835,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	allocationInvoice := req.InvoiceID
 	if allocationInvoice == "" {
 		var invoiceID string
-		if err := h.service.database.QueryRow(
+		if err := tx.QueryRow(
 			`SELECT invoice_id FROM invoices WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
 			 ORDER BY due_date NULLS LAST, issue_date LIMIT 1`,
 			tenantID, req.LearnerID).Scan(&invoiceID); err == nil {
@@ -787,11 +843,11 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		}
 	}
 	if allocationInvoice != "" {
-		_, _ = h.service.database.Exec(
+		_, _ = tx.Exec(
 			`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 			 VALUES ($1, $2, $3, $4, $5)`,
 			tenantID, paymentID, allocationInvoice, req.Amount, nullableString(userID))
-		_, _ = h.service.database.Exec(
+		_, _ = tx.Exec(
 			`UPDATE invoices SET amount_paid = amount_paid + $1,
 			   amount_outstanding = GREATEST(amount_outstanding - $1, 0),
 			   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
