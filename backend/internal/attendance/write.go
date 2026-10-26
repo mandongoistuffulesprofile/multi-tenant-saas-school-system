@@ -4,10 +4,12 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -35,6 +37,8 @@ var validMarkStatuses = map[string]bool{
 
 // CreateRegister opens an attendance register for a class group.
 func (h *Handler) CreateRegister(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	var req struct {
 		ClassGroupID   string `json:"class_group_id" binding:"required"`
 		AcademicYearID string `json:"academic_year_id" binding:"required"`
@@ -61,7 +65,7 @@ func (h *Handler) CreateRegister(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var registerID string
-	err := h.service.database.QueryRow(
+	err := q.QueryRow(
 		`INSERT INTO attendance_registers
 		 (tenant_id, class_group_id, grade_id, stream_id, academic_year_id, term_id, register_date, session_type, marked_by)
 		 SELECT $1::varchar, cg.class_group_id, cg.grade_id, cg.stream_id, $3::uuid, $4::uuid, $5::date, $6::varchar, $7::uuid
@@ -85,6 +89,8 @@ func (h *Handler) CreateRegister(c *gin.Context) {
 
 // UpdateRegister changes the status of a register (OPEN -> CLOSED).
 func (h *Handler) UpdateRegister(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	registerID := c.Param("register_id")
 	var req struct {
 		Status string `json:"status" binding:"required"`
@@ -103,7 +109,7 @@ func (h *Handler) UpdateRegister(c *gin.Context) {
 
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
-	result, err := h.service.database.Exec(
+	result, err := q.Exec(
 		`UPDATE attendance_registers SET status = $1, marked_by = COALESCE($2, marked_by), marked_at = now(), updated_at = now()
 		 WHERE register_id = $3 AND tenant_id = $4`, status, nullableString(userID), registerID, tenantID)
 	if err != nil {
@@ -132,7 +138,7 @@ func (h *Handler) UpsertMark(c *gin.Context) {
 
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
-	saved, err := h.upsertMark(tenantID, userID, input)
+	saved, err := h.upsertMark(c.Request.Context(), tenantID, userID, input)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -170,7 +176,7 @@ func (h *Handler) BatchUpsertMarks(c *gin.Context) {
 			})
 			continue
 		}
-		result, err := h.upsertMark(tenantID, userID, input)
+		result, err := h.upsertMark(c.Request.Context(), tenantID, userID, input)
 		if err != nil {
 			failed = append(failed, gin.H{
 				"client_uuid": input.ClientUUID,
@@ -189,7 +195,9 @@ func (h *Handler) BatchUpsertMarks(c *gin.Context) {
 	})
 }
 
-func (h *Handler) upsertMark(tenantID, userID string, input MarkInput) (gin.H, error) {
+func (h *Handler) upsertMark(ctx context.Context, tenantID, userID string, input MarkInput) (gin.H, error) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	clientUUID := interface{}(nil)
 	if strings.TrimSpace(input.ClientUUID) != "" {
 		clientUUID = input.ClientUUID
@@ -204,7 +212,7 @@ func (h *Handler) upsertMark(tenantID, userID string, input MarkInput) (gin.H, e
 	}
 
 	var markID string
-	err := h.service.database.QueryRow(
+	err := q.QueryRow(
 		`INSERT INTO attendance_marks
 		 (tenant_id, register_id, learner_id, status, marked_by, notes, client_uuid, device_id, client_ts)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -220,7 +228,7 @@ func (h *Handler) upsertMark(tenantID, userID string, input MarkInput) (gin.H, e
 
 	// A teacher re-marking a learner in the same register replaces the
 	// previous mark rather than accumulating rows.
-	_, err = h.service.database.Exec(
+	_, err = q.Exec(
 		`UPDATE attendance_marks SET status = $1, marked_by = $2, marked_at = now(), updated_at = now()
 		 WHERE tenant_id = $3 AND register_id = $4 AND learner_id = $5 AND mark_id <> $6`,
 		strings.ToUpper(input.Status), nullableString(userID), tenantID,
@@ -254,6 +262,8 @@ func validateMark(input MarkInput) []validation.FieldError {
 // AttendanceSummary aggregates a register so the UI can show counts without
 // downloading every mark.
 func (h *Handler) AttendanceSummary(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	tenantID := c.GetString("tenant_id")
 	registerID := c.Query("register_id")
 
@@ -268,7 +278,7 @@ func (h *Handler) AttendanceSummary(c *gin.Context) {
 	}
 	query += " GROUP BY am.status"
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := q.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -302,11 +312,13 @@ type GatePolicy struct {
 }
 
 func (h *Handler) GetGatePolicy(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	tenantID := c.GetString("tenant_id")
 	policy := GatePolicy{OfflineGraceMinutes: 1440}
 
 	var raw []byte
-	err := h.service.database.QueryRow(
+	err := q.QueryRow(
 		`SELECT setting_value FROM school_settings WHERE tenant_id = $1 AND setting_key = 'gate_policy'`,
 		tenantID).Scan(&raw)
 	if err == sql.ErrNoRows {
@@ -325,6 +337,8 @@ func (h *Handler) GetGatePolicy(c *gin.Context) {
 }
 
 func (h *Handler) UpdateGatePolicy(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	var policy GatePolicy
 	if errs := validation.BindJSON(c, &policy); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -338,7 +352,7 @@ func (h *Handler) UpdateGatePolicy(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
-	_, err = h.service.database.Exec(
+	_, err = q.Exec(
 		`INSERT INTO school_settings (tenant_id, setting_key, setting_value, updated_by)
 		 VALUES ($1, 'gate_policy', $2::jsonb, $3)
 		 ON CONFLICT (tenant_id, setting_key)
@@ -353,6 +367,8 @@ func (h *Handler) UpdateGatePolicy(c *gin.Context) {
 
 // PairDevice registers a kiosk and returns its pairing code.
 func (h *Handler) PairDevice(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	var req struct {
 		DeviceName string `json:"device_name" binding:"required"`
 		DeviceType string `json:"device_type"`
@@ -371,7 +387,7 @@ func (h *Handler) PairDevice(c *gin.Context) {
 
 	code := randomPairingCode()
 	var deviceID string
-	err := h.service.database.QueryRow(
+	err := q.QueryRow(
 		`INSERT INTO gate_devices (tenant_id, device_name, device_type, location, pairing_code, is_paired, paired_by, paired_at)
 		 VALUES ($1, $2, $3, $4, $5, true, $6, now())
 		 RETURNING device_id`,
@@ -390,6 +406,8 @@ func (h *Handler) PairDevice(c *gin.Context) {
 
 // IssueTag assigns an RFID tag to a learner or staff member.
 func (h *Handler) IssueTag(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	var req struct {
 		TagUID     string `json:"tag_uid" binding:"required"`
 		HolderType string `json:"holder_type" binding:"required"`
@@ -409,7 +427,7 @@ func (h *Handler) IssueTag(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 
 	var tagID string
-	err := h.service.database.QueryRow(
+	err := q.QueryRow(
 		`INSERT INTO rfid_tags (tenant_id, tag_uid, holder_type, holder_id)
 		 VALUES ($1, $2, $3, $4) RETURNING tag_id`,
 		tenantID, req.TagUID, holderType, req.HolderID).Scan(&tagID)
@@ -426,9 +444,11 @@ func (h *Handler) IssueTag(c *gin.Context) {
 
 // DeactivateTag retires a tag without deleting its history.
 func (h *Handler) DeactivateTag(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	tagID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := q.Exec(
 		`UPDATE rfid_tags SET is_active = false, deactivated_at = now(), updated_at = now()
 		 WHERE tag_id = $1 AND tenant_id = $2`, tagID, tenantID)
 	if err != nil {
@@ -444,6 +464,8 @@ func (h *Handler) DeactivateTag(c *gin.Context) {
 
 // RecordGateEvents stores a batch of scans replayed from an offline kiosk.
 func (h *Handler) RecordGateEvents(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	var req struct {
 		Events []struct {
 			DeviceID   string         `json:"device_id" binding:"required"`
@@ -464,14 +486,14 @@ func (h *Handler) RecordGateEvents(c *gin.Context) {
 		var tagID interface{}
 		if strings.TrimSpace(e.TagUID) != "" {
 			var id string
-			if err := h.service.database.QueryRow(
+			if err := q.QueryRow(
 				`SELECT tag_id FROM rfid_tags WHERE tenant_id = $1 AND tag_uid = $2`,
 				tenantID, e.TagUID).Scan(&id); err == nil {
 				tagID = id
 			}
 		}
 		raw, _ := json.Marshal(e.RawPayload)
-		_, err := h.service.database.Exec(
+		_, err := q.Exec(
 			`INSERT INTO gate_events (tenant_id, device_id, tag_id, event_type, event_ts, raw_payload)
 			 VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, now()), $6::jsonb)`,
 			tenantID, e.DeviceID, tagID, strings.ToUpper(e.EventType), nullableString(e.EventTS), string(raw))
@@ -485,6 +507,8 @@ func (h *Handler) RecordGateEvents(c *gin.Context) {
 
 // OverrideGate records a manual gate entry made by a clerk.
 func (h *Handler) OverrideGate(c *gin.Context) {
+	var q queryer = h.service.database
+	if t := middleware.TxFromGin(c); t != nil { q = t }
 	var req struct {
 		AdmissionNumber string `json:"admission_number" binding:"required"`
 		Reason          string `json:"reason" binding:"required"`
@@ -498,7 +522,7 @@ func (h *Handler) OverrideGate(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var learnerID string
-	err := h.service.database.QueryRow(
+	err := q.QueryRow(
 		`SELECT learner_id FROM learners WHERE tenant_id = $1 AND admission_number = $2`,
 		tenantID, req.AdmissionNumber).Scan(&learnerID)
 	if err == sql.ErrNoRows {
@@ -517,7 +541,7 @@ func (h *Handler) OverrideGate(c *gin.Context) {
 	raw, _ := json.Marshal(map[string]any{"reason": req.Reason, "recorded_by": userID})
 
 	var eventID string
-	err = h.service.database.QueryRow(
+	err = q.QueryRow(
 		`INSERT INTO gate_events (tenant_id, device_id, holder_type, holder_id, event_type, verified, verified_by, verified_at, raw_payload)
 		 SELECT $1::varchar, gd.device_id, 'LEARNER', $2::uuid, $3::varchar, true, $4::uuid, now(), $5::jsonb
 		 FROM gate_devices gd WHERE gd.tenant_id = $1::varchar ORDER BY gd.created_at LIMIT 1
@@ -554,4 +578,10 @@ func randomPairingCode() string {
 		out[i] = alphabet[int(b)%len(alphabet)]
 	}
 	return string(out)
+}
+
+type queryer interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	Exec(query string, args ...interface{}) (sql.Result, error)
 }
