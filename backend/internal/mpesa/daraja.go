@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 // C2BCallbackPayload is the Safaricom C2B confirmation body.
@@ -35,12 +36,31 @@ type C2BCallbackPayload struct {
 	FirstName         string  `json:"FirstName"`
 }
 
+// queryer is the write surface for persisting a callback. It is satisfied by
+// the request-scoped transaction when a tenant context exists on the request,
+// and by the pooled DB otherwise (cross-tenant fallback).
+type queryer interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
 type Service struct {
 	database *db.DB
 }
 
 func NewService(database *db.DB) *Service {
 	return &Service{database: database}
+}
+
+func (s *Service) insertRawInbox(ctx context.Context, q queryer, tenantID string, payload C2BCallbackPayload) error {
+	raw, _ := json.Marshal(payload)
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO mpesa_raw_inbox
+			(tenant_id, trans_id, sender_phone, sender_name, amount, account_reference, raw_payload)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (tenant_id, trans_id) DO NOTHING`,
+		tenantID, payload.TransID, payload.MSISDN, payload.FirstName,
+		payload.TransAmount, payload.BillRefNumber, raw)
+	return err
 }
 
 // HandleC2B is the public callback. It must never require a JWT: Safaricom
@@ -67,7 +87,26 @@ func (s *Service) HandleC2B(c *gin.Context) {
 		return
 	}
 
-	tenantID, err := s.resolveTenant(c.Request.Context(), payload.BusinessShortCode)
+	ctx := c.Request.Context()
+
+	// Prefer the request-scoped tenant transaction when a tenant context
+	// exists on the request. Safaricom callbacks carry no JWT, so the normal
+	// path falls through to the cross-tenant fallback below: resolve the
+	// tenant from the shortcode and write in a dedicated tenant-scoped tx.
+	if tx := middleware.TxFromGin(c); tx != nil && c.GetString(middleware.ContextTenantID) != "" {
+		if err := s.insertRawInbox(ctx, tx, c.GetString(middleware.ContextTenantID), payload); err != nil {
+			// Do NOT acknowledge: a 5xx makes Safaricom retry.
+			log.Printf("mpesa: persist failed for trans %s: %v", payload.TransID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"ResultCode": 1, "ResultDesc": "Temporary failure"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ResultCode": 0, "ResultDesc": "Accepted"})
+		return
+	}
+
+	// Cross-tenant fallback: no tenant context on the request, so resolve the
+	// tenant from the shortcode and persist in its own tenant-scoped tx.
+	tenantID, err := s.resolveTenant(ctx, payload.BusinessShortCode)
 	if err != nil {
 		// Unknown shortcode: accept and park it for manual review rather than
 		// making Safaricom retry forever.
@@ -76,16 +115,8 @@ func (s *Service) HandleC2B(c *gin.Context) {
 		return
 	}
 
-	raw, _ := json.Marshal(payload)
-	err = s.database.WithTenant(c.Request.Context(), tenantID, "", func(tx *db.Tx) error {
-		_, err := tx.Exec(`
-			INSERT INTO mpesa_raw_inbox
-				(tenant_id, trans_id, sender_phone, sender_name, amount, account_reference, raw_payload)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (tenant_id, trans_id) DO NOTHING`,
-			tenantID, payload.TransID, payload.MSISDN, payload.FirstName,
-			payload.TransAmount, payload.BillRefNumber, raw)
-		return err
+	err = s.database.WithTenant(ctx, tenantID, "", func(tx *db.Tx) error {
+		return s.insertRawInbox(ctx, tx, tenantID, payload)
 	})
 	if err != nil {
 		// Do NOT acknowledge: a 5xx makes Safaricom retry.
