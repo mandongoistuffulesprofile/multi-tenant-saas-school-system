@@ -62,8 +62,7 @@ func NewService(database *db.DB) *Service {
 }
 
 func (s *Service) GetSchool(ctx context.Context, tenantID string) (*GetSchoolResponse, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	var tid string
 	var schoolName string
 	var subdomain string
@@ -142,8 +141,7 @@ var updatableSchoolFields = map[string]struct{}{
 }
 
 func (s *Service) UpdateSchool(ctx context.Context, tenantID string, updates map[string]interface{}) (*GetSchoolResponse, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	setParts := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -208,8 +206,7 @@ type PaymentChannel struct {
 }
 
 func (s *Service) ListPaymentChannels(ctx context.Context, tenantID string) ([]PaymentChannel, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	rows, err := q.Query(
 		`SELECT channel_id, tenant_id, channel_type, shortcode_or_account, label,
 			environment, is_default, status, reference_format,
@@ -240,8 +237,7 @@ func (s *Service) ListPaymentChannels(ctx context.Context, tenantID string) ([]P
 }
 
 func (s *Service) CreatePaymentChannel(ctx context.Context, tenantID string, ch PaymentChannel) (*PaymentChannel, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO school_payment_channels (tenant_id, channel_type, shortcode_or_account, label,
 			environment, is_default, status, reference_format, routed_fee_categories, channel_token)
@@ -271,8 +267,7 @@ type FinanceSettings struct {
 }
 
 func (s *Service) GetFinanceSettings(ctx context.Context, tenantID string) (*FinanceSettings, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	var fs FinanceSettings
 	var cats []byte
 	err := q.QueryRow(
@@ -307,8 +302,7 @@ func (s *Service) GetFinanceSettings(ctx context.Context, tenantID string) (*Fin
 }
 
 func (s *Service) UpdateFinanceSettings(ctx context.Context, tenantID string, fs FinanceSettings) error {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	cats, _ := json.Marshal(fs.AllowedFeeCategories)
 	_, err := q.Exec(
 		`INSERT INTO school_finance_settings (tenant_id, tuition_invoicing, optional_services,
