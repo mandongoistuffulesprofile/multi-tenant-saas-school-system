@@ -3,6 +3,7 @@ package kitchen
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -264,4 +265,192 @@ func nullIfEmptyStr(s *string) interface{} {
 		return nil
 	}
 	return *s
+}
+
+// ProcessRequisition computes expected quantities from the recipe, checks
+// variance against tenant thresholds, and deducts stock by FIFO.
+func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requisitionID string, boarderCount int) (*StoreRequisition, error) {
+	q := s.q(ctx)
+	tx, ok := q.(*sql.Tx)
+	if !ok {
+		return nil, errors.New("transaction required")
+	}
+
+	// Load requisition
+	var r StoreRequisition
+	err := tx.QueryRow(
+		`SELECT id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status
+		 FROM daily_store_requisitions WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+		tenantID, requisitionID,
+	).Scan(&r.ID, &r.TenantID, &r.SlipNumber, &r.RequisitionDate, &r.MealType, &r.RecipeID, &r.BoarderCountFed, &r.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load tenant variance thresholds
+	var softPct, hardPct float64
+	softPct, hardPct = 5, 10
+	var settingsJSON []byte
+	if err := tx.QueryRow(`SELECT value FROM tenant_settings WHERE tenant_id = $1 AND key = 'variance_thresholds'`, tenantID).Scan(&settingsJSON); err == nil {
+		var ts map[string]float64
+		if json.Unmarshal(settingsJSON, &ts) == nil {
+			if v, ok := ts["soft_threshold_pct"]; ok {
+				softPct = v
+			}
+			if v, ok := ts["hard_threshold_pct"]; ok {
+				hardPct = v
+			}
+		}
+	}
+
+	// Load recipe items
+	type recipeItem struct {
+		InventoryItemID string
+		QtyPer100       float64
+	}
+	var recipeItems []recipeItem
+	if r.RecipeID != nil && *r.RecipeID != "" {
+		rows, err := tx.Query(
+			`SELECT inventory_item_id, qty_per_100 FROM recipe_items WHERE tenant_id = $1 AND recipe_id = $2`,
+			tenantID, *r.RecipeID,
+		)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var ri recipeItem
+				if err := rows.Scan(&ri.InventoryItemID, &ri.QtyPer100); err == nil {
+					recipeItems = append(recipeItems, ri)
+				}
+			}
+		}
+	}
+
+	// Compute expected quantities
+	expectedMap := make(map[string]float64)
+	for _, ri := range recipeItems {
+		expectedMap[ri.InventoryItemID] = ri.QtyPer100 * float64(boarderCount) / 100.0
+	}
+
+	// Load requisition items
+	rows, err := tx.Query(
+		`SELECT id, inventory_item_id, actual_issued_qty FROM store_requisition_items WHERE tenant_id = $1 AND requisition_id = $2`,
+		tenantID, requisitionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type reqItem struct {
+		ID             string
+		InventoryItemID string
+		ActualIssued   float64
+	}
+	var reqItems []reqItem
+	for rows.Next() {
+		var ri reqItem
+		if err := rows.Scan(&ri.ID, &ri.InventoryItemID, &ri.ActualIssued); err == nil {
+			reqItems = append(reqItems, ri)
+		}
+	}
+
+	// Determine variance status
+	status := "RECONCILED"
+	for _, ri := range reqItems {
+		expected := expectedMap[ri.InventoryItemID]
+		var variancePct float64
+		if expected > 0 {
+			variancePct = (ri.ActualIssued - expected) / expected * 100
+			if variancePct < 0 {
+				variancePct = -variancePct
+			}
+		} else if ri.ActualIssued > 0 {
+			variancePct = 100 // hard lock
+		}
+
+		// Update item expected_qty and variance
+		_, err = tx.Exec(
+			`UPDATE store_requisition_items SET expected_qty = $1, variance_qty = $2, variance_pct = $3
+			 WHERE tenant_id = $4 AND id = $5`,
+			expected, ri.ActualIssued-expected, variancePct, tenantID, ri.ID,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Determine status
+		if variancePct > hardPct {
+			status = "PENDING_APPROVAL"
+		} else if variancePct > softPct && status != "PENDING_APPROVAL" {
+			status = "FLAGGED"
+		}
+	}
+
+	// Update requisition status
+	_, err = tx.Exec(
+		`UPDATE daily_store_requisitions SET status = $1, boarder_count_fed = $2, updated_at = CURRENT_TIMESTAMP
+		 WHERE tenant_id = $3 AND id = $4`,
+		status, boarderCount, tenantID, requisitionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// If OK or soft warning, deduct stock by FIFO
+	if status == "RECONCILED" || status == "FLAGGED" {
+		for _, ri := range reqItems {
+			remaining := ri.ActualIssued
+			// Get lots ordered by received_at, id
+			lotRows, err := tx.Query(
+				`SELECT id, qty_remaining, unit_cost FROM inventory_lots
+				 WHERE tenant_id = $1 AND inventory_item_id = $2 AND qty_remaining > 0
+				 ORDER BY received_at, id FOR UPDATE`,
+				tenantID, ri.InventoryItemID,
+			)
+			if err != nil {
+				return nil, err
+			}
+			for lotRows.Next() && remaining > 0 {
+				var lotID string
+				var lotQty float64
+				var lotCost float64
+				if err := lotRows.Scan(&lotID, &lotQty, &lotCost); err != nil {
+					lotRows.Close()
+					return nil, err
+				}
+				consume := lotQty
+				if consume > remaining {
+					consume = remaining
+				}
+				// Update lot
+				_, err = tx.Exec(
+					`UPDATE inventory_lots SET qty_remaining = qty_remaining - $1 WHERE tenant_id = $2 AND id = $3`,
+					consume, tenantID, lotID,
+				)
+				if err != nil {
+					lotRows.Close()
+					return nil, err
+				}
+				// Create movement
+				_, err = tx.Exec(
+					`INSERT INTO inventory_movements (tenant_id, lot_id, inventory_item_id, qty, unit_cost, ref_type, ref_id)
+					 VALUES ($1, $2, $3, $4, $5, 'REQUISITION', $6)`,
+					tenantID, lotID, ri.InventoryItemID, -consume, lotCost, requisitionID,
+				)
+				if err != nil {
+					lotRows.Close()
+					return nil, err
+				}
+				remaining -= consume
+			}
+			lotRows.Close()
+			if remaining > 0 {
+				return nil, errors.New("insufficient stock for item " + ri.InventoryItemID)
+			}
+		}
+	}
+
+	r.Status = status
+	r.BoarderCountFed = boarderCount
+	return &r, nil
 }

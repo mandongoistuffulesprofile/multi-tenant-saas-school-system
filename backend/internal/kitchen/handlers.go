@@ -87,3 +87,24 @@ func (h *Handler) CreateRequisition(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, requisition)
 }
+
+func (h *Handler) ProcessRequisition(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	requisitionID := c.Param("id")
+
+	var req struct {
+		BoarderCount int `json:"boarder_count" binding:"required,min=1"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+
+	requisition, err := h.service.ProcessRequisition(c.Request.Context(), tenantID, userID, requisitionID, req.BoarderCount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, requisition)
+}
