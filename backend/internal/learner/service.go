@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -75,6 +76,11 @@ func scanLearner(rows interface{ Scan(...interface{}) error }, l *Learner,
 }
 
 func (h *Handler) ListLearners(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	grade := c.Query("grade")
 	stream := c.Query("stream")
@@ -136,7 +142,7 @@ func (h *Handler) ListLearners(c *gin.Context) {
 	query += fmt.Sprintf(" ORDER BY l.last_name, l.first_name LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
 	args = append(args, limit, offset)
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -202,6 +208,11 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 
 	// Validate boarding_type before hitting the DB so the caller gets a
 	// structured 400 instead of a constraint-violation error.
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	switch req.BoardingType {
 	case "", "DAY", "BOARDING":
 	default:
@@ -212,7 +223,7 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 	}
 
 	var learnerID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO learners (tenant_id, admission_number, upi_nemis_number, first_name,
 			middle_name, last_name, date_of_birth, gender, status, admitted_on, boarding_type)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, 'ACTIVE'), $10, COALESCE($11, 'DAY'))
@@ -229,12 +240,17 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 }
 
 func (h *Handler) GetLearner(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	learnerID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
 
 	var l Learner
 	var upi, middle, dob, gender, photo, status, admittedOn, boarding sql.NullString
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT learner_id, tenant_id, admission_number, upi_nemis_number, first_name,
 			middle_name, last_name, date_of_birth, gender, photo_ref, status,
 			admitted_on, boarding_type
