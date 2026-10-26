@@ -160,8 +160,13 @@ type GateDevice struct {
 }
 
 func (h *Handler) ListGateDevices(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT device_id, tenant_id, device_name, device_type, location,
 			pairing_code, is_paired, paired_at, paired_by, last_seen_at,
 			status, created_at, updated_at
@@ -202,8 +207,13 @@ type RFIDTag struct {
 }
 
 func (h *Handler) ListRFIDTags(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT tag_id, tenant_id, tag_uid, holder_type, holder_id,
 			is_active, issued_at, created_at, updated_at
 		 FROM rfid_tags WHERE tenant_id = $1 ORDER BY tag_uid`,
@@ -245,8 +255,13 @@ type GateEvent struct {
 }
 
 func (h *Handler) ListGateEvents(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT event_id, tenant_id, device_id, tag_id, holder_type, holder_id,
 			event_type, event_ts, verified, verified_by, verified_at, created_at
 		 FROM gate_events WHERE tenant_id = $1 ORDER BY event_ts DESC LIMIT 100`,
