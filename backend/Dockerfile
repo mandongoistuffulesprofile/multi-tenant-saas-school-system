@@ -7,10 +7,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o api ./cmd/api \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o migrate ./cmd/migrate
 
 FROM alpine:3.20
-RUN apk --no-cache add ca-certificates tzdata wget
+RUN apk --no-cache add ca-certificates tzdata wget && adduser -D -u 10001 appuser
 WORKDIR /app
-COPY --from=builder /app/api .
-COPY --from=builder /app/migrate .
+COPY --chown=appuser:appuser --from=builder /app/api .
+COPY --chown=appuser:appuser --from=builder /app/migrate .
+USER appuser
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD wget -qO- http://127.0.0.1:8080/health || exit 1
