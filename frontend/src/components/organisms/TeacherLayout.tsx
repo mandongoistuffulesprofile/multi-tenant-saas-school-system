@@ -4,20 +4,21 @@ import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../lib/authStore";
 import Badge from "../atoms/Badge";
 import Button from "../atoms/Button";
+import { GraduationCap, ClipboardList, Clock, RefreshCw, User } from "lucide-react";
 
 interface Tab {
   path: string;
   labelKey: string;
-  icon: string;
+  icon: React.ElementType;
   roles: string[];
 }
 
 const TABS: Tab[] = [
-  { path: "/teacher/classes", labelKey: "teacher.my_classes", icon: "", roles: ["TEACHER", "SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
-  { path: "/teacher/grading", labelKey: "teacher.grading", icon: "", roles: ["TEACHER", "SCHOOL_ADMIN"] },
-  { path: "/teacher/attendance", labelKey: "teacher.attendance", icon: "", roles: ["TEACHER", "SCHOOL_ADMIN"] },
-  { path: "/teacher/sync", labelKey: "teacher.sync_centre", icon: "🔄", roles: ["TEACHER", "SCHOOL_ADMIN"] },
-  { path: "/teacher/profile", labelKey: "teacher.profile", icon: "", roles: ["TEACHER", "SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
+  { path: "/teacher/classes", labelKey: "teacher.my_classes", icon: GraduationCap, roles: ["TEACHER", "SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
+  { path: "/teacher/grading", labelKey: "teacher.grading", icon: ClipboardList, roles: ["TEACHER", "SCHOOL_ADMIN"] },
+  { path: "/teacher/attendance", labelKey: "teacher.attendance", icon: Clock, roles: ["TEACHER", "SCHOOL_ADMIN"] },
+  { path: "/teacher/sync", labelKey: "teacher.sync_centre", icon: RefreshCw, roles: ["TEACHER", "SCHOOL_ADMIN"] },
+  { path: "/teacher/profile", labelKey: "teacher.profile", icon: User, roles: ["TEACHER", "SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
 ] as const;
 
 interface TeacherLayoutProps {
@@ -70,7 +71,7 @@ export default function TeacherLayout({ children }: TeacherLayoutProps) {
                 end={tab.path === "/teacher/classes"}
                 onClick={() => setMenuOpen(false)}
               >
-                <span className="text-xl">{tab.icon}</span>
+                <tab.icon className="w-5 h-5 stroke-[1.5]" />
                 {t(tab.labelKey)}
               </NavLink>
             );

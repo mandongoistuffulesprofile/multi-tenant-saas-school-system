@@ -4,21 +4,22 @@ import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../lib/authStore";
 import Badge from "../atoms/Badge";
 import Button from "../atoms/Button";
+import { Home, BarChart3, CreditCard, Receipt, Clock, Megaphone, Signature } from "lucide-react";
 
 interface Tab {
   path: string;
   labelKey: string;
-  icon: string;
+  icon: React.ElementType;
 }
 
 const TABS: Tab[] = [
-  { path: "/parent", labelKey: "parent.home", icon: "🏠" },
-  { path: "/parent/progress", labelKey: "parent.progress", icon: "" },
-  { path: "/parent/fees", labelKey: "parent.fees_pay", icon: "" },
-  { path: "/parent/receipts", labelKey: "parent.receipts", icon: "" },
-  { path: "/parent/attendance", labelKey: "parent.attendance", icon: "" },
-  { path: "/parent/notices", labelKey: "parent.notices", icon: "📢" },
-  { path: "/parent/consents", labelKey: "parent.consents", icon: "✍️" },
+  { path: "/parent", labelKey: "parent.home", icon: Home },
+  { path: "/parent/progress", labelKey: "parent.progress", icon: BarChart3 },
+  { path: "/parent/fees", labelKey: "parent.fees_pay", icon: CreditCard },
+  { path: "/parent/receipts", labelKey: "parent.receipts", icon: Receipt },
+  { path: "/parent/attendance", labelKey: "parent.attendance", icon: Clock },
+  { path: "/parent/notices", labelKey: "parent.notices", icon: Megaphone },
+  { path: "/parent/consents", labelKey: "parent.consents", icon: Signature },
 ] as const;
 
 interface ParentLayoutProps {
@@ -60,7 +61,7 @@ export default function ParentLayout({ children }: ParentLayoutProps) {
                 }
                 end={tab.path === "/parent"}
               >
-                <span className="text-xl">{tab.icon}</span>
+                <tab.icon className="w-5 h-5 stroke-[1.5]" />
                 {t(tab.labelKey)}
               </NavLink>
             );

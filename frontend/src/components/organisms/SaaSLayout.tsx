@@ -4,22 +4,23 @@ import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../lib/authStore";
 import Badge from "../atoms/Badge";
 import Button from "../atoms/Button";
+import { BarChart3, Users, Plus, BookOpen, Shield, ShieldCheck, Layout, Theater, CreditCard, Zap } from "lucide-react";
 
 interface Tab {
   path: string;
   labelKey: string;
-  icon: string;
+  icon: React.ElementType;
 }
 
 const TABS: Tab[] = [
-  { path: "/platform/operations", labelKey: "saas.operations", icon: "📊" },
-  { path: "/platform/tenants", labelKey: "saas.tenants", icon: "" },
-  { path: "/platform/onboard", labelKey: "saas.onboard", icon: "➕" },
-  { path: "/platform/curriculum", labelKey: "saas.curriculum", icon: "📚" },
-  { path: "/platform/subscriptions", labelKey: "saas.subscriptions", icon: "" },
-  { path: "/platform/integrations", labelKey: "saas.integrations", icon: "" },
-  { path: "/platform/impersonate", labelKey: "saas.impersonate", icon: "🎭" },
-  { path: "/platform/audit", labelKey: "saas.audit", icon: "" },
+  { path: "/platform/operations", labelKey: "saas.operations", icon: Layout },
+  { path: "/platform/tenants", labelKey: "saas.tenants", icon: Users },
+  { path: "/platform/onboard", labelKey: "saas.onboard", icon: Plus },
+  { path: "/platform/curriculum", labelKey: "saas.curriculum", icon: BookOpen },
+  { path: "/platform/subscriptions", labelKey: "saas.subscriptions", icon: CreditCard },
+  { path: "/platform/integrations", labelKey: "saas.integrations", icon: Zap },
+  { path: "/platform/impersonate", labelKey: "saas.impersonate", icon: Theater },
+  { path: "/platform/audit", labelKey: "saas.audit", icon: ShieldCheck },
 ] as const;
 
 interface SaaSLayoutProps {
@@ -66,7 +67,7 @@ export default function SaaSLayout({ children }: SaaSLayoutProps) {
                     }`
                   }
                 >
-                  <span className="text-lg">{tab.icon}</span>
+                  <tab.icon className="w-5 h-5 stroke-[1.5]" />
                   {t(tab.labelKey)}
                 </NavLink>
               );

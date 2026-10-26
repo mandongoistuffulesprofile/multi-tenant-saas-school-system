@@ -1,7 +1,9 @@
 import React from "react";
+import { FileText } from "lucide-react";
+import { InstitutionalEmptyState } from "../ui/InstitutionalEmptyState";
 
 interface DataTableColumn<T> {
-  key: keyof T;
+  key: string;
   header: string;
   render?: (row: T) => React.ReactNode;
   className?: string;
@@ -13,7 +15,7 @@ interface DataTableProps<T extends Record<string, any>> {
   columns: DataTableColumn<T>[];
   emptyMessage?: string;
   onRowClick?: (row: T) => void;
-  keyField?: keyof T;
+  keyField?: string;
   loading?: boolean;
   skeletonRows?: number;
   className?: string;
@@ -40,7 +42,7 @@ export default function DataTable<T extends Record<string, any>>({
   columns,
   emptyMessage = "No records found",
   onRowClick,
-  keyField = "id" as keyof T,
+  keyField = "id" as string,
   loading = false,
   skeletonRows = 3,
   className = "",
@@ -102,20 +104,15 @@ export default function DataTable<T extends Record<string, any>>({
         {loading ? (
           <TableSkeleton columns={columns.length} />
         ) : sorted.length === 0 ? (
-          <tbody>
-            <tr>
-              <td colSpan={columns.length} className="px-6 py-12 text-center">
-                <div className="flex flex-col items-center gap-2">
-                  <span className="text-3xl">📭</span>
-                  <span className="text-body">{emptyMessage}</span>
-                </div>
-              </td>
-            </tr>
-          </tbody>
+          <InstitutionalEmptyState
+            title={emptyMessage}
+            description="No records match the current filters. Try adjusting your search or filters."
+            icon={FileText}
+          />
         ) : (
           <tbody className="divide-y divide-gray-100">
             {sorted.map((row) => {
-              const k = row[keyField] ?? JSON.stringify(row);
+              const k = String((row as Record<string, unknown>)[keyField] ?? JSON.stringify(row));
               return (
                 <tr
                   key={k}
@@ -141,7 +138,7 @@ export default function DataTable<T extends Record<string, any>>({
                       key={String(col.key)}
                       className={`px-6 py-4 text-sm text-gray-900 whitespace-nowrap ${col.className ?? ""}`}
                     >
-                      {col.render ? col.render(row) : row[col.key] ?? "—"}
+                      {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "—")}
                     </td>
                   ))}
                 </tr>

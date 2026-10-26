@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 )
@@ -93,6 +94,33 @@ func RequireAuth(authService *auth.AuthService) func(http.Handler) http.Handler 
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
+	}
+}
+
+// RequireAuthGin is the Gin counterpart of RequireAuth. It validates the JWT
+// and sets user/tenant/role claims into the Gin context.
+func RequireAuthGin(jm *auth.JWTManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: missing or invalid token"})
+			return
+		}
+
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		claims, err := jm.ValidateToken(tokenStr)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: token invalid or expired"})
+			return
+		}
+
+		c.Set(ContextUserID, claims.UserID)
+		c.Set(ContextTenantID, claims.TenantID)
+		if len(claims.Roles) > 0 {
+			c.Set(ContextRole, claims.Roles[0])
+		}
+		c.Set(ContextRoles, claims.Roles)
+		c.Next()
 	}
 }
 
