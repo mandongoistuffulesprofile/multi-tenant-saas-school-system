@@ -3,6 +3,7 @@ package attendance
 import (
 	"crypto/rand"
 	"database/sql"
+	"fmt"
 	"encoding/json"
 	"context"
 	"net/http"
@@ -37,8 +38,12 @@ var validMarkStatuses = map[string]bool{
 
 // CreateRegister opens an attendance register for a class group.
 func (h *Handler) CreateRegister(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	var req struct {
 		ClassGroupID   string `json:"class_group_id" binding:"required"`
 		AcademicYearID string `json:"academic_year_id" binding:"required"`
@@ -89,8 +94,12 @@ func (h *Handler) CreateRegister(c *gin.Context) {
 
 // UpdateRegister changes the status of a register (OPEN -> CLOSED).
 func (h *Handler) UpdateRegister(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	registerID := c.Param("register_id")
 	var req struct {
 		Status string `json:"status" binding:"required"`
@@ -196,8 +205,11 @@ func (h *Handler) BatchUpsertMarks(c *gin.Context) {
 }
 
 func (h *Handler) upsertMark(ctx context.Context, tenantID, userID string, input MarkInput) (gin.H, error) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	tx := middleware.TxFromContext(ctx)
+	if tx == nil {
+		return nil, fmt.Errorf("no tenant transaction")
+	}
+	var q queryer = tx
 	clientUUID := interface{}(nil)
 	if strings.TrimSpace(input.ClientUUID) != "" {
 		clientUUID = input.ClientUUID
@@ -262,8 +274,12 @@ func validateMark(input MarkInput) []validation.FieldError {
 // AttendanceSummary aggregates a register so the UI can show counts without
 // downloading every mark.
 func (h *Handler) AttendanceSummary(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	tenantID := c.GetString("tenant_id")
 	registerID := c.Query("register_id")
 
@@ -312,8 +328,12 @@ type GatePolicy struct {
 }
 
 func (h *Handler) GetGatePolicy(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	tenantID := c.GetString("tenant_id")
 	policy := GatePolicy{OfflineGraceMinutes: 1440}
 
@@ -337,8 +357,12 @@ func (h *Handler) GetGatePolicy(c *gin.Context) {
 }
 
 func (h *Handler) UpdateGatePolicy(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	var policy GatePolicy
 	if errs := validation.BindJSON(c, &policy); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -367,8 +391,12 @@ func (h *Handler) UpdateGatePolicy(c *gin.Context) {
 
 // PairDevice registers a kiosk and returns its pairing code.
 func (h *Handler) PairDevice(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	var req struct {
 		DeviceName string `json:"device_name" binding:"required"`
 		DeviceType string `json:"device_type"`
@@ -406,8 +434,12 @@ func (h *Handler) PairDevice(c *gin.Context) {
 
 // IssueTag assigns an RFID tag to a learner or staff member.
 func (h *Handler) IssueTag(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	var req struct {
 		TagUID     string `json:"tag_uid" binding:"required"`
 		HolderType string `json:"holder_type" binding:"required"`
@@ -444,8 +476,12 @@ func (h *Handler) IssueTag(c *gin.Context) {
 
 // DeactivateTag retires a tag without deleting its history.
 func (h *Handler) DeactivateTag(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	tagID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
 	result, err := q.Exec(
@@ -464,8 +500,12 @@ func (h *Handler) DeactivateTag(c *gin.Context) {
 
 // RecordGateEvents stores a batch of scans replayed from an offline kiosk.
 func (h *Handler) RecordGateEvents(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	var req struct {
 		Events []struct {
 			DeviceID   string         `json:"device_id" binding:"required"`
@@ -507,8 +547,12 @@ func (h *Handler) RecordGateEvents(c *gin.Context) {
 
 // OverrideGate records a manual gate entry made by a clerk.
 func (h *Handler) OverrideGate(c *gin.Context) {
-	var q queryer = h.service.database
-	if t := middleware.TxFromGin(c); t != nil { q = t }
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var q queryer = tx
 	var req struct {
 		AdmissionNumber string `json:"admission_number" binding:"required"`
 		Reason          string `json:"reason" binding:"required"`
