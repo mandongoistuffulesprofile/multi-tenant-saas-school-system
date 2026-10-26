@@ -37,6 +37,8 @@ type GetSchoolResponse struct {
 	Status           string  `json:"status"`
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
+	IsDemo           bool    `json:"is_demo"`
+	NEMISCode        *string `json:"nemis_code"`
 }
 
 func nullStringPtr(ns sql.NullString) *string {
@@ -82,12 +84,14 @@ func (s *Service) GetSchool(ctx context.Context, tenantID string) (*GetSchoolRes
 	var status string
 	var createdAt string
 	var updatedAt string
+	var isDemo bool
+	var nisCode sql.NullString
 
 	err := q.QueryRow(
 		`SELECT tenant_id, school_name, subdomain, knec_code, kemis_code, school_type,
 			funding_mode, county, sub_county, address, logo_ref, stamp_ref,
 			head_signature_ref, default_locale, hosts_junior, license_tier, status,
-			created_at, updated_at
+			created_at, updated_at, is_demo, nemis_code
 		 FROM schools WHERE tenant_id = $1`,
 		tenantID,
 	).Scan(
@@ -95,6 +99,7 @@ func (s *Service) GetSchool(ctx context.Context, tenantID string) (*GetSchoolRes
 		&schoolType, &fundingMode, &county, &subCounty, &address,
 		&logoRef, &stampRef, &headSignatureRef, &defaultLocale, &hostsJunior,
 		&licenseTier, &status, &createdAt, &updatedAt,
+		&isDemo, &nisCode,
 	)
 	if err != nil {
 		return nil, err
@@ -120,6 +125,8 @@ func (s *Service) GetSchool(ctx context.Context, tenantID string) (*GetSchoolRes
 		Status:           status,
 		CreatedAt:        createdAt,
 		UpdatedAt:        updatedAt,
+		IsDemo:           isDemo,
+		NEMISCode:        nullStringPtr(nisCode),
 	}, nil
 }
 
@@ -138,6 +145,14 @@ var updatableSchoolFields = map[string]struct{}{
 	"hosts_junior":       {},
 	"license_tier":       {},
 	"status":             {},
+	"is_demo":            {},
+	"nemis_code":         {},
+}
+
+// normalizeNEMIS trims, uppercases and strips spaces so the partial unique
+// index (upper(nemis_code)) behaves consistently.
+func normalizeNEMIS(code string) string {
+	return strings.ToUpper(strings.TrimSpace(strings.ReplaceAll(code, " ", "")))
 }
 
 func (s *Service) UpdateSchool(ctx context.Context, tenantID string, updates map[string]interface{}) (*GetSchoolResponse, error) {
@@ -153,6 +168,11 @@ func (s *Service) UpdateSchool(ctx context.Context, tenantID string, updates map
 		if _, ok := updatableSchoolFields[key]; !ok {
 			continue
 		}
+		if key == "nemis_code" {
+			if v, ok := val.(string); ok {
+				val = normalizeNEMIS(v)
+			}
+		}
 		setParts = append(setParts, fmt.Sprintf("%s = $%d", key, argIndex))
 		args = append(args, val)
 		argIndex++
@@ -166,15 +186,24 @@ func (s *Service) UpdateSchool(ctx context.Context, tenantID string, updates map
 	args = append(args, tenantID)
 
 	query := fmt.Sprintf(
-		`UPDATE schools SET %s WHERE tenant_id = $%d RETURNING tenant_id, school_name, subdomain, school_type, funding_mode, status`,
+		`UPDATE schools SET %s WHERE tenant_id = $%d RETURNING tenant_id, school_name, subdomain, school_type, funding_mode, status, is_demo, nemis_code`,
 		strings.Join(setParts, ", "), argIndex,
 	)
 
 	var tid, schoolName, subdomain, schoolType, fundingMode, status string
+	var isDemo bool
+	var nemisCode sql.NullString
 	err := q.QueryRow(query, args...).Scan(
 		&tid, &schoolName, &subdomain, &schoolType, &fundingMode, &status,
+		&isDemo, &nemisCode,
 	)
 	if err != nil {
+		// NEMIS uniqueness is enforced by a partial index; surface it as a
+		// dedicated code so the UI can render a fix action without leaking
+		// other tenants' data.
+		if strings.Contains(err.Error(), "uq_schools_nemis") {
+			return nil, fmt.Errorf("NEMIS_CODE_IN_USE")
+		}
 		return nil, fmt.Errorf("failed to update school: %w", err)
 	}
 
@@ -185,6 +214,8 @@ func (s *Service) UpdateSchool(ctx context.Context, tenantID string, updates map
 		SchoolType:  schoolType,
 		FundingMode: fundingMode,
 		Status:      status,
+		IsDemo:      isDemo,
+		NEMISCode:   nullStringPtr(nemisCode),
 	}, nil
 }
 
