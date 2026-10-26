@@ -5,15 +5,13 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
-type Service struct {
-	database *db.DB
-}
+type Service struct{}
 
-func NewService(database *db.DB) *Service {
-	return &Service{database: database}
+func NewService() *Service {
+	return &Service{}
 }
 
 type Handler struct {
@@ -38,7 +36,12 @@ type KNECTool struct {
 }
 
 func (h *Handler) ListKNECRules(c *gin.Context) {
-	rows, err := h.service.database.Query(
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	rows, err := tx.Query(
 		`SELECT tool_id, tool_code, name, description, grade_id, assessment_year,
 			is_active, created_at, updated_at
 		 FROM knec_tools ORDER BY tool_code`,
@@ -52,10 +55,14 @@ func (h *Handler) ListKNECRules(c *gin.Context) {
 	var tools []KNECTool
 	for rows.Next() {
 		var t KNECTool
-		if err := rows.Scan(&t.ToolID, &t.ToolCode, &t.Name, &t.Description, &t.GradeID,
+		var description sql.NullString
+		if err := rows.Scan(&t.ToolID, &t.ToolCode, &t.Name, &description, &t.GradeID,
 			&t.AssessmentYear, &t.IsActive, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
+		}
+		if description.Valid {
+			t.Description = description.String
 		}
 		tools = append(tools, t)
 	}
@@ -79,8 +86,13 @@ type KNECSubmissionStatus struct {
 }
 
 func (h *Handler) ListKNECRSubmissionStatus(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT submission_id, tenant_id, tool_id, academic_year_id, grade_id,
 			status, export_ref, exported_at, confirmed_at, created_by, created_at, updated_at
 		 FROM knec_submission_status WHERE tenant_id = $1 ORDER BY created_at DESC`,
@@ -95,12 +107,17 @@ func (h *Handler) ListKNECRSubmissionStatus(c *gin.Context) {
 	var statuses []KNECSubmissionStatus
 	for rows.Next() {
 		var s KNECSubmissionStatus
+		var exportRef, exportedAt, confirmedAt, createdBy sql.NullString
 		if err := rows.Scan(&s.SubmissionID, &s.TenantID, &s.ToolID, &s.AcademicYearID,
-			&s.GradeID, &s.Status, &s.ExportRef, &s.ExportedAt, &s.ConfirmedAt,
-			&s.CreatedBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			&s.GradeID, &s.Status, &exportRef, &exportedAt, &confirmedAt,
+			&createdBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		s.ExportRef = exportRef.String
+		s.ExportedAt = exportedAt.String
+		s.ConfirmedAt = confirmedAt.String
+		s.CreatedBy = createdBy.String
 		statuses = append(statuses, s)
 	}
 	c.JSON(http.StatusOK, statuses)
@@ -122,8 +139,13 @@ type KNECExportBatch struct {
 }
 
 func (h *Handler) ListKNECRExportBatches(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT batch_id, tenant_id, tool_id, batch_reference, learner_count,
 			status, file_ref, error_message, created_by, created_at, completed_at
 		 FROM knec_export_batches WHERE tenant_id = $1 ORDER BY created_at DESC`,
@@ -138,12 +160,17 @@ func (h *Handler) ListKNECRExportBatches(c *gin.Context) {
 	var batches []KNECExportBatch
 	for rows.Next() {
 		var b KNECExportBatch
+		var fileRef, errorMessage, createdBy, completedAt sql.NullString
 		if err := rows.Scan(&b.BatchID, &b.TenantID, &b.ToolID, &b.BatchReference,
-			&b.LearnerCount, &b.Status, &b.FileRef, &b.ErrorMessage, &b.CreatedBy,
-			&b.CreatedAt, &b.CompletedAt); err != nil {
+			&b.LearnerCount, &b.Status, &fileRef, &errorMessage, &createdBy,
+			&b.CreatedAt, &completedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		b.FileRef = fileRef.String
+		b.ErrorMessage = errorMessage.String
+		b.CreatedBy = createdBy.String
+		b.CompletedAt = completedAt.String
 		batches = append(batches, b)
 	}
 	c.JSON(http.StatusOK, batches)
