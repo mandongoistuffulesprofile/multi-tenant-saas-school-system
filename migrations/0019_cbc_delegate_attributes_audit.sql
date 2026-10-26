@@ -4,7 +4,7 @@ ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS custom_attributes JSONB DEF
 
 CREATE TABLE IF NOT EXISTS delegated_entry_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id INT NOT NULL,
+    tenant_id VARCHAR(50) NOT NULL,
     created_by_user_id UUID NOT NULL,
     delegate_pin VARCHAR(4) NOT NULL,
     class_id VARCHAR(50) NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS delegated_entry_tokens (
 
 CREATE TABLE IF NOT EXISTS mpesa_holding_tank (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id INT NOT NULL,
+    tenant_id VARCHAR(50) NOT NULL,
     transaction_code VARCHAR(50) UNIQUE NOT NULL,
     amount NUMERIC(12, 2) NOT NULL,
     sender_phone VARCHAR(20) NOT NULL,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS mpesa_holding_tank (
 
 CREATE TABLE IF NOT EXISTS export_audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id INT NOT NULL,
+    tenant_id VARCHAR(50) NOT NULL,
     user_id UUID NOT NULL,
     export_type VARCHAR(50) NOT NULL,
     ip_address VARCHAR(45),
