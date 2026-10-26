@@ -27,6 +27,7 @@ export const SaaSAdminDesk: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   // Plan pricing must match the platform control plane (server.js PLATFORM_PLANS).
   const PLAN_FEE: Record<string, number> = { BASIC: 0, STANDARD: 9900, ENTERPRISE: 24900 };
@@ -173,8 +174,13 @@ export const SaaSAdminDesk: React.FC = () => {
   const totalLearners = tenants.reduce((acc, t) => acc + t.learner_count, 0);  const totalProjectedRevenue = tenants.reduce((acc, t) => acc + t.term_subscription_fee, 0);
   const totalStaff = tenants.reduce((acc, t) => acc + Number(t.staff_count || 0), 0);
 
+  const filteredTenants = tenants.filter((t) =>
+    !search || t.name.toLowerCase().includes(search.toLowerCase()) || t.slug.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div className="space-y-4">
+      <nav className="text-xs text-slate-500">Platform / SaaS Admin Desk</nav>
       {/* SaaS Executive Metrics Bar */}
       <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-md border border-slate-800">
         <div className="flex flex-wrap justify-between items-center gap-4 border-b border-slate-800 pb-4">
@@ -237,7 +243,10 @@ export const SaaSAdminDesk: React.FC = () => {
           <span className="font-bold text-slate-800 uppercase tracking-wide">
             Orodha ya Shule Zilizosajiliwa (Tenant Registry)
           </span>
-          <span className="text-slate-500">Inaonyesha shule {tenants.length}</span>
+          <div className="flex items-center gap-2">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tafuta shule..." className="px-2 py-1 border border-slate-300 rounded-lg text-xs" />
+            <span className="text-slate-500">Inaonyesha shule {filteredTenants.length}</span>
+          </div>
         </div>
 
         <table className="w-full text-left text-xs">
@@ -253,7 +262,7 @@ export const SaaSAdminDesk: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {tenants.map(t => (
+            {filteredTenants.map(t => (
               <tr key={t.id} className="hover:bg-slate-50 transition-colors">
                 <td className="p-3.5">
                   <div className="font-bold text-slate-900">{t.name}</div>
