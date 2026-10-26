@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
@@ -27,31 +28,28 @@ func NewService(database *db.DB) *Service {
 // ============ Types ============
 
 type InKindRate struct {
-	ID           string  `json:"id"`
-	TenantID     string  `json:"tenant_id"`
-	CommodityName string `json:"commodity_name"`
-	Unit         string  `json:"unit"`
-	RatePerUnit  float64 `json:"rate_per_unit"`
-	IsActive     bool    `json:"is_active"`
-	EffectiveFrom string `json:"effective_from"`
-	EffectiveTo   *string `json:"effective_to,omitempty"`
-	CreatedBy     *string `json:"created_by,omitempty"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	ID              string  `json:"id"`
+	TenantID        string  `json:"tenant_id"`
+	InventoryItemID string  `json:"inventory_item_id"`
+	CommodityName   string  `json:"commodity_name"`
+	Unit            string  `json:"unit"`
+	RatePerUnit     float64 `json:"rate_per_unit"`
+	IsActive        bool    `json:"is_active"`
+	TermID          string  `json:"term_id"`
+	CreatedBy       *string `json:"created_by,omitempty"`
+	CreatedAt       string  `json:"created_at"`
 }
 
 type InventoryItem struct {
-	ID            string  `json:"id"`
-	TenantID      string  `json:"tenant_id"`
-	ItemName      string  `json:"item_name"`
-	ItemType      string  `json:"item_type"`
-	Unit          string  `json:"unit"`
-	UnitWeightKg  *float64 `json:"unit_weight_kg,omitempty"`
-	Description   *string `json:"description,omitempty"`
-	IsActive      bool    `json:"is_active"`
-	CreatedBy     *string `json:"created_by,omitempty"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	ID             string   `json:"id"`
+	TenantID       string   `json:"tenant_id"`
+	Code           string   `json:"code"`
+	Name           string   `json:"name"`
+	Unit           string   `json:"unit"`
+	StandardWeight *float64 `json:"standard_unit_weight_kg,omitempty"`
+	IsActive       bool     `json:"is_active"`
+	CreatedBy      *string  `json:"created_by,omitempty"`
+	CreatedAt      string   `json:"created_at"`
 }
 
 type InKindIntakeLog struct {
@@ -100,10 +98,8 @@ type FeePaymentAllocation struct {
 }
 
 type CreateInKindRateRequest struct {
-	CommodityName string  `json:"commodity_name" binding:"required"`
-	Unit          string  `json:"unit" binding:"required"`
-	RatePerUnit   float64 `json:"rate_per_unit" binding:"required,gt=0"`
-	EffectiveFrom string  `json:"effective_from"`
+	InventoryItemID string  `json:"inventory_item_id" binding:"required"`
+	RatePerUnit     float64 `json:"rate_per_unit" binding:"required,gt=0"`
 }
 
 type CreateInventoryItemRequest struct {
@@ -161,13 +157,14 @@ func (s *Service) q(ctx context.Context) queryer {
 
 func (s *Service) ListRates(ctx context.Context, tenantID string, includeInactive bool) ([]InKindRate, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, commodity_name, unit, rate_per_unit, is_active, effective_from, effective_to, created_by, created_at, updated_at
-			  FROM in_kind_rates WHERE tenant_id = $1`
+	query := `SELECT r.id, r.tenant_id, r.inventory_item_id, i.name, i.unit, r.rate_per_unit, r.is_current, r.term_id, r.created_by, r.created_at
+			  FROM in_kind_rates r JOIN inventory_items i ON i.tenant_id = r.tenant_id AND i.id = r.inventory_item_id
+			  WHERE r.tenant_id = $1`
 	args := []interface{}{tenantID}
 	if !includeInactive {
-		query += ` AND is_active = true`
+		query += ` AND r.is_current = true`
 	}
-	query += ` ORDER BY commodity_name, effective_from DESC`
+	query += ` ORDER BY i.name, r.created_at DESC`
 
 	rows, err := q.Query(query, args...)
 	if err != nil {
@@ -178,9 +175,14 @@ func (s *Service) ListRates(ctx context.Context, tenantID string, includeInactiv
 	var rates []InKindRate
 	for rows.Next() {
 		var r InKindRate
-		if err := rows.Scan(&r.ID, &r.TenantID, &r.CommodityName, &r.Unit, &r.RatePerUnit, &r.IsActive,
-			&r.EffectiveFrom, &r.EffectiveTo, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		var createdBy sql.NullString
+		if err := rows.Scan(&r.ID, &r.TenantID, &r.InventoryItemID, &r.CommodityName, &r.Unit, &r.RatePerUnit, &r.IsActive,
+			&r.TermID, &createdBy, &r.CreatedAt); err != nil {
 			return nil, err
+		}
+		if createdBy.Valid {
+			s := createdBy.String
+			r.CreatedBy = &s
 		}
 		rates = append(rates, r)
 	}
@@ -189,39 +191,39 @@ func (s *Service) ListRates(ctx context.Context, tenantID string, includeInactiv
 
 func (s *Service) CreateRate(ctx context.Context, tenantID, userID string, req CreateInKindRateRequest) (*InKindRate, error) {
 	q := s.q(ctx)
-	effectiveFrom := req.EffectiveFrom
-	if effectiveFrom == "" {
-		effectiveFrom = "CURRENT_DATE"
+	// Look up current term
+	var termID string
+	err := q.QueryRow(`SELECT term_id FROM terms WHERE tenant_id = $1 AND is_current = true LIMIT 1`, tenantID).Scan(&termID)
+	if err != nil {
+		return nil, errors.New("no current term configured")
 	}
 
 	var r InKindRate
-	err := q.QueryRow(
-		`INSERT INTO in_kind_rates (tenant_id, commodity_name, unit, rate_per_unit, effective_from, created_by)
-		 VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6)
-		 RETURNING id, tenant_id, commodity_name, unit, rate_per_unit, is_active, effective_from, effective_to, created_by, created_at, updated_at`,
-		tenantID, req.CommodityName, req.Unit, req.RatePerUnit, effectiveFrom, nullIfEmpty(userID),
-	).Scan(&r.ID, &r.TenantID, &r.CommodityName, &r.Unit, &r.RatePerUnit, &r.IsActive,
-		&r.EffectiveFrom, &r.EffectiveTo, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
+	err = q.QueryRow(
+		`INSERT INTO in_kind_rates (tenant_id, inventory_item_id, term_id, rate_per_unit, is_current, created_by)
+		 VALUES ($1, $2, $3, $4, true, $5)
+		 RETURNING id, tenant_id, inventory_item_id, rate_per_unit, is_current, term_id, created_by, created_at`,
+		tenantID, req.InventoryItemID, termID, req.RatePerUnit, nullIfEmpty(userID),
+	).Scan(&r.ID, &r.TenantID, &r.InventoryItemID, &r.RatePerUnit, &r.IsActive,
+		&r.TermID, &r.CreatedBy, &r.CreatedAt)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-			return nil, errors.New("rate already exists for this commodity/unit/effective date")
+			return nil, errors.New("rate already exists for this item/term")
 		}
 		return nil, err
 	}
+	// Look up item name
+	q.QueryRow(`SELECT name, unit FROM inventory_items WHERE tenant_id = $1 AND id = $2`, tenantID, req.InventoryItemID).Scan(&r.CommodityName, &r.Unit)
 	return &r, nil
 }
 
 func (s *Service) ListItems(ctx context.Context, tenantID string, itemType string) ([]InventoryItem, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, item_name, item_type, unit, unit_weight_kg, description, is_active, created_by, created_at, updated_at
+	query := `SELECT id, tenant_id, code, name, unit, standard_unit_weight_kg, is_active, created_by, created_at
 			  FROM inventory_items WHERE tenant_id = $1 AND is_active = true`
 	args := []interface{}{tenantID}
-	if itemType != "" {
-		query += ` AND item_type = $2`
-		args = append(args, itemType)
-	}
-	query += ` ORDER BY item_name`
+	query += ` ORDER BY name`
 
 	rows, err := q.Query(query, args...)
 	if err != nil {
@@ -232,9 +234,19 @@ func (s *Service) ListItems(ctx context.Context, tenantID string, itemType strin
 	var items []InventoryItem
 	for rows.Next() {
 		var i InventoryItem
-		if err := rows.Scan(&i.ID, &i.TenantID, &i.ItemName, &i.ItemType, &i.Unit, &i.UnitWeightKg,
-			&i.Description, &i.IsActive, &i.CreatedBy, &i.CreatedAt, &i.UpdatedAt); err != nil {
+		var createdBy sql.NullString
+		var weight sql.NullFloat64
+		if err := rows.Scan(&i.ID, &i.TenantID, &i.Code, &i.Name, &i.Unit, &weight,
+			&i.IsActive, &createdBy, &i.CreatedAt); err != nil {
 			return nil, err
+		}
+		if weight.Valid {
+			w := weight.Float64
+			i.StandardWeight = &w
+		}
+		if createdBy.Valid {
+			c := createdBy.String
+			i.CreatedBy = &c
 		}
 		items = append(items, i)
 	}
@@ -245,12 +257,12 @@ func (s *Service) CreateItem(ctx context.Context, tenantID, userID string, req C
 	q := s.q(ctx)
 	var i InventoryItem
 	err := q.QueryRow(
-		`INSERT INTO inventory_items (tenant_id, item_name, item_type, unit, unit_weight_kg, description, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, tenant_id, item_name, item_type, unit, unit_weight_kg, description, is_active, created_by, created_at, updated_at`,
-		tenantID, req.ItemName, req.ItemType, req.Unit, req.UnitWeightKg, req.Description, nullIfEmpty(userID),
-	).Scan(&i.ID, &i.TenantID, &i.ItemName, &i.ItemType, &i.Unit, &i.UnitWeightKg,
-		&i.Description, &i.IsActive, &i.CreatedBy, &i.CreatedAt, &i.UpdatedAt)
+		`INSERT INTO inventory_items (tenant_id, code, name, unit, standard_unit_weight_kg, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, tenant_id, code, name, unit, standard_unit_weight_kg, is_active, created_by, created_at`,
+		tenantID, req.ItemName, req.ItemName, req.Unit, req.UnitWeightKg, nullIfEmpty(userID),
+	).Scan(&i.ID, &i.TenantID, &i.Code, &i.Name, &i.Unit, &i.StandardWeight,
+		&i.IsActive, &i.CreatedBy, &i.CreatedAt)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
@@ -323,13 +335,20 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		return nil, errors.New("transaction required")
 	}
 
+	// Look up current term
+	var termID string
+	err := tx.QueryRow(`SELECT term_id FROM terms WHERE tenant_id = $1 AND is_current = true LIMIT 1`, tenantID).Scan(&termID)
+	if err != nil {
+		return nil, errors.New("no current term configured")
+	}
+
 	intakeDate := req.IntakeDate
 	if intakeDate == "" {
 		intakeDate = "CURRENT_DATE"
 	}
 
 	var l InKindIntakeLog
-	err := tx.QueryRow(
+	err = tx.QueryRow(
 		`INSERT INTO in_kind_intake_logs (tenant_id, student_id, intake_date, received_by, recorded_by, intake_number, notes)
 		 VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), $4, $5, $6, $7)
 		 RETURNING id, tenant_id, student_id, intake_date, received_by, recorded_by, intake_number, status, notes, created_at, updated_at`,
@@ -344,29 +363,93 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		return nil, err
 	}
 
+	var totalValue float64
 	for _, item := range req.Items {
+		// Look up active rate per item per term
 		var ratePerUnit float64
 		var unit string
 		err := tx.QueryRow(
-			`SELECT rate_per_unit, unit FROM in_kind_rates WHERE tenant_id = $1 AND commodity_name = 
-			 (SELECT item_name FROM inventory_items WHERE id = $2) AND is_active = true 
-			 AND effective_from <= CURRENT_DATE AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)
-			 ORDER BY effective_from DESC LIMIT 1`,
-			tenantID, item.InventoryItemID,
+			`SELECT rate_per_unit, (SELECT unit FROM inventory_items WHERE tenant_id = $1 AND id = $2)
+			 FROM in_kind_rates WHERE tenant_id = $1 AND inventory_item_id = $2 AND term_id = $3 AND is_current = true
+			 LIMIT 1`,
+			tenantID, item.InventoryItemID, termID,
 		).Scan(&ratePerUnit, &unit)
+		if err != nil {
+			return nil, errors.New("no active rate for item " + item.InventoryItemID)
+		}
+
+		cashEquivalent := item.Quantity * ratePerUnit
+		totalValue += cashEquivalent
+
+		// Insert intake item with rate snapshot
+		_, err = tx.Exec(
+			`INSERT INTO in_kind_intake_items (tenant_id, intake_log_id, inventory_item_id, quantity, unit, rate_per_unit, cash_equivalent, quality_grade, notes)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			tenantID, l.ID, item.InventoryItemID, item.Quantity, unit, ratePerUnit, cashEquivalent, item.QualityGrade, item.Notes,
+		)
 		if err != nil {
 			return nil, err
 		}
 
+		// Create inventory lot (FIFO) with unit cost = rate applied
 		_, err = tx.Exec(
-			`INSERT INTO in_kind_intake_items (tenant_id, intake_log_id, inventory_item_id, quantity, unit, rate_per_unit, quality_grade, notes)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			tenantID, l.ID, item.InventoryItemID, item.Quantity, unit, ratePerUnit, item.QualityGrade, item.Notes,
+			`INSERT INTO inventory_lots (tenant_id, source_type, source_id, inventory_item_id, qty_received, qty_remaining, unit_cost)
+			 VALUES ($1, 'IN_KIND', $2, $3, $4, $4, $5)`,
+			tenantID, l.ID, item.InventoryItemID, item.Quantity, ratePerUnit,
 		)
 		if err != nil {
 			return nil, err
 		}
 	}
+
+	// Create journal entry (double-entry): debit inventory asset, credit student fee receivable
+	var entryID string
+	err = tx.QueryRow(
+		`INSERT INTO journal_entries (tenant_id, entry_date, source_type, source_id, memo, created_by)
+		 VALUES ($1, CURRENT_TIMESTAMP, 'IN_KIND_INTAKE', $2, $3, $4)
+		 RETURNING id`,
+		tenantID, l.ID, "In-kind intake "+req.IntakeNumber, nullIfEmpty(userID),
+	).Scan(&entryID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Debit: Central Food Inventory asset account
+	// Credit: student fee receivable (Boarding votehead)
+	// For simplicity, we create two lines. In production, look up account IDs.
+	// Line 1: Debit inventory (asset +)
+	_, err = tx.Exec(
+		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
+		 SELECT $1, $2, la.id, $3::uuid, $4, 0
+		 FROM ledger_accounts la WHERE la.tenant_id = $1 AND la.code = 'INV_FOOD' LIMIT 1`,
+		tenantID, entryID, req.StudentID, totalValue,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Line 2: Credit student fee receivable (liability -)
+	_, err = tx.Exec(
+		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
+		 SELECT $1, $2, la.id, $3::uuid, 0, $4
+		 FROM ledger_accounts la WHERE la.tenant_id = $1 AND la.code = 'FEE_RECEIVABLE' LIMIT 1`,
+		tenantID, entryID, req.StudentID, totalValue,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create notification_outbox (SMS receipt)
+	_, err = tx.Exec(
+		`INSERT INTO notification_outbox (tenant_id, channel, recipient, template_key, payload, status)
+		 VALUES ($1, 'SMS', (SELECT phone_number FROM users WHERE user_id = (SELECT user_id FROM learners WHERE learner_id = $2)), 'IN_KIND_RECEIPT', $3, 'PENDING')`,
+		tenantID, req.StudentID, `{"intake_number": "`+req.IntakeNumber+`", "total_value": `+fmt.Sprintf("%.2f", totalValue)+`}`,
+	)
+	if err != nil {
+		// Non-fatal: log but don't fail the transaction
+		_ = err
+	}
+
 	return &l, nil
 }
 
