@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -67,7 +69,7 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		LicenseTier   string `json:"license_tier"`
 		AdminEmail    string `json:"admin_email" binding:"required"`
 		AdminPhone    string `json:"admin_phone" binding:"required"`
-		AdminPassword string `json:"admin_password" binding:"required"`
+		AdminPassword string `json:"admin_password"`
 		PlanCode      string `json:"plan_code"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
@@ -118,6 +120,11 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		return
 	}
 
+	if strings.TrimSpace(req.AdminPassword) == "" {
+		b := make([]byte, 8)
+		_, _ = rand.Read(b)
+		req.AdminPassword = hex.EncodeToString(b)
+	}
 	hash, err := auth.HashPassword(req.AdminPassword)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "HASH_ERROR", "message": err.Error()})
@@ -168,9 +175,12 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"tenant_id":  tenantID,
-		"user_id":    userID,
-		"created_by": adminUserID,
+		"tenant_id":     tenantID,
+		"user_id":       userID,
+		"created_by":    adminUserID,
+		"temp_password": req.AdminPassword,
+		"school_name":   req.SchoolName,
+		"admin_email":   req.AdminEmail,
 	})
 }
 
