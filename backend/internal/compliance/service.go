@@ -6,7 +6,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Service struct {
@@ -25,6 +27,15 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
+// tx resolves the request-scoped tenant transaction.
+func (h *Handler) tx(c *gin.Context) *sqlx.Tx {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+	}
+	return tx
+}
+
 // ConsentNotice
 type ConsentNotice struct {
 	NoticeID          string `json:"notice_id"`
@@ -41,7 +52,11 @@ type ConsentNotice struct {
 }
 
 func (h *Handler) ListConsentNotices(c *gin.Context) {
-	rows, err := h.service.database.Query(
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
+	rows, err := tx.Query(
 		`SELECT notice_id, notice_code, title, content_text, version, is_active,
 			requires_renewal, renewal_period_days, created_by, created_at, updated_at
 		 FROM consent_notices WHERE is_active = TRUE ORDER BY notice_code`,
@@ -81,8 +96,12 @@ type ConsentRecord struct {
 }
 
 func (h *Handler) ListConsentRecords(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT consent_id, tenant_id, user_id, notice_id, notice_version,
 			granted, granted_at, revoked_at, created_at, updated_at
 		 FROM consent_records WHERE tenant_id = $1 ORDER BY created_at DESC`,
@@ -121,8 +140,12 @@ type AccessLog struct {
 }
 
 func (h *Handler) ListAccessLogs(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT log_id, tenant_id, user_id, action, resource_type, resource_id,
 			ip_address, accessed_at
 		 FROM access_logs WHERE tenant_id = $1 ORDER BY accessed_at DESC LIMIT 100`,
@@ -164,8 +187,12 @@ type DSRRequest struct {
 }
 
 func (h *Handler) ListDSRRequests(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT request_id, tenant_id, user_id, request_type, status,
 			description, response_data, responded_by, responded_at, due_date, created_at, updated_at
 		 FROM dsr_requests WHERE tenant_id = $1 ORDER BY created_at DESC`,
@@ -219,8 +246,12 @@ type BreachRegister struct {
 }
 
 func (h *Handler) ListBreachRegister(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT breach_id, tenant_id, breach_title, description, discovered_at,
 			reported_to_authority, affected_data_subjects, severity, status,
 			resolution_notes, reported_by, created_at, updated_at

@@ -17,6 +17,10 @@ import (
 // CreateConsentNotice publishes a new consent notice version. Notices are
 // global reference data shared by every school.
 func (h *Handler) CreateConsentNotice(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		NoticeCode        string `json:"notice_code" binding:"required"`
 		Title             string `json:"title" binding:"required"`
@@ -37,7 +41,7 @@ func (h *Handler) CreateConsentNotice(c *gin.Context) {
 	}
 
 	var noticeID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO consent_notices
 		 (notice_code, title, content_text, version, is_active, requires_renewal, renewal_period_days, created_by)
 		 VALUES ($1, $2, $3, $4, true, $5, $6, $7) RETURNING notice_id`,
@@ -56,6 +60,10 @@ func (h *Handler) CreateConsentNotice(c *gin.Context) {
 
 // UpdateConsentNotice edits the text or retires a notice version.
 func (h *Handler) UpdateConsentNotice(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	noticeID := c.Param("id")
 	var req struct {
 		Title       string `json:"title"`
@@ -83,7 +91,7 @@ func (h *Handler) UpdateConsentNotice(c *gin.Context) {
 	}
 	args = append(args, noticeID)
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE consent_notices SET `+strings.Join(sets, ", ")+` WHERE notice_id = $`+itoa(len(args)), args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -98,6 +106,10 @@ func (h *Handler) UpdateConsentNotice(c *gin.Context) {
 
 // RecordConsent grants (or withdraws) consent for a user against a notice.
 func (h *Handler) RecordConsent(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		UserID   string `json:"user_id" binding:"required"`
 		NoticeID string `json:"notice_id" binding:"required"`
@@ -110,7 +122,7 @@ func (h *Handler) RecordConsent(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 
 	var noticeVersion int
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT version FROM consent_notices WHERE notice_id = $1`, req.NoticeID).Scan(&noticeVersion)
 	if err == sql.ErrNoRows {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
@@ -124,7 +136,7 @@ func (h *Handler) RecordConsent(c *gin.Context) {
 	}
 
 	var consentID string
-	err = h.service.database.QueryRow(
+	err = tx.QueryRow(
 		`INSERT INTO consent_records (tenant_id, user_id, notice_id, notice_version, granted, granted_at, revoked_at)
 		 VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN now() ELSE NULL END, CASE WHEN $5 THEN NULL ELSE now() END)
 		 ON CONFLICT (tenant_id, user_id, notice_id)
@@ -142,9 +154,13 @@ func (h *Handler) RecordConsent(c *gin.Context) {
 
 // RevokeConsent withdraws a previously granted consent.
 func (h *Handler) RevokeConsent(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	consentID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE consent_records SET granted = false, revoked_at = now(), updated_at = now()
 		 WHERE consent_id = $1 AND tenant_id = $2`, consentID, tenantID)
 	if err != nil {
@@ -160,6 +176,10 @@ func (h *Handler) RevokeConsent(c *gin.Context) {
 
 // CreateDSRRequest opens a data-subject request.
 func (h *Handler) CreateDSRRequest(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		UserID      string `json:"user_id" binding:"required"`
 		RequestType string `json:"request_type" binding:"required"`
@@ -173,7 +193,7 @@ func (h *Handler) CreateDSRRequest(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 
 	var requestID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO dsr_requests (tenant_id, user_id, request_type, description, due_date)
 		 VALUES ($1, $2, $3, $4, $5) RETURNING request_id`,
 		tenantID, req.UserID, strings.ToUpper(strings.TrimSpace(req.RequestType)),
@@ -187,6 +207,10 @@ func (h *Handler) CreateDSRRequest(c *gin.Context) {
 
 // UpdateDSRRequest changes a request's status and stores the response.
 func (h *Handler) UpdateDSRRequest(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	requestID := c.Param("id")
 	var req struct {
 		Status       string         `json:"status" binding:"required"`
@@ -214,7 +238,7 @@ func (h *Handler) UpdateDSRRequest(c *gin.Context) {
 	}
 	raw, _ := json.Marshal(response)
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE dsr_requests SET status = $1::varchar, response_data = $2::jsonb, responded_by = $3::uuid,
 		   responded_at = CASE WHEN $1::varchar IN ('COMPLETED','REJECTED') THEN now() ELSE responded_at END, updated_at = now()
 		 WHERE request_id = $4::uuid AND tenant_id = $5::varchar`,
@@ -232,6 +256,10 @@ func (h *Handler) UpdateDSRRequest(c *gin.Context) {
 
 // CreateBreach records a personal-data breach.
 func (h *Handler) CreateBreach(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		BreachTitle          string `json:"breach_title" binding:"required"`
 		Description          string `json:"description" binding:"required"`
@@ -259,7 +287,7 @@ func (h *Handler) CreateBreach(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var breachID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO breach_register
 		 (tenant_id, breach_title, description, discovered_at, severity, affected_data_subjects, reported_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING breach_id`,
@@ -274,6 +302,10 @@ func (h *Handler) CreateBreach(c *gin.Context) {
 
 // UpdateBreach updates the status, severity and resolution of a breach.
 func (h *Handler) UpdateBreach(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	breachID := c.Param("id")
 	var req struct {
 		Status              string `json:"status"`
@@ -314,7 +346,7 @@ func (h *Handler) UpdateBreach(c *gin.Context) {
 	}
 	args = append(args, breachID, c.GetString("tenant_id"))
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE breach_register SET `+strings.Join(sets, ", ")+
 			` WHERE breach_id = $`+itoa(len(args)-1)+` AND tenant_id = $`+itoa(len(args)), args...)
 	if err != nil {
@@ -330,6 +362,10 @@ func (h *Handler) UpdateBreach(c *gin.Context) {
 
 // UpsertRetentionPolicy stores the retention rule for a resource type.
 func (h *Handler) UpsertRetentionPolicy(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		ResourceType         string `json:"resource_type" binding:"required"`
 		RetentionDays        int    `json:"retention_days" binding:"required"`
@@ -350,7 +386,7 @@ func (h *Handler) UpsertRetentionPolicy(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var policyID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO retention_policies (tenant_id, resource_type, retention_days, action_after_retention, is_active, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (tenant_id, resource_type)
@@ -369,8 +405,12 @@ func (h *Handler) UpsertRetentionPolicy(c *gin.Context) {
 
 // ListRetentionPolicies returns the school's retention rules.
 func (h *Handler) ListRetentionPolicies(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT policy_id, tenant_id, resource_type, retention_days, action_after_retention, is_active
 		 FROM retention_policies WHERE tenant_id = $1 ORDER BY resource_type`, tenantID)
 	if err != nil {
@@ -402,6 +442,10 @@ func (h *Handler) ListRetentionPolicies(c *gin.Context) {
 
 // CreateDPIA records a data-protection impact assessment.
 func (h *Handler) CreateDPIA(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		ProcessingActivity string `json:"processing_activity" binding:"required"`
 		Description        string `json:"description" binding:"required"`
@@ -429,7 +473,7 @@ func (h *Handler) CreateDPIA(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var dpiaID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO dpia_records
 		 (tenant_id, processing_activity, description, risk_level, mitigation_measures, status, assessed_by, review_date)
 		 VALUES ($1, $2, $3, $4, $5, 'DRAFT', $6, $7) RETURNING dpia_id`,
@@ -444,20 +488,24 @@ func (h *Handler) CreateDPIA(c *gin.Context) {
 
 // ComplianceSummary gives the dashboard its coverage figures.
 func (h *Handler) ComplianceSummary(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 
 	var learners, withConsent, pendingDSR, openBreaches int
-	_ = h.service.database.QueryRow(
+	_ = tx.QueryRow(
 		`SELECT COUNT(*) FROM learners WHERE tenant_id = $1 AND status = 'ACTIVE'`, tenantID).Scan(&learners)
-	_ = h.service.database.QueryRow(
+	_ = tx.QueryRow(
 		`SELECT COUNT(DISTINCT lg.learner_id)
 		 FROM learner_guardians lg
 		 JOIN guardians gd ON gd.guardian_id = lg.guardian_id
 		 JOIN consent_records cr ON cr.user_id = gd.user_id AND cr.granted = true AND cr.revoked_at IS NULL
 		 WHERE gd.tenant_id = $1`, tenantID).Scan(&withConsent)
-	_ = h.service.database.QueryRow(
+	_ = tx.QueryRow(
 		`SELECT COUNT(*) FROM dsr_requests WHERE tenant_id = $1 AND status IN ('PENDING','IN_PROGRESS')`, tenantID).Scan(&pendingDSR)
-	_ = h.service.database.QueryRow(
+	_ = tx.QueryRow(
 		`SELECT COUNT(*) FROM breach_register WHERE tenant_id = $1 AND status <> 'CLOSED'`, tenantID).Scan(&openBreaches)
 
 	c.JSON(http.StatusOK, gin.H{
