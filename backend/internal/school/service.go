@@ -1,6 +1,7 @@
 package school
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -45,6 +47,12 @@ func nullStringPtr(ns sql.NullString) *string {
 	return &s
 }
 
+type queryer interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
 type Service struct {
 	database *db.DB
 }
@@ -53,7 +61,9 @@ func NewService(database *db.DB) *Service {
 	return &Service{database: database}
 }
 
-func (s *Service) GetSchool(tenantID string) (*GetSchoolResponse, error) {
+func (s *Service) GetSchool(ctx context.Context, tenantID string) (*GetSchoolResponse, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	var tid string
 	var schoolName string
 	var subdomain string
@@ -74,7 +84,7 @@ func (s *Service) GetSchool(tenantID string) (*GetSchoolResponse, error) {
 	var createdAt string
 	var updatedAt string
 
-	err := s.database.QueryRow(
+	err := q.QueryRow(
 		`SELECT tenant_id, school_name, subdomain, knec_code, kemis_code, school_type,
 			funding_mode, county, sub_county, address, logo_ref, stamp_ref,
 			head_signature_ref, default_locale, hosts_junior, license_tier, status,
@@ -323,7 +333,7 @@ func NewHandler(service *Service) *Handler {
 
 func (h *Handler) GetSchool(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	school, err := h.service.GetSchool(tenantID)
+	school, err := h.service.GetSchool(c.Request.Context(), tenantID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": "SCHOOL_NOT_FOUND", "message": "School not found"})
 		return
