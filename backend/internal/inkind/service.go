@@ -453,6 +453,138 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 	return &l, nil
 }
 
+// VoidIntake creates a reversing journal entry and removes the lot quantity.
+// Blocked if the lot quantity was already consumed (escalated to adjustment).
+func (s *Service) VoidIntake(ctx context.Context, tenantID, userID, logID, reason string) (*InKindIntakeLog, error) {
+	q := s.q(ctx)
+	tx, ok := q.(*sql.Tx)
+	if !ok {
+		return nil, errors.New("transaction required")
+	}
+
+	// Load intake log
+	var l InKindIntakeLog
+	err := tx.QueryRow(
+		`SELECT id, tenant_id, student_id, intake_number, status FROM in_kind_intake_logs WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+		tenantID, logID,
+	).Scan(&l.ID, &l.TenantID, &l.StudentID, &l.IntakeNumber, &l.Status)
+	if err != nil {
+		return nil, err
+	}
+	if l.Status == "VOIDED" {
+		return &l, nil // already voided, idempotent
+	}
+
+	// Load intake items with their lots
+	rows, err := tx.Query(
+		`SELECT ii.inventory_item_id, ii.quantity, ii.rate_per_unit, ii.cash_equivalent
+		 FROM in_kind_intake_items ii WHERE ii.tenant_id = $1 AND ii.intake_log_id = $2`,
+		tenantID, logID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type intakeItem struct {
+		InventoryItemID string
+		Quantity        float64
+		RatePerUnit     float64
+		CashEquivalent  float64
+	}
+	var items []intakeItem
+	for rows.Next() {
+		var it intakeItem
+		if err := rows.Scan(&it.InventoryItemID, &it.Quantity, &it.RatePerUnit, &it.CashEquivalent); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+
+	// Check if any lot quantity was already consumed
+	for _, it := range items {
+		var remaining float64
+		err := tx.QueryRow(
+			`SELECT COALESCE(SUM(qty_remaining), 0) FROM inventory_lots WHERE tenant_id = $1 AND source_id = $2 AND inventory_item_id = $3`,
+			tenantID, logID, it.InventoryItemID,
+		).Scan(&remaining)
+		if err != nil {
+			return nil, err
+		}
+		if remaining < it.Quantity {
+			return nil, errors.New("cannot void: lot quantity already consumed, escalate to adjustment")
+		}
+	}
+
+	// Remove lot quantity (set to 0)
+	for _, it := range items {
+		_, err = tx.Exec(
+			`UPDATE inventory_lots SET qty_remaining = 0 WHERE tenant_id = $1 AND source_id = $2 AND inventory_item_id = $3`,
+			tenantID, logID, it.InventoryItemID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		// Create reversing movement
+		_, err = tx.Exec(
+			`INSERT INTO inventory_movements (tenant_id, inventory_item_id, qty, unit_cost, ref_type, ref_id)
+			 VALUES ($1, $2, $3, $4, 'VOID', $5)`,
+			tenantID, it.InventoryItemID, -it.Quantity, it.RatePerUnit, logID,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Create reversing journal entry
+	var originalEntryID string
+	_ = tx.QueryRow(
+		`SELECT id FROM journal_entries WHERE tenant_id = $1 AND source_type = 'IN_KIND_INTAKE' AND source_id = $2 LIMIT 1`,
+		tenantID, logID,
+	).Scan(&originalEntryID)
+
+	var reversalEntryID string
+	err = tx.QueryRow(
+		`INSERT INTO journal_entries (tenant_id, entry_date, source_type, source_id, memo, reverses_entry_id, created_by)
+		 VALUES ($1, CURRENT_TIMESTAMP, 'IN_KIND_VOID', $2, $3, $4, $5)
+		 RETURNING id`,
+		tenantID, logID, "Void of intake "+l.IntakeNumber, nullIfEmpty(originalEntryID), nullIfEmpty(userID),
+	).Scan(&reversalEntryID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reverse lines: swap debit/credit
+	_, err = tx.Exec(
+		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
+		 SELECT tenant_id, $1, account_id, student_id, credit, debit
+		 FROM journal_lines WHERE tenant_id = $2 AND entry_id = $3`,
+		reversalEntryID, tenantID, originalEntryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Mark intake as voided
+	_, err = tx.Exec(
+		`UPDATE in_kind_intake_logs SET status = 'VOIDED', updated_at = CURRENT_TIMESTAMP WHERE tenant_id = $1 AND id = $2`,
+		tenantID, logID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Audit event
+	_, _ = tx.Exec(
+		`INSERT INTO audit_events (tenant_id, user_id, action, table_name, record_id, reason)
+		 VALUES ($1, $2, 'VOID', 'in_kind_intake_logs', $3, $4)`,
+		tenantID, nullIfEmpty(userID), logID, reason,
+	)
+
+	l.Status = "VOIDED"
+	return &l, nil
+}
+
 func (s *Service) VerifyIntake(ctx context.Context, tenantID, userID, logID string, req VerifyIntakeRequest) (*InKindIntakeLog, error) {
 	q := s.q(ctx)
 	tx, ok := q.(*sql.Tx)
