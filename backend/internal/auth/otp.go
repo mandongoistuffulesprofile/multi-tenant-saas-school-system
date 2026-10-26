@@ -83,6 +83,16 @@ func (h *Handler) RequestOTP(c *gin.Context) {
 
 	phone := h.service.NormalisePhone(req.Phone)
 
+	// Per-phone request throttle: 1 OTP per 60s.
+	if h.redis != nil {
+		key := "rl:otp:req:" + phone
+		if n, _ := h.redis.Incr(c.Request.Context(), key).Result(); n > 1 {
+			c.JSON(http.StatusTooManyRequests, gin.H{"code": "OTP_RATE_LIMITED", "message": "Please wait before requesting another OTP"})
+			return
+		}
+		h.redis.Expire(c.Request.Context(), key, 60*time.Second)
+	}
+
 	otp, err := h.service.GenerateOTP(6)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "SERVER_ERROR", "message": "Failed to generate OTP"})
@@ -134,6 +144,17 @@ func (h *Handler) VerifyOTP(c *gin.Context) {
 	}
 
 	phone := h.service.NormalisePhone(req.Phone)
+
+	// Per-phone verify throttle: 5 attempts per 10 min.
+	if h.redis != nil {
+		key := "rl:otp:verify:" + phone
+		n, _ := h.redis.Incr(c.Request.Context(), key).Result()
+		if n > 5 {
+			c.JSON(http.StatusTooManyRequests, gin.H{"code": "OTP_RATE_LIMITED", "message": "Too many verification attempts"})
+			return
+		}
+		h.redis.Expire(c.Request.Context(), key, 10*time.Minute)
+	}
 
 	var codeHash string
 	var expiresAt time.Time

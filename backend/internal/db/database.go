@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"log"
 	"math/rand"
@@ -47,10 +48,12 @@ func Connect(databaseURL string) (*DB, error) {
 
 // ConnectWithSettings opens a pooled connection with explicit pool limits.
 func ConnectWithSettings(databaseURL string, ps poolSettings) (*DB, error) {
-	db, err := sqlx.Open("postgres", databaseURL)
+	connector, err := pq.NewConnector(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to create connector: %w", err)
 	}
+	wrapped := &guardedConnector{Connector: connector}
+	db := sqlx.NewDb(sql.OpenDB(wrapped), "postgres")
 
 	db.SetMaxOpenConns(ps.MaxOpenConns)
 	db.SetMaxIdleConns(ps.MaxIdleConns)
@@ -60,18 +63,6 @@ func ConnectWithSettings(databaseURL string, ps poolSettings) (*DB, error) {
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	// Session-level guards. These apply for the life of each pooled connection
-	// and protect against runaway queries and idle-in-transaction leaks.
-	_, err = db.Exec(`
-		SET statement_timeout = '30s';
-		SET idle_in_transaction_session_timeout = '600s';
-		SET application_name = 'skulapp-api';
-	`)
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to apply session guards: %w", err)
 	}
 
 	d := &DB{DB: db, cb: newCircuitBreaker(5, 30*time.Second)}
@@ -320,3 +311,28 @@ func (c *circuitBreaker) fail() {
 
 // Compile-time check that database/sql types are used (avoid unused import noise in some builds).
 var _ = sql.ErrNoRows
+
+
+// guardedConnector wraps a pq connector so session-level guards are applied on
+// every pooled connection at checkout time, not just once at startup.
+type guardedConnector struct {
+	driver.Connector
+}
+
+func (g *guardedConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	c, err := g.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, q := range []string{
+		"SET statement_timeout = '30s'",
+		"SET idle_in_transaction_session_timeout = '600s'",
+		"SET application_name = 'skulapp-api'",
+	} {
+		if _, err := c.(interface{ Exec(string, []driver.Value) (driver.Result, error) }).Exec(q, nil); err != nil {
+			c.Close()
+			return nil, err
+		}
+	}
+	return c, nil
+}
