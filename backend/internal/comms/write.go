@@ -15,6 +15,10 @@ import (
 // gate: a recipient without a valid consent record is excluded and counted.
 
 func (h *Handler) CreateMessageTemplate(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		TemplateName string `json:"template_name" binding:"required"`
 		Channel      string `json:"channel" binding:"required"`
@@ -37,7 +41,7 @@ func (h *Handler) CreateMessageTemplate(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var templateID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO message_templates (tenant_id, template_name, channel, subject, body_text, is_default, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING template_id`,
 		tenantID, strings.TrimSpace(req.TemplateName), channel, nullableString(req.Subject),
@@ -54,6 +58,10 @@ func (h *Handler) CreateMessageTemplate(c *gin.Context) {
 }
 
 func (h *Handler) UpdateMessageTemplate(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	templateID := c.Param("id")
 	var req struct {
 		TemplateName string `json:"template_name"`
@@ -85,7 +93,7 @@ func (h *Handler) UpdateMessageTemplate(c *gin.Context) {
 	}
 	args = append(args, templateID, c.GetString("tenant_id"))
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE message_templates SET `+strings.Join(sets, ", ")+
 			` WHERE template_id = $`+itoa(len(args)-1)+` AND tenant_id = $`+itoa(len(args)), args...)
 	if err != nil {
@@ -100,9 +108,13 @@ func (h *Handler) UpdateMessageTemplate(c *gin.Context) {
 }
 
 func (h *Handler) DeleteMessageTemplate(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	templateID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE message_templates SET is_active = false, updated_at = now()
 		 WHERE template_id = $1 AND tenant_id = $2`, templateID, tenantID)
 	if err != nil {
