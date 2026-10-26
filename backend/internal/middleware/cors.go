@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,10 @@ import (
 func CORS(allowedOrigins string) gin.HandlerFunc {
 	allowed := map[string]bool{}
 	wildcard := strings.TrimSpace(allowedOrigins) == "" || strings.TrimSpace(allowedOrigins) == "*"
+	// Fail closed in production: never fall back to wildcard when unset.
+	if os.Getenv("APP_ENV") == "production" && (strings.TrimSpace(allowedOrigins) == "" || strings.TrimSpace(allowedOrigins) == "*") {
+		wildcard = false
+	}
 	for _, origin := range strings.Split(allowedOrigins, ",") {
 		if origin = strings.TrimSpace(origin); origin != "" && origin != "*" {
 			allowed[origin] = true
