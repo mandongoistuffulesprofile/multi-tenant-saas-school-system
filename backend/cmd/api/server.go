@@ -62,7 +62,7 @@ func Run() error {
 	authLimiter := middleware.NewRedisRateLimiter(redisClient.Client, "rl:auth:ip", 600, time.Minute)
 
 	jwtManager := auth.NewJWTManager(cfg.JWTSigningKey, 15*time.Minute, 30*24*time.Hour)
-	authService := auth.NewAuthService(database, jwtManager)
+	authService := auth.NewAuthService(cfg.JWTSigningKey)
 	authHandler := auth.NewHandler(authService, database, jwtManager, redisClient.Client)
 	auth.InitResetLimiters(redisClient.Client)
 
@@ -200,7 +200,7 @@ func Run() error {
 
 	// Me routes (authenticated)
 	meGroup := apiV1.Group("/me")
-	meGroup.Use(middleware.RequireAuth())
+	meGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		meGroup.GET("", authHandler.GetMe)
 		meGroup.PATCH("", authHandler.UpdateMe)
@@ -210,7 +210,7 @@ func Run() error {
 
 	// School routes (authenticated, tenant-scoped)
 	schoolGroup := apiV1.Group("/school")
-	schoolGroup.Use(middleware.RequireAuth())
+	schoolGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		schoolGroup.GET("", schoolHandler.GetSchool)
 		schoolGroup.PATCH("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), schoolHandler.UpdateSchool)
@@ -220,11 +220,11 @@ func Run() error {
 		schoolGroup.PUT("/finance-settings", middleware.RequireRole(middleware.RoleFinanceStaff...), schoolHandler.UpdateFinanceSettings)
 	}
 
-	apiV1.GET("/audit/logs", middleware.RequireAuth(), middleware.RequireRole(middleware.RoleSchoolAdministrators...), auditHandler.GetAuditLog)
+	apiV1.GET("/audit/logs", middleware.RequireAuthGin(jwtManager), middleware.RequireRole(middleware.RoleSchoolAdministrators...), auditHandler.GetAuditLog)
 
 	// Calendar routes
 	calGroup := apiV1.Group("/calendar")
-	calGroup.Use(middleware.RequireAuth())
+	calGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		calGroup.GET("/years", middleware.RequireRole(middleware.RoleAdministrationStaff...), calendarHandler.ListAcademicYears)
 		calGroup.POST("/years", middleware.RequireRole(middleware.RoleSchoolAdministrators...), calendarHandler.CreateAcademicYear)
@@ -236,7 +236,7 @@ func Run() error {
 
 	// Staff routes
 	staffGroup := apiV1.Group("/staff")
-	staffGroup.Use(middleware.RequireAuth())
+	staffGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		staffGroup.GET("", middleware.RequireRole(middleware.RoleAdministrationStaff...), staffHandler.ListStaff)
 		staffGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), staffHandler.CreateStaff)
@@ -244,7 +244,7 @@ func Run() error {
 
 	// Learner routes
 	learnerGroup := apiV1.Group("/learners")
-	learnerGroup.Use(middleware.RequireAuth())
+	learnerGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		learnerGroup.GET("", middleware.RequireRole(middleware.RoleAcademicStaff...), learnerHandler.ListLearners)
 		learnerGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), learnerHandler.CreateLearner)
@@ -253,7 +253,7 @@ func Run() error {
 
 	// Curriculum routes (M5)
 	currGroup := apiV1.Group("/curriculum")
-	currGroup.Use(middleware.RequireAuth())
+	currGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		currGroup.GET("/versions", middleware.RequireRole(middleware.RoleAllStaff...), curriculumHandler.ListCurriculumVersions)
 		currGroup.GET("/versions/:version_id", middleware.RequireRole(middleware.RoleAllStaff...), curriculumHandler.GetCurriculumVersion)
@@ -266,7 +266,7 @@ func Run() error {
 
 	// Assessment routes (M6)
 	assessGroup := apiV1.Group("/assessment")
-	assessGroup.Use(middleware.RequireAuth())
+	assessGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		assessGroup.GET("/events", middleware.RequireRole(middleware.RoleAcademicStaff...), assessmentHandler.ListAssessmentEvents)
 		assessGroup.GET("/events/:event_id", middleware.RequireRole(middleware.RoleAcademicStaff...), assessmentHandler.GetAssessmentEvent)
@@ -290,7 +290,7 @@ func Run() error {
 
 	// KNEC routes (M7)
 	knecGroup := apiV1.Group("/knec")
-	knecGroup.Use(middleware.RequireAuth())
+	knecGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		knecGroup.GET("/tools", middleware.RequireRole(middleware.RoleSchoolAdministrators...), knecHandler.ListKNECRules)
 		knecGroup.GET("/submissions", middleware.RequireRole(middleware.RoleSchoolAdministrators...), knecHandler.ListKNECRSubmissionStatus)
@@ -299,7 +299,7 @@ func Run() error {
 
 	// Finance routes (M10 Money Core)
 	financeGroup := apiV1.Group("/finance")
-	financeGroup.Use(middleware.RequireAuth())
+	financeGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		// Fee categories — global defaults plus this school's own categories
 		financeGroup.GET("/fee-categories", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListFeeCategories)
@@ -367,7 +367,7 @@ func Run() error {
 
 	// Reports routes (M8)
 	reportsGroup := apiV1.Group("/reports")
-	reportsGroup.Use(middleware.RequireAuth())
+	reportsGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		reportsGroup.GET("/templates", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportTemplates)
 		reportsGroup.GET("/runs", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportRuns)
@@ -388,7 +388,7 @@ func Run() error {
 
 	// Comms routes (M11)
 	commsGroup := apiV1.Group("/comms")
-	commsGroup.Use(middleware.RequireAuth())
+	commsGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		commsGroup.GET("/templates", middleware.RequireRole(middleware.RoleAdministrationStaff...), commsHandler.ListMessageTemplates)
 		commsGroup.GET("/messages", middleware.RequireRole(middleware.RoleAdministrationStaff...), commsHandler.ListOutboundMessages)
@@ -408,7 +408,7 @@ func Run() error {
 
 	// Compliance routes (M12) — privacy-sensitive, restricted to school admins
 	complianceGroup := apiV1.Group("/compliance")
-	complianceGroup.Use(middleware.RequireAuth())
+	complianceGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		complianceGroup.GET("/consent-notices", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListConsentNotices)
 		complianceGroup.GET("/consent-records", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListConsentRecords)
@@ -433,7 +433,7 @@ func Run() error {
 
 	// Attendance routes (M9)
 	attendanceGroup := apiV1.Group("/attendance")
-	attendanceGroup.Use(middleware.RequireAuth())
+	attendanceGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		attendanceGroup.GET("/registers", middleware.RequireRole(middleware.RoleAcademicStaff...), attendanceHandler.ListAttendanceRegisters)
 		attendanceGroup.GET("/marks", middleware.RequireRole(middleware.RoleAcademicStaff...), attendanceHandler.ListAttendanceMarks)
@@ -448,7 +448,7 @@ func Run() error {
 
 	// Gate routes (M9)
 	gateGroup := apiV1.Group("/gate")
-	gateGroup.Use(middleware.RequireAuth())
+	gateGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		gateGroup.GET("/devices", middleware.RequireRole(middleware.RoleSchoolAdministrators...), attendanceHandler.ListGateDevices)
 		gateGroup.GET("/tags", middleware.RequireRole(middleware.RoleSchoolAdministrators...), attendanceHandler.ListRFIDTags)
@@ -466,7 +466,7 @@ func Run() error {
 
 	// Platform routes (M13, M15) — tenant-scoped billing and usage
 	platformGroup := apiV1.Group("/platform")
-	platformGroup.Use(middleware.RequireAuth())
+	platformGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		platformGroup.GET("/plans", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListPlans)
 		platformGroup.GET("/subscriptions", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListSubscriptions)
@@ -498,7 +498,7 @@ func Run() error {
 
 	// Structure routes — grades, streams, class groups and teaching assignments.
 	structureGroup := apiV1.Group("/structure")
-	structureGroup.Use(middleware.RequireAuth())
+	structureGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		structureGroup.GET("/grades", middleware.RequireRole(middleware.RoleAcademicStaff...), structureHandler.ListGrades)
 		structureGroup.GET("/streams", middleware.RequireRole(middleware.RoleAcademicStaff...), structureHandler.ListStreams)
@@ -517,7 +517,7 @@ func Run() error {
 
 	// Sync routes — offline queue replay and conflict resolution.
 	syncGroup := apiV1.Group("/sync")
-	syncGroup.Use(middleware.RequireAuth())
+	syncGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		syncGroup.POST("/push", middleware.RequireRole(middleware.RoleAcademicStaff...), syncHandler.Push)
 		syncGroup.GET("/pull", middleware.RequireRole(middleware.RoleAcademicStaff...), syncHandler.Pull)

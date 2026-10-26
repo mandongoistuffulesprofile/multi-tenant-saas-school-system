@@ -11,11 +11,25 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
-// RequestLogger emits one structured line per request. Keeping it separate
-// from gin.Logger avoids the default's unstructured output and includes the
-// correlation ID and tenant, which are the two fields support needs.
+// RequestIDMiddleware ensures every request has a correlation ID. Incoming
+// X-Request-ID is honoured; otherwise a UUID is generated. The value is stored
+// in the Gin context and echoed back as a response header.
+func RequestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = uuid.New().String()
+		}
+		c.Set(ContextRequestID, requestID)
+		c.Header("X-Request-ID", requestID)
+		c.Next()
+	}
+}
+
+// RequestLogger emits one structured line per request.
 func RequestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

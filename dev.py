@@ -198,31 +198,41 @@ def main():
         cleanup()
         sys.exit(1)
     log("DB", "PostgreSQL accepting connections on localhost:5432.", CLR_GREEN)
+    time.sleep(2)  # let Postgres finish internal initialization
 
-    # 8. Apply migrations with demo seed
+    # 8. Apply migrations with demo seed (retry for transient connection issues)
     log("MIGRATION", "Applying migrations + demo seed data...", CLR_BLUE)
     migrate_env = {
         **os.environ,
         "DATABASE_URL": "postgres://school_admin:dev_secret_password@localhost:5432/school_system?sslmode=disable",
     }
-    p_migrate = subprocess.Popen(
-        ["go", "run", "./cmd/migrate", "-dir", "../migrations", "-seed"],
-        cwd=str(root / "backend"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=migrate_env,
-    )
-    m_out, m_err = p_migrate.communicate()
-    if m_out:
-        for line in m_out.decode().splitlines():
-            if line.strip():
-                print(f"{CLR_BLUE}{CLR_BOLD}[MIGRATION]{CLR_RESET} {line}")
-    if m_err:
-        for line in m_err.decode().splitlines():
-            if line.strip():
-                print(f"{CLR_RED}{CLR_BOLD}[MIGRATION]{CLR_RESET} {line}")
-    if p_migrate.returncode != 0:
-        print(f"{CLR_RED}{CLR_BOLD}[FATAL]{CLR_RESET} Migration failed (exit {p_migrate.returncode}).")
+
+    migrate_ok = False
+    for attempt in range(3):
+        p_migrate = subprocess.Popen(
+            ["go", "run", "./cmd/migrate", "-dir", "../migrations", "-seed"],
+            cwd=str(root / "backend"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=migrate_env,
+        )
+        m_out, m_err = p_migrate.communicate()
+        if m_out:
+            for line in m_out.decode().splitlines():
+                if line.strip():
+                    print(f"{CLR_BLUE}{CLR_BOLD}[MIGRATION]{CLR_RESET} {line}")
+        if m_err:
+            for line in m_err.decode().splitlines():
+                if line.strip():
+                    print(f"{CLR_RED}{CLR_BOLD}[MIGRATION]{CLR_RESET} {line}")
+        if p_migrate.returncode == 0:
+            migrate_ok = True
+            break
+        log("MIGRATION", f"Attempt {attempt + 1}/3 failed, retrying in 2s...", CLR_YELLOW)
+        time.sleep(2)
+
+    if not migrate_ok:
+        print(f"{CLR_RED}{CLR_BOLD}[FATAL]{CLR_RESET} Migration failed after 3 attempts.")
         cleanup()
         sys.exit(1)
     log("MIGRATION", "Migrations and seed data applied.", CLR_GREEN)

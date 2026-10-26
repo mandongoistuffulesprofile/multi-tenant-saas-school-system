@@ -1,5 +1,11 @@
 package middleware
 
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
 // Role vocabulary used by tenant_memberships.role.
 //
 // The platform distinguishes two families of roles:
@@ -54,3 +60,18 @@ var RoleAllStaff = []string{
 
 // RolePlatformAdministrators manage SaaS root operations, subscriptions and tenant onboarding.
 var RolePlatformAdministrators = []string{RoleSaasAdmin, RoleSuperAdmin}
+
+// RequireRole restricts a Gin route to one of the given roles.
+func RequireRole(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, _ := c.Get(ContextRole)
+		roleStr, _ := role.(string)
+		for _, allowed := range allowedRoles {
+			if roleStr == allowed {
+				c.Next()
+				return
+			}
+		}
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden: insufficient role permissions"})
+	}
+}

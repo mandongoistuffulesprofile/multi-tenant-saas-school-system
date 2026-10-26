@@ -7,6 +7,7 @@ import { KPIStatCard } from "../components/atoms/Card";
 import Badge from "../components/atoms/Badge";
 import ViewState from "../components/organisms/ViewState";
 import { Role } from "../lib/types";
+import { User2, Megaphone, Puzzle, BarChart3, Plus, Users, Receipt, CreditCard, Clock } from "lucide-react";
 
 export interface DashboardStat {
   label: string;
@@ -87,15 +88,15 @@ export default function DashboardPage() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <a href="/parent" className="card p-6 text-center hover:border-kenyan-red transition block">
-            <span className="text-3xl">👨‍👩‍👧</span>
+            <User2 className="w-10 h-10 mx-auto mb-2 stroke-[1.5]" />
             <div className="text-heading mt-2">{'My Children'}</div>
           </a>
           <a href="/parent/fees" className="card p-6 text-center hover:border-kenyan-red transition block">
-            <span className="text-3xl"></span>
+            <CreditCard className="w-10 h-10 mx-auto mb-2 stroke-[1.5]" />
             <div className="text-heading mt-2">{'Fees'}</div>
           </a>
           <a href="/parent/notices" className="card p-6 text-center hover:border-kenyan-red transition block">
-            <span className="text-3xl">📢</span>
+            <Megaphone className="w-10 h-10 mx-auto mb-2 stroke-[1.5]" />
             <div className="text-heading mt-2">{'Notices'}</div>
           </a>
         </div>
@@ -118,9 +119,18 @@ export default function DashboardPage() {
         <Card className="p-6">
           <h3 className="text-heading mb-3">{'Quick actions'}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <a href="/saas-admin" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">🧩 SaaS Console</a>
-            <a href="/platform/operations" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">📊 Operations Centre</a>
-            <a href="/platform/tenants" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800"> Tenants</a>
+            <a href="/saas-admin" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-slate-900 transition text-center font-medium text-sm text-gray-800">
+              <Puzzle className="w-5 h-5 mx-auto mb-1 stroke-[1.5]" />
+              <div className="text-xs">{'SaaS Console'}</div>
+            </a>
+            <a href="/platform/operations" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-slate-900 transition text-center font-medium text-sm text-gray-800">
+              <BarChart3 className="w-5 h-5 mx-auto mb-1 stroke-[1.5]" />
+              <div className="text-xs">{'Operations Centre'}</div>
+            </a>
+            <a href="/platform/tenants" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-slate-900 transition text-center font-medium text-sm text-gray-800">
+              <Users className="w-5 h-5 mx-auto mb-1 stroke-[1.5]" />
+              <div className="text-xs">{'Tenants'}</div>
+            </a>
           </div>
         </Card>
       </div>
@@ -187,10 +197,22 @@ export default function DashboardPage() {
         <Card className="p-6">
           <h3 className="text-heading mb-3">{'Quick actions'}</h3>
           <div className="space-y-2">
-            <a href="/learners" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">➕ {'Add Learner'}</a>
-            <a href="/finance/invoices" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800"> {'Generate Invoice'}</a>
-            <a href="/finance/payments" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800"> {'Record Payment'}</a>
-            <a href="/attendance" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800"> {'Attendance Register'}</a>
+            <a href="/learners" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-slate-900 transition text-center font-medium text-sm text-gray-800">
+              <Plus className="w-5 h-5 mx-auto mb-1 stroke-[1.5]" />
+              <div className="text-xs">{'Add Learner'}</div>
+            </a>
+            <a href="/finance/invoices" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-slate-900 transition text-center font-medium text-sm text-gray-800">
+              <Receipt className="w-5 h-5 mx-auto mb-1 stroke-[1.5]" />
+              <div className="text-xs">{'Generate Invoice'}</div>
+            </a>
+            <a href="/finance/payments" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-slate-900 transition text-center font-medium text-sm text-gray-800">
+              <CreditCard className="w-5 h-5 mx-auto mb-1 stroke-[1.5]" />
+              <div className="text-xs">{'Record Payment'}</div>
+            </a>
+            <a href="/attendance" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-slate-900 transition text-center font-medium text-sm text-gray-800">
+              <Clock className="w-5 h-5 mx-auto mb-1 stroke-[1.5]" />
+              <div className="text-xs">{'Attendance Register'}</div>
+            </a>
           </div>
         </Card>
       </div>

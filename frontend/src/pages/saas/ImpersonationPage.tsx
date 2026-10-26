@@ -5,6 +5,7 @@ import Card from "../../components/atoms/Card";
 import Input from "../../components/atoms/Input";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
+import { Theater } from "lucide-react";
 
 export default function ImpersonationPage() {
   const { t } = useTranslation();
@@ -26,7 +27,7 @@ export default function ImpersonationPage() {
     return (
       <div className="p-6 text-center">
         <Card className="p-8 mx-auto max-w-md">
-          <div className="text-4xl mb-3">🎭</div>
+          <Theater className="w-12 h-12 mx-auto mb-3 stroke-[1.5] text-slate-500" />
           <h2 className="text-heading mb-2">{t("saas.impersonating", { defaultMessage: "Impersonation Active" })}</h2>
           <p className="text-body">{t("saas.readonly_mode", { defaultMessage: "Read-only mode — all actions audited" })}</p>
           <div className="mt-4 p-4 rounded-xl bg-kenyan-red/10 border border-kenyan-red/20 text-kenyan-red text-sm font-medium">

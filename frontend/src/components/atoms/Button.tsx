@@ -21,7 +21,7 @@ export default function Button({
     "inline-flex items-center justify-center font-medium rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
   const variants: Record<string, string> = {
     primary:
-      "bg-kenyan-red text-white hover:bg-slate-900 focus:ring-kenyan-red",
+      "bg-slate-900 text-white hover:bg-slate-800 focus:ring-slate-700",
     secondary:
       "bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 focus:ring-gray-300",
     danger:

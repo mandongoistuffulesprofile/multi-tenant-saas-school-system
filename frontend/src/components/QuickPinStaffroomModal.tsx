@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Lock } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -39,7 +40,7 @@ export const QuickPinStaffroomModal: React.FC<Props> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xs w-full p-6 text-center text-white shadow-2xl">
         <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3 font-bold text-lg">
-          🔒
+          <Lock className="w-8 h-8 text-emerald-400" />
         </div>
         <h3 className="text-sm font-bold tracking-tight uppercase">Kompyuta ya Walimu (Staffroom)</h3>
         <p className="text-xs text-slate-400 mt-1">

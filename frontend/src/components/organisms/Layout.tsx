@@ -6,6 +6,39 @@ import { api } from "../../lib/api";
 import Button from "../atoms/Button";
 import Badge from "../atoms/Badge";
 import {
+  Layout as LayoutIcon,
+  School,
+  PlugZap,
+  Calendar,
+  Users,
+  GraduationCap,
+  FileText,
+  Receipt,
+  CreditCard,
+  ArrowLeftRight,
+  Scale,
+  Landmark,
+  Layers,
+  UserCheck,
+  Shield,
+  BookOpen,
+  ClipboardList,
+  BarChart3,
+  Mail,
+  ShieldCheck,
+  Clock,
+  Settings,
+  Settings2,
+  User2,
+  User,
+  Home,
+  Megaphone,
+  Signature,
+  RefreshCw,
+  Building2,
+  UserRoundCog,
+} from "lucide-react";
+import {
   SCHOOL_ADMIN_ROLES,
   FINANCE_ROLES,
   ADMIN_ROLES,
@@ -173,7 +206,7 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("app_lang") || "en"; } catch { return "en"; } });
   const [palette, setPalette] = useState<PaletteState>({ open: false, query: "" });
-  const [badges, setBadges] = useState<Record<string, number | string>>({});
+  const [badges, setBadges] = useState<Record<string, number | string | null>>({});
   const [impSchool, setImpSchool] = useState<string | null>(() => { try { return localStorage.getItem("imp_school"); } catch { return null; } });
 
   /* Exit an impersonation session: restore the platform-owner tokens. */
@@ -390,7 +423,7 @@ export default function Layout({ children }: LayoutProps) {
                   }
                   end
                 >
-                  <span className="text-lg">{iconFor(TOP_ITEM.path)}</span>
+                  <RenderIcon path={TOP_ITEM.path} className="w-5 h-5" />
                   {t(TOP_ITEM.label)}
                 </NavLink>
               )}
@@ -405,7 +438,7 @@ export default function Layout({ children }: LayoutProps) {
                     }`
                   }
                 >
-                  <span className="text-lg">{iconFor(item.path)}</span>
+                  <RenderIcon path={item.path} className="w-5 h-5" />
                   {isKey(item.label) ? t(item.label) : item.label}
                   {badges[item.path] != null && item.path === "/dashboard" ? null : (
                     <span className={`ml-auto text-[10px] font-bold financial-data ${typeof badges[item.path] === "string" ? "text-emerald-700" : "text-gray-400"}`}>
@@ -448,7 +481,7 @@ export default function Layout({ children }: LayoutProps) {
                               }`
                             }
                           >
-                            <span className="text-base">{iconFor(item.path)}</span>
+                            <RenderIcon path={item.path} className="w-4 h-4" />
                             {isKey(item.label) ? t(item.label) : item.label}
                           </NavLink>
                         ))}
@@ -470,7 +503,7 @@ export default function Layout({ children }: LayoutProps) {
                       }`
                     }
                   >
-                    <span className="text-lg">{iconFor(BOTTOM_ITEM.path)}</span>
+                    <RenderIcon path={BOTTOM_ITEM.path} className="w-5 h-5" />
                     {t(BOTTOM_ITEM.label)}
                   </NavLink>
                 </div>
@@ -492,35 +525,41 @@ export default function Layout({ children }: LayoutProps) {
   );
 }
 
-function iconFor(path: string): string {
-  const map: Record<string, string> = {
-    "/dashboard": "📊",
-    "/school": "",
-    "/integrations": "",
-    "/calendar": "",
-    "/staff": "",
-    "/learners": "",
-    "/finance/fee-categories": "",
-    "/finance/fee-structures": "",
-    "/finance/invoices": "",
-    "/finance/payments": "",
-    "/finance/mpesa": "",
-    "/finance/reconciliation": "",
-    "/finance/board-pack": "",
-    "/grades-streams": "",
-    "/teaching-allocation": "",
-    "/bom-oversight": "",
-    "/curriculum": "",
-    "/assessment": "",
-    "/reports": "",
-    "/comms": "",
-    "/compliance": "",
-    "/attendance": "",
-    "/knec": "",
-    "/platform": "",
-    "/saas-admin": "🧩",
-    "/parent": "👨‍👩‍👧",
-    "/profile": "",
-  };
-  return map[path] ?? "•";
+const ICON_MAP: Record<string, React.ElementType> = {
+  "/dashboard": LayoutIcon,
+  "/school": School,
+  "/integrations": PlugZap,
+  "/calendar": Calendar,
+  "/staff": Users,
+  "/learners": GraduationCap,
+  "/finance/fee-categories": FileText,
+  "/finance/fee-structures": FileText,
+  "/finance/invoices": Receipt,
+  "/finance/payments": CreditCard,
+  "/finance/mpesa": ArrowLeftRight,
+  "/finance/reconciliation": Scale,
+  "/finance/board-pack": Landmark,
+  "/grades-streams": Layers,
+  "/teaching-allocation": UserCheck,
+  "/bom-oversight": Shield,
+  "/curriculum": BookOpen,
+  "/assessment": ClipboardList,
+  "/reports": BarChart3,
+  "/comms": Mail,
+  "/compliance": ShieldCheck,
+  "/attendance": Clock,
+  "/knec": FileText,
+  "/platform": Settings,
+  "/saas-admin": Settings2,
+  "/parent": User2,
+  "/profile": User,
+};
+
+function iconFor(path: string): React.ElementType {
+  return ICON_MAP[path] ?? User;
+}
+
+function RenderIcon({ path, className }: { path: string; className?: string }) {
+  const Icon = iconFor(path);
+  return <Icon className={className ?? "w-5 h-5"} strokeWidth={1.5} />;
 }
