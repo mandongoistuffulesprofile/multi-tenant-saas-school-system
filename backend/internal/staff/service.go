@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"golang.org/x/crypto/argon2"
 )
@@ -40,15 +41,19 @@ type StaffProfile struct {
 }
 
 func (h *Handler) ListStaff(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	rows, err := tx.Query(
 		`SELECT tm.membership_id, tm.user_id, u.email, u.phone_number, tm.role, tm.status,
 			sp.tsc_number, sp.national_id, sp.subjects, sp.employment_date
 		 FROM tenant_memberships tm
 		 JOIN users u ON tm.user_id = u.user_id
 		 LEFT JOIN staff_profiles sp ON sp.membership_id = tm.membership_id
 		 WHERE tm.tenant_id = $1 ORDER BY tm.created_at`,
-		tenantID,
+		c.GetString("tenant_id"),
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -125,20 +130,15 @@ func (h *Handler) CreateStaff(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("current_user_id")
 
-	tx, err := h.service.database.BeginTenantTx(tenantID, userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to begin transaction"})
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
 		return
 	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
 
 	// Check if user exists by email/phone
 	var userIDExists string
-	err = tx.QueryRow(
+	err := tx.QueryRow(
 		`SELECT user_id FROM users WHERE email = $1 OR phone_number = $2`,
 		req.Email, req.PhoneNumber,
 	).Scan(&userIDExists)
@@ -192,11 +192,6 @@ func (h *Handler) CreateStaff(c *gin.Context) {
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to create staff profile"})
-		return
-	}
-
-	if err = tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to commit staff creation"})
 		return
 	}
 
