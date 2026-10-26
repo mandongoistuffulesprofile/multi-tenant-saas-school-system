@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Service struct {
@@ -44,8 +45,13 @@ type AttendanceRegister struct {
 }
 
 func (h *Handler) ListAttendanceRegisters(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT register_id, tenant_id, class_group_id, grade_id, stream_id,
 			academic_year_id, term_id, register_date, session_type, status,
 			marked_by, marked_at, created_at, updated_at
@@ -85,6 +91,11 @@ type AttendanceMark struct {
 }
 
 func (h *Handler) ListAttendanceMarks(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	registerID := c.Query("register_id")
 	learnerID := c.Query("learner_id")
@@ -107,7 +118,7 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 		argIndex++
 	}
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
