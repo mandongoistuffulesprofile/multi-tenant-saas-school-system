@@ -22,12 +22,12 @@ type APIHandlers struct {
 	DB           *sql.DB
 	AuthService  *auth.AuthService
 	MpesaService *daraja.MpesaService
-	CBCService   *cbc.CBCService
+	CBCService   *cbc.Service
 	SMSService   *sms.SMSService
 	AuditLogger  *audit.AuditLogger
 }
 
-func NewAPIHandlers(db *sql.DB, authSvc *auth.AuthService, mpesaSvc *daraja.MpesaService, cbcSvc *cbc.CBCService, smsSvc *sms.SMSService, auditLog *audit.AuditLogger) *APIHandlers {
+func NewAPIHandlers(db *sql.DB, authSvc *auth.AuthService, mpesaSvc *daraja.MpesaService, cbcSvc *cbc.Service, smsSvc *sms.SMSService, auditLog *audit.AuditLogger) *APIHandlers {
 	return &APIHandlers{
 		DB:           db,
 		AuthService:  authSvc,
@@ -254,7 +254,12 @@ func (h *APIHandlers) CBCSyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.CBCService.RecordAssessmentBatch(r.Context(), tenantID, teacherID, payload.Events); err != nil {
+	tx := middleware.TxFromContext(r.Context())
+	if tx == nil {
+		http.Error(w, `{"error":"no tenant transaction"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := h.CBCService.RecordAssessmentBatch(r.Context(), tx, tenantID, teacherID, payload.Events); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
 		return
 	}

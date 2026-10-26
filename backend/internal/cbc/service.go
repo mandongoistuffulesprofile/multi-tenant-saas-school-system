@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 type AssessmentEvent struct {
@@ -16,24 +17,22 @@ type AssessmentEvent struct {
 	SyncID           uuid.UUID `json:"sync_id"`           // Offline deduplication
 }
 
-type CBCService struct {
-	db *sql.DB
+type Service struct{}
+
+func NewService() *Service {
+	return &Service{}
 }
 
-func NewCBCService(db *sql.DB) *CBCService {
-	return &CBCService{db: db}
-}
-
-// RecordAssessmentBatch processes offline events from teacher PWAs idempotently
-func (s *CBCService) RecordAssessmentBatch(ctx context.Context, tenantID, teacherID uuid.UUID, events []AssessmentEvent) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL app.current_tenant_id = '%s'", tenantID.String())); err != nil {
-		return err
+// RecordAssessmentBatch processes offline events from teacher PWAs idempotently.
+//
+// The caller must supply a request-scoped tenant transaction (retrieved via
+// middleware.TxFromGin / middleware.TxFromContext) whose RLS context
+// (app.current_tenant_id) is already set by TenantTxMiddleware. The transaction
+// lifecycle — begin, tenant context, commit/rollback — is owned by the
+// middleware, not by this method.
+func (s *Service) RecordAssessmentBatch(ctx context.Context, tx *sqlx.Tx, tenantID, teacherID uuid.UUID, events []AssessmentEvent) error {
+	if tx == nil {
+		return fmt.Errorf("cbc: no tenant transaction provided")
 	}
 
 	query := `
@@ -56,5 +55,7 @@ func (s *CBCService) RecordAssessmentBatch(ctx context.Context, tenantID, teache
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }
+
+var _ = sql.ErrNoRows
