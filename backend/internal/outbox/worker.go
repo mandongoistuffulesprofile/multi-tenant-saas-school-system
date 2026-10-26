@@ -18,6 +18,7 @@ const maxAttempts = 8
 // Drain claims up to limit due events with FOR UPDATE SKIP LOCKED. The handler
 // runs while the rows are locked, so two API instances cannot process the same
 // event. Keep handlers short and idempotent.
+// For worker usage, we need to handle all tenants - worker runs outside request scope
 func (s *Service) Drain(ctx context.Context, limit int, handler Handler) (int, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
@@ -69,7 +70,7 @@ func (s *Service) Drain(ctx context.Context, limit int, handler Handler) (int, e
 			_, err = tx.ExecContext(ctx, `
 				UPDATE outbox
 				SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP, last_error = NULL
-				WHERE outbox_id = $1`, event.OutboxID)
+				WHERE outbox_id = $1 AND tenant_id = $2`, event.OutboxID, event.TenantID)
 			if err != nil {
 				return 0, err
 			}
@@ -81,7 +82,7 @@ func (s *Service) Drain(ctx context.Context, limit int, handler Handler) (int, e
 			_, err = tx.ExecContext(ctx, `
 				UPDATE outbox
 				SET status = 'FAILED', attempt_count = attempt_count + 1, last_error = $2
-				WHERE outbox_id = $1`, event.OutboxID, err.Error())
+				WHERE outbox_id = $1 AND tenant_id = $3`, event.OutboxID, err.Error(), event.TenantID)
 		} else {
 			backoff := time.Duration(1<<uint(attempts)) * time.Minute
 			_, err = tx.ExecContext(ctx, `
@@ -89,7 +90,7 @@ func (s *Service) Drain(ctx context.Context, limit int, handler Handler) (int, e
 				SET attempt_count = attempt_count + 1,
 				    next_attempt_at = CURRENT_TIMESTAMP + $2::interval,
 				    last_error = $3
-				WHERE outbox_id = $1`, event.OutboxID, backoff.String(), err.Error())
+				WHERE outbox_id = $1 AND tenant_id = $4`, event.OutboxID, backoff.String(), err.Error(), event.TenantID)
 		}
 		if err != nil {
 			return 0, err
