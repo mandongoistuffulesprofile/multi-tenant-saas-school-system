@@ -35,6 +35,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/staff"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/structure"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sync"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/holdingtank"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/inkind"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/kitchen"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
@@ -126,6 +127,8 @@ func Run() error {
 	syncHandler := sync.NewHandler(syncService)
 
 	inkindService := inkind.NewService(database)
+	holdingtankService := holdingtank.NewService(database)
+	holdingtankHandler := holdingtank.NewHandler(holdingtankService)
 	inkindHandler := inkind.NewHandler(inkindService)
 
 	kitchenService := kitchen.NewService(database)
@@ -265,6 +268,18 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	inkindGroup.POST("/intakes", middleware.RequireRole(middleware.RoleFinanceStaff...), inkindHandler.CreateIntake)
 	inkindGroup.GET("/intakes", inkindHandler.ListIntakes)
 	inkindGroup.POST("/intakes/:id/void", middleware.RequireRole(middleware.RoleSchoolAdministrators...), inkindHandler.VoidIntake)
+
+	holdingGroup := apiV1.Group("/holding-tank")
+	holdingGroup.Use(middleware.TenantTxMiddleware(database.DB))
+	holdingGroup.GET("", holdingtankHandler.ListHoldingTank)
+	holdingGroup.POST("/:id/resolve", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ResolveHoldingTank)
+
+	tokenGroup := apiV1.Group("/delegated-tokens")
+	tokenGroup.Use(middleware.TenantTxMiddleware(database.DB))
+	tokenGroup.GET("", holdingtankHandler.ListTokens)
+	tokenGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.CreateToken)
+	tokenGroup.POST("/:id/revoke", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.RevokeToken)
+	apiV1.GET("/delegated-tokens/validate", holdingtankHandler.ValidateToken)
 
 	// Calendar routes
 	calGroup := apiV1.Group("/calendar")
