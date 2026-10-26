@@ -264,6 +264,7 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	inkindGroup.POST("/rates", middleware.RequireRole(middleware.RoleSchoolAdministrators...), inkindHandler.CreateRate)
 	inkindGroup.POST("/intakes", middleware.RequireRole(middleware.RoleFinanceStaff...), inkindHandler.CreateIntake)
 	inkindGroup.GET("/intakes", inkindHandler.ListIntakes)
+	inkindGroup.POST("/intakes/:id/void", middleware.RequireRole(middleware.RoleSchoolAdministrators...), inkindHandler.VoidIntake)
 
 	// Calendar routes
 	calGroup := apiV1.Group("/calendar")

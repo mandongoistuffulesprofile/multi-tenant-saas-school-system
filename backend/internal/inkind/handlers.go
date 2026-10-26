@@ -138,6 +138,27 @@ func (h *Handler) CreateIntake(c *gin.Context) {
 	c.JSON(http.StatusCreated, log)
 }
 
+func (h *Handler) VoidIntake(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	logID := c.Param("id")
+
+	var req struct {
+		Reason string `json:"reason" binding:"required"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+
+	intake, err := h.service.VoidIntake(c.Request.Context(), tenantID, userID, logID, req.Reason)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, intake)
+}
+
 func (h *Handler) VerifyIntake(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
