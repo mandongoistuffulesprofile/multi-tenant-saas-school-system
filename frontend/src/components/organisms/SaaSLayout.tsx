@@ -13,13 +13,13 @@ interface Tab {
 
 const TABS: Tab[] = [
   { path: "/platform/operations", labelKey: "saas.operations", icon: "📊" },
-  { path: "/platform/tenants", labelKey: "saas.tenants", icon: "🏫" },
+  { path: "/platform/tenants", labelKey: "saas.tenants", icon: "" },
   { path: "/platform/onboard", labelKey: "saas.onboard", icon: "➕" },
   { path: "/platform/curriculum", labelKey: "saas.curriculum", icon: "📚" },
-  { path: "/platform/subscriptions", labelKey: "saas.subscriptions", icon: "💳" },
-  { path: "/platform/integrations", labelKey: "saas.integrations", icon: "🔌" },
+  { path: "/platform/subscriptions", labelKey: "saas.subscriptions", icon: "" },
+  { path: "/platform/integrations", labelKey: "saas.integrations", icon: "" },
   { path: "/platform/impersonate", labelKey: "saas.impersonate", icon: "🎭" },
-  { path: "/platform/audit", labelKey: "saas.audit", icon: "📋" },
+  { path: "/platform/audit", labelKey: "saas.audit", icon: "" },
 ] as const;
 
 interface SaaSLayoutProps {

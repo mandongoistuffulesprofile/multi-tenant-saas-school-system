@@ -13,11 +13,11 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { path: "/teacher/classes", labelKey: "teacher.my_classes", icon: "🏫", roles: ["TEACHER", "SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
-  { path: "/teacher/grading", labelKey: "teacher.grading", icon: "📝", roles: ["TEACHER", "SCHOOL_ADMIN"] },
-  { path: "/teacher/attendance", labelKey: "teacher.attendance", icon: "✅", roles: ["TEACHER", "SCHOOL_ADMIN"] },
+  { path: "/teacher/classes", labelKey: "teacher.my_classes", icon: "", roles: ["TEACHER", "SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
+  { path: "/teacher/grading", labelKey: "teacher.grading", icon: "", roles: ["TEACHER", "SCHOOL_ADMIN"] },
+  { path: "/teacher/attendance", labelKey: "teacher.attendance", icon: "", roles: ["TEACHER", "SCHOOL_ADMIN"] },
   { path: "/teacher/sync", labelKey: "teacher.sync_centre", icon: "🔄", roles: ["TEACHER", "SCHOOL_ADMIN"] },
-  { path: "/teacher/profile", labelKey: "teacher.profile", icon: "👤", roles: ["TEACHER", "SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
+  { path: "/teacher/profile", labelKey: "teacher.profile", icon: "", roles: ["TEACHER", "SCHOOL_ADMIN", "HEAD", "DEPUTY"] },
 ] as const;
 
 interface TeacherLayoutProps {

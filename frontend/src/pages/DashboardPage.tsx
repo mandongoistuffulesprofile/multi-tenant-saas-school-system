@@ -91,7 +91,7 @@ export default function DashboardPage() {
             <div className="text-heading mt-2">{'My Children'}</div>
           </a>
           <a href="/parent/fees" className="card p-6 text-center hover:border-kenyan-red transition block">
-            <span className="text-3xl">💰</span>
+            <span className="text-3xl"></span>
             <div className="text-heading mt-2">{'Fees'}</div>
           </a>
           <a href="/parent/notices" className="card p-6 text-center hover:border-kenyan-red transition block">
@@ -120,7 +120,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <a href="/saas-admin" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">🧩 SaaS Console</a>
             <a href="/platform/operations" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">📊 Operations Centre</a>
-            <a href="/platform/tenants" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">🏫 Tenants</a>
+            <a href="/platform/tenants" className="p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800"> Tenants</a>
           </div>
         </Card>
       </div>
@@ -170,15 +170,15 @@ export default function DashboardPage() {
           <h3 className="text-heading mb-3">{'Today at a glance'}</h3>
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-              <span className="text-gray-600">💰 {'Payments recorded today'}</span>
+              <span className="text-gray-600"> {'Payments recorded today'}</span>
               <span className="font-bold text-gray-900">{paidToday}</span>
             </div>
             <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-              <span className="text-gray-600">📝 {'Open assessment events'}</span>
+              <span className="text-gray-600"> {'Open assessment events'}</span>
               <span className="font-bold text-gray-900">{snap?.events ?? 0}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-gray-600">✅ {'Attendance registers'}</span>
+              <span className="text-gray-600"> {'Attendance registers'}</span>
               <span className="font-bold text-gray-900">{snap?.registers ?? 0}</span>
             </div>
           </div>
@@ -188,9 +188,9 @@ export default function DashboardPage() {
           <h3 className="text-heading mb-3">{'Quick actions'}</h3>
           <div className="space-y-2">
             <a href="/learners" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">➕ {'Add Learner'}</a>
-            <a href="/finance/invoices" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">🧾 {'Generate Invoice'}</a>
-            <a href="/finance/payments" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">💳 {'Record Payment'}</a>
-            <a href="/attendance" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800">📝 {'Attendance Register'}</a>
+            <a href="/finance/invoices" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800"> {'Generate Invoice'}</a>
+            <a href="/finance/payments" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800"> {'Record Payment'}</a>
+            <a href="/attendance" className="block p-3 bg-white border border-gray-200 rounded-xl hover:border-kenyan-red transition text-center font-medium text-sm text-gray-800"> {'Attendance Register'}</a>
           </div>
         </Card>
       </div>

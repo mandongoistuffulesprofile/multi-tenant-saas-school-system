@@ -68,7 +68,7 @@ export default function DatePicker({
           aria-controls="date-picker"
           tabIndex={-1}
         >
-          📅
+          
         </button>
       </div>
       {error && (

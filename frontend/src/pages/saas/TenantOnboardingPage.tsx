@@ -82,7 +82,7 @@ export default function TenantOnboardingPage() {
   return (
     <div className="p-4 space-y-6">
       <h1 className="text-display font-display">{t("saas.onboard")}</h1>
-      {error && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">{error}</div>}
+      {error && <div className="p-3 bg-slate-100 text-slate-900 font-semibold text-sm rounded-lg border border-red-200">{error}</div>}
       <div className="flex gap-2 mb-6">
         {steps.map((s, i) => (
           <div key={i} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${

@@ -126,3 +126,20 @@ func isUnsafeMethod(method string) bool {
 		return false
 	}
 }
+
+// ParseAccessToken extracts and validates a bearer access token from the Gin
+// context. It returns the claims, whether the token came from a cookie (always
+// false in this implementation — cookie-based auth is a follow-up), and any
+// validation error.
+func ParseAccessToken(c *gin.Context, jm *auth.JWTManager) (*auth.Claims, bool, error) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		return nil, false, nil
+	}
+	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+	claims, err := jm.ValidateToken(tokenStr)
+	if err != nil {
+		return nil, false, err
+	}
+	return claims, false, nil
+}
