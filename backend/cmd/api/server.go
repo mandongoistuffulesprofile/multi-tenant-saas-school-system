@@ -151,6 +151,7 @@ func Run() error {
 	router.Use(middleware.CORS(os.Getenv("CORS_ALLOWED_ORIGIN")))
 	router.Use(middleware.BodyLimit(2 << 20))
 	router.Use(middleware.TenantContextMiddleware(jwtManager, database))
+router.Use(middleware.TenantTxMiddleware(database.DB))
 
 	// Broad per-tenant (or per-IP for anonymous) safety valve. Expensive route
 	// groups may add stricter limits later; this prevents one tenant or client
