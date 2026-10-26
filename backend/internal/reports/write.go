@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -26,6 +27,11 @@ func (h *Handler) CreateReportTemplate(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
@@ -36,7 +42,7 @@ func (h *Handler) CreateReportTemplate(c *gin.Context) {
 	raw, _ := json.Marshal(config)
 
 	var templateID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO report_templates
 		 (tenant_id, template_name, template_type, grade_band, is_default, is_active, template_config, created_by)
 		 VALUES ($1, $2, $3, $4, $5, true, $6::jsonb, $7)
@@ -67,6 +73,11 @@ func (h *Handler) UpdateReportTemplate(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 
 	sets := []string{"updated_at = now()"}
 	args := []interface{}{}
@@ -92,7 +103,7 @@ func (h *Handler) UpdateReportTemplate(c *gin.Context) {
 	}
 	args = append(args, templateID, c.GetString("tenant_id"))
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE report_templates SET `+strings.Join(sets, ", ")+
 			` WHERE template_id = $`+itoa(len(args)-1)+` AND tenant_id = $`+itoa(len(args)), args...)
 	if err != nil {
@@ -108,8 +119,13 @@ func (h *Handler) UpdateReportTemplate(c *gin.Context) {
 
 func (h *Handler) DeleteReportTemplate(c *gin.Context) {
 	templateID := c.Param("id")
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE report_templates SET is_active = false, updated_at = now()
 		 WHERE template_id = $1 AND tenant_id = $2`, templateID, tenantID)
 	if err != nil {
@@ -135,6 +151,11 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
@@ -144,7 +165,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 	}
 
 	var runID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO report_runs (tenant_id, template_id, academic_year_id, term_id, grade_id, status, created_by)
 		 VALUES ($1, $2, $3, $4, $5, 'PENDING', $6) RETURNING run_id`,
 		tenantID, req.TemplateID, req.AcademicYearID, termID, req.GradeID, nullableString(userID)).Scan(&runID)
@@ -155,7 +176,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 
 	// One card per active learner in the grade.
 	generated := 0
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT l.learner_id, g.grade_label
 		 FROM learners l
 		 JOIN enrolments e ON e.learner_id = l.learner_id AND e.status = 'ACTIVE'
@@ -187,7 +208,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		// Aggregate the learner's results for the run's events.
 		var total, max float64
 		var overall string
-		err := h.service.database.QueryRow(
+		err := tx.QueryRow(
 			`SELECT COALESCE(SUM(COALESCE(ar.raw_score, ar.points, 0)), 0),
 				COALESCE(SUM(COALESCE(ar.max_score, 0)), 0),
 				COALESCE(MODE() WITHIN GROUP (ORDER BY ar.level_code), '')
@@ -206,21 +227,21 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		}
 		cardNumber := req.GradeID + "-" + strings.ToUpper(lr.learnerID[:8]) + "-" + runID[:8]
 
-		_, err = h.service.database.Exec(
-			`INSERT INTO report_cards
-			 (tenant_id, run_id, learner_id, card_number, academic_year_id, term_id, grade_id,
-			  overall_grade, total_score, max_score, percentage, status, created_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'DRAFT', $12)
-			 ON CONFLICT (tenant_id, run_id, learner_id) DO NOTHING`,
-			tenantID, runID, lr.learnerID, cardNumber, req.AcademicYearID, termID, req.GradeID,
-			nullableString(overall), total, max, percentage, nullableString(userID))
+_, err = tx.Exec(
+		`INSERT INTO report_cards
+		 (tenant_id, run_id, learner_id, card_number, academic_year_id, term_id, grade_id,
+		  overall_grade, total_score, max_score, percentage, status, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'DRAFT', $12)
+		 ON CONFLICT (tenant_id, run_id, learner_id) DO NOTHING`,
+		tenantID, runID, lr.learnerID, cardNumber, req.AcademicYearID, termID, req.GradeID,
+		nullableString(overall), total, max, percentage, nullableString(userID))
 		if err != nil {
 			continue
 		}
 		generated++
 	}
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`UPDATE report_runs SET learner_count = $1, generated_count = $2, status = 'COMPLETED', completed_at = now()
 		 WHERE run_id = $3`, len(learners), generated, runID)
 
@@ -234,12 +255,17 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 // GetReportRun returns a run together with the cards it produced.
 func (h *Handler) GetReportRun(c *gin.Context) {
 	runID := c.Param("run_id")
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 
 	var runIDOut, templateID, yearID, gradeID, status string
 	var termID, errorMessage sql.NullString
 	var learnerCount, generatedCount int
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT run_id::text, template_id::text, academic_year_id::text, term_id::text, grade_id, status,
 			learner_count, generated_count, error_message
 		 FROM report_runs WHERE run_id = $1 AND tenant_id = $2`, runID, tenantID).
@@ -269,10 +295,15 @@ func (h *Handler) GetReportRun(c *gin.Context) {
 // PublishReportRun publishes every draft card in a run.
 func (h *Handler) PublishReportRun(c *gin.Context) {
 	runID := c.Param("run_id")
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE report_cards SET status = 'PUBLISHED', published_at = now(), published_by = $1, updated_at = now()
 		 WHERE tenant_id = $2 AND run_id = $3 AND status <> 'PUBLISHED'`,
 		nullableString(userID), tenantID, runID)
@@ -282,7 +313,7 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 	}
 	published, _ := result.RowsAffected()
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`UPDATE report_runs SET status = 'PUBLISHED' WHERE run_id = $1 AND tenant_id = $2`, runID, tenantID)
 
 	c.JSON(http.StatusOK, gin.H{"run_id": runID, "published": published})
@@ -300,11 +331,16 @@ func (h *Handler) UpsertReportCardComment(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
 	var commentID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO report_card_comments (tenant_id, card_id, learning_area_id, comment_text, teacher_id)
 		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (tenant_id, card_id, learning_area_id)
@@ -333,8 +369,13 @@ func (h *Handler) UpdateReportCardHeadComment(c *gin.Context) {
 	if text == "" {
 		text = req.Comment
 	}
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE report_cards SET head_teacher_comment = $1, comment = COALESCE(comment, $1), updated_at = now()
 		 WHERE card_id = $2 AND tenant_id = $3`, text, cardID, tenantID)
 	if err != nil {

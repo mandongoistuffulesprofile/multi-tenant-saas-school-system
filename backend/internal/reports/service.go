@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Service struct {
@@ -42,8 +43,13 @@ type ReportTemplate struct {
 }
 
 func (h *Handler) ListReportTemplates(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT template_id, tenant_id, template_name, template_type, grade_band,
 			is_default, is_active, template_config, created_by, created_at, updated_at
 		 FROM report_templates WHERE (tenant_id = $1 OR tenant_id IS NULL)
@@ -90,8 +96,13 @@ type ReportRun struct {
 }
 
 func (h *Handler) ListReportRuns(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT run_id, tenant_id, template_id, academic_year_id, term_id, grade_id,
 			status, learner_count, generated_count, error_message, created_by, created_at, completed_at
 		 FROM report_runs WHERE tenant_id = $1 ORDER BY created_at DESC`,
@@ -144,6 +155,11 @@ type ReportCard struct {
 }
 
 func (h *Handler) ListReportCards(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	runID := c.Query("run_id")
 	learnerID := c.Query("learner_id")
@@ -169,7 +185,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 	}
 	query += " ORDER BY created_at DESC"
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -197,19 +213,24 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 	tenantID := ginCtx.GetString("tenant_id")
 	cardID := ginCtx.Param("card_id")
 	var card ReportCard
-	err := h.service.database.QueryRow(
+	tx := middleware.TxFromGin(ginCtx)
+	if tx == nil {
+		ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	err := tx.QueryRow(
 		`SELECT card_id, tenant_id, run_id, learner_id, card_number, academic_year_id,
 			term_id, grade_id, overall_grade, total_score, max_score, percentage,
 			position, comment, head_teacher_comment, status, pdf_ref, published_at,
 			published_by, created_by, created_at, updated_at
 		 FROM report_cards WHERE tenant_id = $1 AND card_id = $2`,
 		tenantID, cardID,
-	).Scan(&card.CardID, &card.TenantID, &card.RunID, &card.LearnerID, &card.CardNumber,
-		&card.AcademicYearID, &card.TermID, &card.GradeID, &card.OverallGrade,
-		&card.TotalScore, &card.MaxScore, &card.Percentage, &card.Position,
-		&card.Comment, &card.HeadTeacherComment, &card.Status, &card.PDFRef,
-		&card.PublishedAt, &card.PublishedBy, &card.CreatedBy, &card.CreatedAt,
-		&card.UpdatedAt)
+	).Scan(&card.CardID, &card.TenantID, &card.RunID, &card.LearnerID,
+		&card.CardNumber, &card.AcademicYearID, &card.TermID, &card.GradeID,
+		&card.OverallGrade, &card.TotalScore, &card.MaxScore, &card.Percentage,
+		&card.Position, &card.Comment, &card.HeadTeacherComment, &card.Status,
+		&card.PDFRef, &card.PublishedAt, &card.PublishedBy, &card.CreatedBy,
+		&card.CreatedAt, &card.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			ginCtx.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
@@ -234,9 +255,14 @@ type ReportCardComment struct {
 }
 
 func (h *Handler) ListReportCardComments(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	cardID := c.Param("card_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT comment_id, tenant_id, card_id, learning_area_id, comment_text,
 			teacher_id, created_at, updated_at
 		 FROM report_card_comments WHERE tenant_id = $1 AND card_id = $2`,
