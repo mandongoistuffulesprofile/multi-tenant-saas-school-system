@@ -38,6 +38,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/inkind"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/kitchen"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/wizard"
 )
 
 func Run() error {
@@ -132,6 +133,9 @@ func Run() error {
 
 	adminService := admin.NewService(database)
 	adminHandler := admin.NewHandler(adminService)
+
+	wizardService := wizard.NewService(database)
+	wizardHandler := wizard.NewHandler(wizardService)
 
 	// M-Pesa: the callback writes to a durable inbox; a background worker
 	// allocates the payment. The worker is cancelled during shutdown.
@@ -245,6 +249,11 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	adminGroup.Use(middleware.RequireAuthGin(jwtManager))
 	adminGroup.GET("/settings", adminHandler.ListInKindSettings)
 	adminGroup.PUT("/settings", middleware.RequireRole(middleware.RoleSchoolAdministrators...), adminHandler.UpsertInKindSetting)
+
+	wizardGroup := apiV1.Group("/wizard")
+	wizardGroup.Use(middleware.RequireAuthGin(jwtManager))
+	wizardGroup.GET("/state", wizardHandler.GetState)
+	wizardGroup.PUT("/state", wizardHandler.UpsertState)
 
 	inkindGroup := apiV1.Group("/inkind")
 	inkindGroup.Use(middleware.RequireAuthGin(jwtManager))
