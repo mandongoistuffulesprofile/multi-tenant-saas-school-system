@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -57,6 +59,12 @@ type ResultInput struct {
 // exists the stored row is updated instead — that is what makes an offline
 // queue replay safe.
 func (h *Handler) UpsertResult(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var input ResultInput
 	if errs := validation.BindJSON(c, &input); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -79,7 +87,7 @@ func (h *Handler) UpsertResult(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
-	result, err := h.upsertResult(tenantID, userID, input)
+	result, err := h.upsertResult(tx, tenantID, userID, input)
 	if err != nil {
 		if err == errLocked {
 			validation.Conflict(c, "This result is locked. Request a reopen before editing it.")
@@ -100,6 +108,12 @@ func (h *Handler) UpsertResult(c *gin.Context) {
 // BatchUpsertResults accepts an array of results. Each entry is processed
 // independently so one bad row does not fail the whole offline batch.
 func (h *Handler) BatchUpsertResults(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		Results []ResultInput `json:"results"`
 	}
@@ -120,7 +134,7 @@ func (h *Handler) BatchUpsertResults(c *gin.Context) {
 	saved := make([]gin.H, 0, len(req.Results))
 	failed := make([]gin.H, 0)
 	for _, input := range req.Results {
-		result, err := h.upsertResult(tenantID, userID, input)
+		result, err := h.upsertResult(tx, tenantID, userID, input)
 		if err != nil {
 			failed = append(failed, gin.H{
 				"client_uuid": input.ClientUUID,
@@ -150,7 +164,7 @@ type writeError struct{ msg string }
 func (e *writeError) Error() string { return e.msg }
 
 // upsertResult performs the actual insert/update and records history.
-func (h *Handler) upsertResult(tenantID, userID string, input ResultInput) (gin.H, error) {
+func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID string, input ResultInput) (gin.H, error) {
 	state := strings.ToUpper(strings.TrimSpace(input.State))
 	if state == "" {
 		state = StateDraft
@@ -198,7 +212,7 @@ func (h *Handler) upsertResult(tenantID, userID string, input ResultInput) (gin.
 	// reopen before a moderated result can change.
 	var existingState string
 	var existingID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT result_id, state FROM assessment_results
 		 WHERE tenant_id = $1 AND event_id = $2 AND learner_id = $3
 		   AND COALESCE(sub_strand_id, '00000000-0000-0000-0000-000000000000'::uuid)
@@ -216,7 +230,7 @@ func (h *Handler) upsertResult(tenantID, userID string, input ResultInput) (gin.
 	if existingID != "" {
 		var version int
 		var serverTS string
-		err = h.service.database.QueryRow(
+		err = tx.QueryRow(
 			`UPDATE assessment_results
 			 SET level_code = $1, points = $2, raw_score = $3, max_score = $4,
 			     remarks = $5, teacher_id = COALESCE($6, teacher_id),
@@ -240,7 +254,7 @@ func (h *Handler) upsertResult(tenantID, userID string, input ResultInput) (gin.
 	} else {
 		var version int
 		var serverTS string
-		err = h.service.database.QueryRow(
+		err = tx.QueryRow(
 			`INSERT INTO assessment_results
 			 (tenant_id, event_id, learner_id, sub_strand_id, level_code, points, raw_score,
 			  max_score, remarks, teacher_id, client_uuid, version, state, device_id, client_ts)
@@ -264,7 +278,7 @@ func (h *Handler) upsertResult(tenantID, userID string, input ResultInput) (gin.
 	}
 
 	// Append-only history for every change.
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`INSERT INTO assessment_result_history
 		 (tenant_id, result_id, event_id, learner_id, sub_strand_id, level_code, points,
 		  raw_score, max_score, state, changed_by)
@@ -282,6 +296,12 @@ func (h *Handler) upsertResult(tenantID, userID string, input ResultInput) (gin.
 
 // CreateAssessmentEvent creates a new assessment event.
 func (h *Handler) CreateAssessmentEvent(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		TermID             string  `json:"term_id" binding:"required"`
 		GradeID            string  `json:"grade_id" binding:"required"`
@@ -310,7 +330,7 @@ func (h *Handler) CreateAssessmentEvent(c *gin.Context) {
 	}
 
 	var eventID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO assessment_events
 		 (tenant_id, term_id, grade_id, learning_area_id, assessment_type, scoring_mode,
 		  assessment_window, weighting_profile_id, status, max_score, created_by)
@@ -338,6 +358,12 @@ func (h *Handler) CreateAssessmentEvent(c *gin.Context) {
 // Opening an event requires a teacher to be allocated to that class and
 // learning area (R-STF-01); closing moves every submitted result to LOCKED.
 func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	eventID := c.Param("event_id")
 	var req struct {
 		AssessmentType     string  `json:"assessment_type"`
@@ -364,7 +390,7 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 
 	if status == EventOpen {
 		var allocated int
-		err := h.service.database.QueryRow(
+		err := tx.QueryRow(
 			`SELECT COUNT(*)
 			 FROM assessment_events ae
 			 JOIN learning_areas la ON la.area_id = ae.learning_area_id
@@ -409,7 +435,7 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 	}
 	args = append(args, eventID, tenantID)
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE assessment_events SET `+strings.Join(sets, ", ")+` WHERE event_id = $`+strconv.Itoa(len(args)-1)+` AND tenant_id = $`+strconv.Itoa(len(args)),
 		args...)
 	if err != nil {
@@ -423,7 +449,7 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 
 	// Closing an event locks the results that were submitted.
 	if status == EventClosed {
-		_, _ = h.service.database.Exec(
+		_, _ = tx.Exec(
 			`UPDATE assessment_results SET state = $1, server_ts = now()
 			 WHERE tenant_id = $2 AND event_id = $3 AND state IN ($4, $5)`,
 			StateLocked, tenantID, eventID, StateSubmitted, StateModerated)
@@ -435,6 +461,12 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 // ReopenResult moves a moderated or locked result back to DRAFT. A reason is
 // required and the action is audited.
 func (h *Handler) ReopenResult(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	resultID := c.Param("result_id")
 	var req struct {
 		Reason string `json:"reason" binding:"required"`
@@ -449,7 +481,7 @@ func (h *Handler) ReopenResult(c *gin.Context) {
 
 	var state string
 	var eventID, learnerID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`UPDATE assessment_results SET state = $1, version = COALESCE(version, 0) + 1, server_ts = now()
 		 WHERE result_id = $2 AND tenant_id = $3
 		 RETURNING state, event_id, learner_id`,
@@ -463,7 +495,7 @@ func (h *Handler) ReopenResult(c *gin.Context) {
 		return
 	}
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`INSERT INTO assessment_result_history
 		 (tenant_id, result_id, event_id, learner_id, state, changed_by, change_reason)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -474,8 +506,14 @@ func (h *Handler) ReopenResult(c *gin.Context) {
 
 // ModerationQueue lists results waiting for moderation.
 func (h *Handler) ModerationQueue(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT ar.result_id, ar.event_id, ar.learner_id, l.first_name, l.last_name,
 			ae.assessment_type, cg.grade_id, g.grade_label, cg.stream_id, s.stream_name,
 			ar.level_code, ar.state, ar.remarks, ar.server_ts
@@ -529,6 +567,12 @@ func (h *Handler) ModerationQueue(c *gin.Context) {
 
 // ModerateResults moves submitted results to MODERATED (or LOCKED).
 func (h *Handler) ModerateResults(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		ResultIDs []string `json:"result_ids" binding:"required"`
 		State     string   `json:"state"`
@@ -546,7 +590,7 @@ func (h *Handler) ModerateResults(c *gin.Context) {
 	}
 
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE assessment_results SET state = $1, server_ts = now()
 		 WHERE tenant_id = $2 AND result_id = ANY($3) AND state IN ($4, $5)`,
 		state, tenantID, req.ResultIDs, StateSubmitted, StateModerated)
@@ -561,11 +605,17 @@ func (h *Handler) ModerateResults(c *gin.Context) {
 // EventGrid returns the learners in the event's class together with the
 // sub-strands to grade and the results already captured.
 func (h *Handler) EventGrid(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	eventID := c.Param("event_id")
 	tenantID := c.GetString("tenant_id")
 
 	var gradeID, areaID, termID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT grade_id, learning_area_id::text, term_id::text FROM assessment_events
 		 WHERE event_id = $1 AND tenant_id = $2`, eventID, tenantID).Scan(&gradeID, &areaID, &termID)
 	if err == sql.ErrNoRows {
@@ -583,7 +633,7 @@ func (h *Handler) EventGrid(c *gin.Context) {
 		Name        string `json:"name"`
 	}
 	subStrands := make([]subStrand, 0)
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT ss.sub_strand_id, ss.code, ss.name
 		 FROM sub_strands ss
 		 JOIN strands st ON st.strand_id = ss.strand_id
@@ -610,7 +660,7 @@ func (h *Handler) EventGrid(c *gin.Context) {
 		Results     []gin.H `json:"results"`
 	}
 	learners := make([]learnerCell, 0)
-	rows, err = h.service.database.Query(
+	rows, err = tx.Query(
 		`SELECT l.learner_id, l.first_name, l.last_name, l.admission_number
 		 FROM learners l
 		 JOIN enrolments e ON e.learner_id = l.learner_id AND e.status = 'ACTIVE'
@@ -643,7 +693,7 @@ func (h *Handler) EventGrid(c *gin.Context) {
 		for i := range learners {
 			index[learners[i].LearnerID] = i
 		}
-		resultRows, err := h.service.database.Query(
+		resultRows, err := tx.Query(
 			`SELECT learner_id, sub_strand_id::text, level_code, points, raw_score, max_score,
 				remarks, state, version
 			 FROM assessment_results WHERE tenant_id = $1 AND event_id = $2`, tenantID, eventID)
@@ -691,6 +741,12 @@ func (h *Handler) EventGrid(c *gin.Context) {
 // UpsertLearnerRemark stores the class teacher's remark for a learner on an
 // assessment event.
 func (h *Handler) UpsertLearnerRemark(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	learnerID := c.Param("id")
 	var req struct {
 		EventID    string `json:"event_id" binding:"required"`
@@ -710,7 +766,7 @@ func (h *Handler) UpsertLearnerRemark(c *gin.Context) {
 	}
 
 	var remarkID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO learner_remarks (tenant_id, event_id, learner_id, remark_text, remark_type, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (tenant_id, event_id, learner_id)
@@ -733,6 +789,12 @@ func (h *Handler) UpsertLearnerRemark(c *gin.Context) {
 
 // UpsertCompetency records a competency rating against a captured result.
 func (h *Handler) UpsertCompetency(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		ResultID       string `json:"result_id" binding:"required"`
 		CompetencyCode string `json:"competency_code" binding:"required"`
@@ -752,7 +814,7 @@ func (h *Handler) UpsertCompetency(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var ratingID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO competency_ratings (tenant_id, result_id, competency_code, rating_level, rated_by)
 		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (tenant_id, result_id, competency_code)
@@ -775,6 +837,12 @@ func (h *Handler) UpsertCompetency(c *gin.Context) {
 
 // CreateEvidence records an evidence file attached to a captured result.
 func (h *Handler) CreateEvidence(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	var req struct {
 		ResultID string `json:"result_id" binding:"required"`
 		FileName string `json:"file_name" binding:"required"`
@@ -790,7 +858,7 @@ func (h *Handler) CreateEvidence(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var evidenceID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO evidence_files
 		 (tenant_id, result_id, file_ref, file_name, mime_type, file_size, uploaded_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
