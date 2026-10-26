@@ -37,6 +37,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sync"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/holdingtank"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/inkind"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/valueledger"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/openingbalance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/kitchen"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
@@ -128,6 +129,8 @@ func Run() error {
 	syncHandler := sync.NewHandler(syncService)
 
 	inkindService := inkind.NewService(database)
+	valueLedgerService := valueledger.NewService(database)
+	valueLedgerHandler := valueledger.NewHandler(valueLedgerService)
 	openingBalanceService := openingbalance.NewService(database)
 	openingBalanceHandler := openingbalance.NewHandler(openingBalanceService)
 	holdingtankService := holdingtank.NewService(database)
@@ -271,6 +274,10 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	inkindGroup.POST("/intakes", middleware.RequireRole(middleware.RoleFinanceStaff...), inkindHandler.CreateIntake)
 	inkindGroup.GET("/intakes", inkindHandler.ListIntakes)
 	inkindGroup.POST("/intakes/:id/void", middleware.RequireRole(middleware.RoleSchoolAdministrators...), inkindHandler.VoidIntake)
+
+	vlGroup := apiV1.Group("/value-ledger")
+	vlGroup.Use(middleware.RequireAuthGin(jwtManager))
+	vlGroup.GET("/metrics", valueLedgerHandler.GetMetrics)
 
 	obGroup := apiV1.Group("/opening-balances")
 	obGroup.Use(middleware.RequireAuthGin(jwtManager))
