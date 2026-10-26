@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CBCRubricSelector } from '../components/CBCRubricSelector';
 import { CBCLevel, CBC_RUBRIC_CONFIG } from '../utils/kenyaFormatters';
+// @ts-ignore
 import CBCRubricAssessment from '../components/CBCRubricAssessment';
 
 interface LearnerAssessment {

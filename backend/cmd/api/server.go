@@ -35,6 +35,9 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/staff"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/structure"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sync"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/inkind"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/kitchen"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
 )
 
 func Run() error {
@@ -120,6 +123,15 @@ func Run() error {
 
 	syncService := sync.NewService()
 	syncHandler := sync.NewHandler(syncService)
+
+	inkindService := inkind.NewService(database)
+	_ = inkind.NewHandler(inkindService)
+
+	kitchenService := kitchen.NewService(database)
+	_ = kitchen.NewHandler(kitchenService)
+
+	adminService := admin.NewService(database)
+	_ = admin.NewHandler(adminService)
 
 	// M-Pesa: the callback writes to a durable inbox; a background worker
 	// allocates the payment. The worker is cancelled during shutdown.

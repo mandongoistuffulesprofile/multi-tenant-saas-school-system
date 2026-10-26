@@ -8,9 +8,53 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
+// queryer is a minimal interface mimicking sql.DB methods so we can swap in
+// a request-scoped transaction when one is available (TxFromGin) without
+// changing the Handler struct's database field.
+type queryer interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+// loadMemberships returns every active tenant membership for a user.
+// If q is a request-scoped transaction (from TxFromGin), queries run against it.
+func (h *Handler) loadMemberships(userID string, q queryer) ([]Membership, error) {
+	rows, err := q.Query(
+		`SELECT tm.tenant_id, s.school_name, s.subdomain, tm.role, tm.status
+		 FROM tenant_memberships tm
+		 JOIN schools s ON s.tenant_id = tm.tenant_id
+		 WHERE tm.user_id = $1 AND tm.status = 'ACTIVE'
+		 ORDER BY s.school_name`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	memberships := make([]Membership, 0)
+	for rows.Next() {
+		var m Membership
+		if err := rows.Scan(&m.TenantID, &m.SchoolName, &m.Subdomain, &m.Role, &m.Status); err != nil {
+			return nil, err
+		}
+		memberships = append(memberships, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return memberships, nil
+}
+
+// Refresh validates a refresh token and returns a new token pair.
+// Auth: requires a valid refresh token.
+// Does NOT use request-scoped transaction because it happens at auth-time
+// before tenant context is established; uses h.database directly.
 func (h *Handler) Refresh(c *gin.Context) {
 	type RefreshRequest struct {
 		RefreshToken string `json:"refresh_token"`
@@ -217,43 +261,19 @@ type Membership struct {
 	Status     string `json:"status"`
 }
 
-// loadMemberships returns every active tenant membership for a user, ordered
-// by school name. It backs both GET /me and GET /me/memberships.
-func (h *Handler) loadMemberships(userID string) ([]Membership, error) {
-	rows, err := h.database.Query(
-		`SELECT tm.tenant_id, s.school_name, s.subdomain, tm.role, tm.status
-		 FROM tenant_memberships tm
-		 JOIN schools s ON s.tenant_id = tm.tenant_id
-		 WHERE tm.user_id = $1 AND tm.status = 'ACTIVE'
-		 ORDER BY s.school_name`,
-		userID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	memberships := make([]Membership, 0)
-	for rows.Next() {
-		var m Membership
-		if err := rows.Scan(&m.TenantID, &m.SchoolName, &m.Subdomain, &m.Role, &m.Status); err != nil {
-			return nil, err
-		}
-		memberships = append(memberships, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return memberships, nil
-}
-
 // GetMyMemberships handles GET /me/memberships
 // Auth: requires a valid access token. Lists the schools the current user
 // belongs to so the tenant picker can be rendered without a second call.
 func (h *Handler) GetMyMemberships(c *gin.Context) {
 	userID := c.GetString("user_id")
 
-	memberships, err := h.loadMemberships(userID)
+	tx := getTxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "NO_TX", "message": "No database transaction available"})
+		return
+	}
+
+	memberships, err := h.loadMemberships(userID, tx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load memberships"})
 		return
@@ -276,7 +296,13 @@ func (h *Handler) GetMe(c *gin.Context) {
 
 	// Load all memberships for this user so the frontend can render a
 	// tenant picker without a second auth round-trip.
-	memberships, err := h.loadMemberships(userID)
+	tx := getTxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "NO_TX", "message": "No database transaction available"})
+		return
+	}
+
+	memberships, err := h.loadMemberships(userID, tx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load memberships"})
 		return
@@ -305,7 +331,13 @@ func (h *Handler) UpdateMe(c *gin.Context) {
 
 	userID := c.GetString("user_id")
 
-	_, err := h.database.Exec(
+	tx := getTxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "NO_TX", "message": "No database transaction available"})
+		return
+	}
+
+	_, err := tx.Exec(
 		`UPDATE users SET locale = $1, phone_number = $2, email = $3, updated_at = CURRENT_TIMESTAMP WHERE user_id = $4`,
 		req.Locale, req.Phone, req.Email, userID,
 	)
@@ -438,4 +470,15 @@ func (h *Handler) Logout(c *gin.Context) {
 
 	clearSessionCookies(c)
 	c.JSON(http.StatusOK, gin.H{"code": "LOGGED_OUT", "message": "Logged out successfully"})
+}
+
+// getTxFromGin returns the request-scoped transaction if present (set by
+// TenantTxMiddleware via c.Set("tx", tx)).
+func getTxFromGin(c *gin.Context) *sqlx.Tx {
+	if v, ok := c.Get("tx"); ok {
+		if t, ok := v.(*sqlx.Tx); ok {
+			return t
+		}
+	}
+	return nil
 }
