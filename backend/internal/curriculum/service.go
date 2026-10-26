@@ -5,16 +5,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
-type Service struct {
-	database *db.DB
-}
+type Service struct{}
 
-func NewService(database *db.DB) *Service {
-	return &Service{database: database}
+func NewService(database interface{}) *Service {
+	return &Service{}
 }
 
 type Handler struct {
@@ -38,7 +36,12 @@ type CurriculumVersion struct {
 }
 
 func (h *Handler) ListCurriculumVersions(c *gin.Context) {
-	rows, err := h.service.database.Query(
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	rows, err := tx.Query(
 		`SELECT version_id, version_label, description, is_published,
 			effective_from, effective_to, created_at, updated_at
 		 FROM curriculum_versions ORDER BY created_at DESC`,
@@ -52,7 +55,6 @@ func (h *Handler) ListCurriculumVersions(c *gin.Context) {
 	versions := make([]CurriculumVersion, 0)
 	for rows.Next() {
 		var v CurriculumVersion
-		// description, effective_from and effective_to are all nullable.
 		var description, effectiveFrom, effectiveTo sql.NullString
 		if err := rows.Scan(&v.VersionID, &v.VersionLabel, &description, &v.IsPublished,
 			&effectiveFrom, &effectiveTo, &v.CreatedAt, &v.UpdatedAt); err != nil {
@@ -68,9 +70,14 @@ func (h *Handler) ListCurriculumVersions(c *gin.Context) {
 }
 
 func (h *Handler) GetCurriculumVersion(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	versionID := c.Param("version_id")
 	var v CurriculumVersion
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT version_id, version_label, description, is_published,
 			effective_from, effective_to, created_at, updated_at
 		 FROM curriculum_versions WHERE version_id = $1`,
@@ -102,10 +109,13 @@ type LearningArea struct {
 }
 
 func (h *Handler) ListLearningAreas(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	versionID := c.Query("version_id")
 
-	// version_id is an optional filter: when it is omitted we return every
-	// learning area rather than passing an empty string to a uuid column.
 	query := `SELECT area_id, version_id, code, name, description, grade_band, sort_order,
 			created_at, updated_at
 		 FROM learning_areas`
@@ -116,7 +126,7 @@ func (h *Handler) ListLearningAreas(c *gin.Context) {
 	}
 	query += ` ORDER BY sort_order`
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -152,9 +162,13 @@ type Strand struct {
 }
 
 func (h *Handler) ListStrands(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	areaID := c.Query("area_id")
 
-	// area_id is an optional filter; omit it to list every strand.
 	query := `SELECT strand_id, area_id, code, name, description, sort_order,
 			created_at, updated_at
 		 FROM strands`
@@ -165,7 +179,7 @@ func (h *Handler) ListStrands(c *gin.Context) {
 	}
 	query += ` ORDER BY sort_order`
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -200,9 +214,13 @@ type SubStrand struct {
 }
 
 func (h *Handler) ListSubStrands(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	strandID := c.Query("strand_id")
 
-	// strand_id is an optional filter; omit it to list every sub-strand.
 	query := `SELECT sub_strand_id, strand_id, code, name, description, sort_order,
 			created_at, updated_at
 		 FROM sub_strands`
@@ -213,7 +231,7 @@ func (h *Handler) ListSubStrands(c *gin.Context) {
 	}
 	query += ` ORDER BY sort_order`
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -245,9 +263,14 @@ type TenantCurriculumPin struct {
 }
 
 func (h *Handler) GetTenantCurriculumPin(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	var pin TenantCurriculumPin
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT pin_id, tenant_id, version_id, pinned_by, pinned_at
 		 FROM tenant_curriculum_pins WHERE tenant_id = $1`,
 		tenantID,
@@ -264,13 +287,18 @@ func (h *Handler) GetTenantCurriculumPin(c *gin.Context) {
 }
 
 func (h *Handler) SetTenantCurriculumPin(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	var pin TenantCurriculumPin
 	if errs := validation.BindJSON(c, &pin); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO tenant_curriculum_pins (tenant_id, version_id)
 		 VALUES ($1, $2)
 		 ON CONFLICT (tenant_id) DO UPDATE SET version_id = EXCLUDED.version_id,
