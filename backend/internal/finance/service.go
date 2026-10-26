@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -36,7 +38,9 @@ type FeeCategory struct {
 
 // ListFeeCategories returns the global defaults plus the calling school's own
 // categories. Inactive categories are excluded unless includeInactive is set.
-func (s *Service) ListFeeCategories(tenantID string, includeInactive bool) ([]FeeCategory, error) {
+func (s *Service) ListFeeCategories(ctx context.Context, tenantID string, includeInactive bool) ([]FeeCategory, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	query := `SELECT category_id, code, name, description, is_tuition, is_optional,
 			requires_consent, tenant_id, is_active, created_at, updated_at
 		 FROM fee_categories
@@ -47,7 +51,7 @@ func (s *Service) ListFeeCategories(tenantID string, includeInactive bool) ([]Fe
 	}
 	query += ` ORDER BY tenant_id NULLS FIRST, code`
 
-	rows, err := s.database.Query(query, args...)
+	rows, err := q.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +79,11 @@ func (s *Service) ListFeeCategories(tenantID string, includeInactive bool) ([]Fe
 }
 
 // CreateFeeCategory creates a custom fee category owned by the calling school.
-func (s *Service) CreateFeeCategory(tenantID string, req FeeCategoryRequest) (string, error) {
+func (s *Service) CreateFeeCategory(ctx context.Context, tenantID string, req FeeCategoryRequest) (string, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	var categoryID string
-	err := s.database.QueryRow(
+	err := q.QueryRow(
 		`INSERT INTO fee_categories
 		 (tenant_id, code, name, description, is_tuition, is_optional, requires_consent)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -93,8 +99,10 @@ func (s *Service) CreateFeeCategory(tenantID string, req FeeCategoryRequest) (st
 
 // UpdateFeeCategory updates one of the calling school's custom categories.
 // Global categories are read-only.
-func (s *Service) UpdateFeeCategory(tenantID, categoryID string, req FeeCategoryRequest) error {
-	result, err := s.database.Exec(
+func (s *Service) UpdateFeeCategory(ctx context.Context, tenantID, categoryID string, req FeeCategoryRequest) error {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	result, err := q.Exec(
 		`UPDATE fee_categories
 		 SET code = $1, name = $2, description = $3, is_tuition = $4,
 		     is_optional = $5, requires_consent = $6, is_active = $7, updated_at = now()
@@ -115,8 +123,10 @@ func (s *Service) UpdateFeeCategory(tenantID, categoryID string, req FeeCategory
 // DeleteFeeCategory deactivates one of the calling school's custom categories.
 // Categories are never hard-deleted: fee structures, invoice lines and learner
 // fee options may already reference them.
-func (s *Service) DeleteFeeCategory(tenantID, categoryID string) error {
-	result, err := s.database.Exec(
+func (s *Service) DeleteFeeCategory(ctx context.Context, tenantID, categoryID string) error {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	result, err := q.Exec(
 		`UPDATE fee_categories SET is_active = false, updated_at = now()
 		 WHERE category_id = $1 AND tenant_id = $2`,
 		categoryID, tenantID,
@@ -160,14 +170,16 @@ type FeeStructure struct {
 	UpdatedAt        string  `json:"updated_at"`
 }
 
-func (s *Service) ListFeeStructures(tenantID string, limit, offset int) ([]FeeStructure, error) {
+func (s *Service) ListFeeStructures(ctx context.Context, tenantID string, limit, offset int) ([]FeeStructure, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.database.Query(
+	rows, err := q.Query(
 		`SELECT fs.structure_id, fs.tenant_id, fs.academic_year_id, fs.grade_id,
 			fs.category_id, fc.code, fc.name, fs.amount_per_term, fs.amount_per_year,
 			fs.currency, fs.is_mandatory, fs.payment_frequency, fs.due_day,
@@ -200,8 +212,10 @@ func (s *Service) ListFeeStructures(tenantID string, limit, offset int) ([]FeeSt
 	return structures, nil
 }
 
-func (s *Service) CreateFeeStructure(tenantID string, fs FeeStructure) (*FeeStructure, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreateFeeStructure(ctx context.Context, tenantID string, fs FeeStructure) (*FeeStructure, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO fee_structures (tenant_id, academic_year_id, grade_id, category_id,
 			amount_per_term, amount_per_year, currency, is_mandatory,
 			payment_frequency, due_day, created_by)
@@ -233,8 +247,10 @@ type LearnerFeeOption struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
-func (s *Service) ListLearnerFeeOptions(tenantID, learnerID string) ([]LearnerFeeOption, error) {
-	rows, err := s.database.Query(
+func (s *Service) ListLearnerFeeOptions(ctx context.Context, tenantID, learnerID string) ([]LearnerFeeOption, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	rows, err := q.Query(
 		`SELECT option_id, tenant_id, learner_id, category_id, structure_id,
 			opted_in, opted_at, opted_by, created_at, updated_at
 		 FROM learner_fee_options WHERE tenant_id = $1 AND learner_id = $2`,
@@ -259,8 +275,10 @@ func (s *Service) ListLearnerFeeOptions(tenantID, learnerID string) ([]LearnerFe
 	return options, nil
 }
 
-func (s *Service) UpsertLearnerFeeOption(tenantID string, o LearnerFeeOption) (*LearnerFeeOption, error) {
-	err := s.database.QueryRow(
+func (s *Service) UpsertLearnerFeeOption(ctx context.Context, tenantID string, o LearnerFeeOption) (*LearnerFeeOption, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO learner_fee_options (tenant_id, learner_id, category_id, structure_id,
 			opted_in, opted_at, opted_by)
 		 VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
@@ -301,14 +319,16 @@ type Invoice struct {
 	UpdatedAt         string  `json:"updated_at"`
 }
 
-func (s *Service) ListInvoices(tenantID string, limit, offset int) ([]Invoice, error) {
+func (s *Service) ListInvoices(ctx context.Context, tenantID string, limit, offset int) ([]Invoice, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.database.Query(
+	rows, err := q.Query(
 		`SELECT invoice_id, tenant_id, invoice_number, learner_id, academic_year_id,
 			term_id, status, currency, total_amount, amount_paid, amount_outstanding,
 			issue_date, due_date, paid_at, created_by, created_at, updated_at
@@ -338,8 +358,10 @@ func (s *Service) ListInvoices(tenantID string, limit, offset int) ([]Invoice, e
 	return invoices, nil
 }
 
-func (s *Service) CreateInvoice(tenantID string, inv Invoice) (*Invoice, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreateInvoice(ctx context.Context, tenantID string, inv Invoice) (*Invoice, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO invoices (tenant_id, invoice_number, learner_id, academic_year_id,
 			term_id, status, currency, total_amount, amount_paid, amount_outstanding,
 			issue_date, due_date, created_by)
@@ -374,8 +396,10 @@ type InvoiceLine struct {
 	UpdatedAt      string  `json:"updated_at"`
 }
 
-func (s *Service) ListInvoiceLines(tenantID, invoiceID string) ([]InvoiceLine, error) {
-	rows, err := s.database.Query(
+func (s *Service) ListInvoiceLines(ctx context.Context, tenantID, invoiceID string) ([]InvoiceLine, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	rows, err := q.Query(
 		`SELECT il.line_id, il.tenant_id, il.invoice_id, il.category_id, fc.code,
 			il.description, il.quantity, il.unit_amount, il.line_amount,
 			il.academic_year_id, il.term_id, il.created_at, il.updated_at
@@ -404,8 +428,10 @@ func (s *Service) ListInvoiceLines(tenantID, invoiceID string) ([]InvoiceLine, e
 	return lines, nil
 }
 
-func (s *Service) CreateInvoiceLine(tenantID string, l InvoiceLine) (*InvoiceLine, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreateInvoiceLine(ctx context.Context, tenantID string, l InvoiceLine) (*InvoiceLine, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO invoice_lines (tenant_id, invoice_id, category_id, description,
 			quantity, unit_amount, line_amount, academic_year_id, term_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -440,14 +466,16 @@ type Payment struct {
 	UpdatedAt        string  `json:"updated_at"`
 }
 
-func (s *Service) ListPayments(tenantID string, limit, offset int) ([]Payment, error) {
+func (s *Service) ListPayments(ctx context.Context, tenantID string, limit, offset int) ([]Payment, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.database.Query(
+	rows, err := q.Query(
 		`SELECT payment_id, tenant_id, payment_reference, learner_id, source,
 			channel_id, amount, currency, status, mpesa_trans_id,
 			received_at, recorded_by, idempotency_key, created_at, updated_at
@@ -476,8 +504,10 @@ func (s *Service) ListPayments(tenantID string, limit, offset int) ([]Payment, e
 	return payments, nil
 }
 
-func (s *Service) CreatePayment(tenantID string, p Payment) (*Payment, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreatePayment(ctx context.Context, tenantID string, p Payment) (*Payment, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source,
 			channel_id, amount, currency, status, mpesa_trans_id, recorded_by, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -505,7 +535,7 @@ type PaymentAllocation struct {
 	CreatedAt       string  `json:"created_at"`
 }
 
-func (s *Service) AllocatePayment(tenantID string, alloc PaymentAllocation) (*PaymentAllocation, error) {
+func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc PaymentAllocation) (*PaymentAllocation, error) {
 	tx, err := s.database.BeginTenantTx(tenantID, alloc.AllocatedBy)
 	if err != nil {
 		return nil, err
@@ -564,14 +594,16 @@ type Credit struct {
 }
 
 // ListCredits returns the tenant's credit notes, newest first.
-func (s *Service) ListCredits(tenantID string, limit, offset int) ([]Credit, error) {
+func (s *Service) ListCredits(ctx context.Context, tenantID string, limit, offset int) ([]Credit, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.database.Query(
+	rows, err := q.Query(
 		`SELECT credit_id, tenant_id, learner_id, amount, currency, reason,
 			source_payment_id, expires_at, created_by, created_at, updated_at
 		 FROM credits WHERE tenant_id = $1 ORDER BY created_at DESC
@@ -601,8 +633,10 @@ func (s *Service) ListCredits(tenantID string, limit, offset int) ([]Credit, err
 	return credits, nil
 }
 
-func (s *Service) CreateCredit(tenantID string, c Credit) (*Credit, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreateCredit(ctx context.Context, tenantID string, c Credit) (*Credit, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO credits (tenant_id, learner_id, amount, currency, reason,
 			source_payment_id, expires_at, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -632,14 +666,16 @@ type Adjustment struct {
 }
 
 // ListAdjustments returns the tenant's invoice adjustments, newest first.
-func (s *Service) ListAdjustments(tenantID string, limit, offset int) ([]Adjustment, error) {
+func (s *Service) ListAdjustments(ctx context.Context, tenantID string, limit, offset int) ([]Adjustment, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.database.Query(
+	rows, err := q.Query(
 		`SELECT adjustment_id, tenant_id, invoice_id, adjustment_type, amount,
 			reason, created_by, created_at, updated_at
 		 FROM adjustments WHERE tenant_id = $1 ORDER BY created_at DESC
@@ -667,8 +703,10 @@ func (s *Service) ListAdjustments(tenantID string, limit, offset int) ([]Adjustm
 	return adjustments, nil
 }
 
-func (s *Service) CreateAdjustment(tenantID string, a Adjustment) (*Adjustment, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreateAdjustment(ctx context.Context, tenantID string, a Adjustment) (*Adjustment, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO adjustments (tenant_id, invoice_id, adjustment_type, amount, reason, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING adjustment_id, created_at`,
@@ -700,14 +738,16 @@ type Refund struct {
 }
 
 // ListRefunds returns the tenant's refunds, newest first.
-func (s *Service) ListRefunds(tenantID string, limit, offset int) ([]Refund, error) {
+func (s *Service) ListRefunds(ctx context.Context, tenantID string, limit, offset int) ([]Refund, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.database.Query(
+	rows, err := q.Query(
 		`SELECT refund_id, tenant_id, payment_id, amount, currency, reason, status,
 			mpesa_b2c_request_id, processed_at, processed_by, created_by, created_at, updated_at
 		 FROM refunds WHERE tenant_id = $1 ORDER BY created_at DESC
@@ -739,8 +779,10 @@ func (s *Service) ListRefunds(tenantID string, limit, offset int) ([]Refund, err
 	return refunds, nil
 }
 
-func (s *Service) CreateRefund(tenantID string, r Refund) (*Refund, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreateRefund(ctx context.Context, tenantID string, r Refund) (*Refund, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO refunds (tenant_id, payment_id, amount, currency, reason, status, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING refund_id, created_at`,
@@ -773,14 +815,16 @@ type MPESATransaction struct {
 	UpdatedAt       string  `json:"updated_at"`
 }
 
-func (s *Service) ListMPESATransactions(tenantID string, limit, offset int) ([]MPESATransaction, error) {
+func (s *Service) ListMPESATransactions(ctx context.Context, tenantID string, limit, offset int) ([]MPESATransaction, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.database.Query(
+	rows, err := q.Query(
 		`SELECT trans_id, tenant_id, channel_id, external_trans_id, shortcode,
 			channel_type, bill_ref, msisdn_masked, amount, currency, status,
 			transaction_date, tenant_resolved, created_at, updated_at
@@ -808,8 +852,10 @@ func (s *Service) ListMPESATransactions(tenantID string, limit, offset int) ([]M
 	return txns, nil
 }
 
-func (s *Service) CreateMPESATransaction(tenantID string, t MPESATransaction) (*MPESATransaction, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreateMPESATransaction(ctx context.Context, tenantID string, t MPESATransaction) (*MPESATransaction, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO mpesa_transactions (tenant_id, channel_id, external_trans_id, shortcode,
 			channel_type, bill_ref, msisdn_masked, amount, currency, status,
 			transaction_date, tenant_resolved, raw_payload)
@@ -847,8 +893,10 @@ type MPESASTKRequest struct {
 	UpdatedAt          string  `json:"updated_at"`
 }
 
-func (s *Service) CreateMPESASTKRequest(tenantID string, r MPESASTKRequest) (*MPESASTKRequest, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreateMPESASTKRequest(ctx context.Context, tenantID string, r MPESASTKRequest) (*MPESASTKRequest, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO mpesa_stk_requests (tenant_id, channel_id, checkout_request_id,
 			merchant_request_id, phone_number, amount, currency, account_reference,
 			transaction_desc, status, expires_at)
@@ -878,9 +926,11 @@ type ReceiptSequence struct {
 	UpdatedAt      string `json:"updated_at"`
 }
 
-func (s *Service) GetReceiptSequence(tenantID, period string) (*ReceiptSequence, error) {
+func (s *Service) GetReceiptSequence(ctx context.Context, tenantID, period string) (*ReceiptSequence, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	var seq ReceiptSequence
-	err := s.database.QueryRow(
+	err := q.QueryRow(
 		`SELECT sequence_id, tenant_id, prefix, last_number, reset_frequency,
 			current_period, created_at, updated_at
 		 FROM receipt_sequences WHERE tenant_id = $1 AND current_period = $2`,
@@ -892,7 +942,7 @@ func (s *Service) GetReceiptSequence(tenantID, period string) (*ReceiptSequence,
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// Create default sequence
-			err = s.database.QueryRow(
+			err = q.QueryRow(
 				`INSERT INTO receipt_sequences (tenant_id, prefix, last_number,
 					reset_frequency, current_period)
 				 VALUES ($1, $2, 0, $3, $4)
@@ -914,8 +964,10 @@ func (s *Service) GetReceiptSequence(tenantID, period string) (*ReceiptSequence,
 	return &seq, nil
 }
 
-func (s *Service) IncrementReceiptSequence(tenantID, sequenceID string) error {
-	_, err := s.database.Exec(
+func (s *Service) IncrementReceiptSequence(ctx context.Context, tenantID, sequenceID string) error {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	_, err := q.Exec(
 		`UPDATE receipt_sequences SET last_number = last_number + 1, updated_at = CURRENT_TIMESTAMP
 		 WHERE sequence_id = $1 AND tenant_id = $2`,
 		sequenceID, tenantID,
@@ -942,8 +994,10 @@ type CapitationReceipt struct {
 	UpdatedAt        string  `json:"updated_at"`
 }
 
-func (s *Service) ListCapitationReceipts(tenantID string) ([]CapitationReceipt, error) {
-	rows, err := s.database.Query(
+func (s *Service) ListCapitationReceipts(ctx context.Context, tenantID string) ([]CapitationReceipt, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	rows, err := q.Query(
 		`SELECT receipt_id, tenant_id, receipt_number, capitation_period, learner_count,
 			amount_per_learner, total_amount, currency, received_at, reference,
 			status, created_by, created_at, updated_at
@@ -990,8 +1044,10 @@ type ReconciliationRun struct {
 	UpdatedAt             string  `json:"updated_at"`
 }
 
-func (s *Service) ListReconciliationRuns(tenantID string) ([]ReconciliationRun, error) {
-	rows, err := s.database.Query(
+func (s *Service) ListReconciliationRuns(ctx context.Context, tenantID string) ([]ReconciliationRun, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	rows, err := q.Query(
 		`SELECT run_id, tenant_id, run_date, period_start, period_end, total_expected,
 			total_received, total_outstanding, unmatched_transactions, status,
 			exception_count, created_by, completed_at, created_at, updated_at
@@ -1021,6 +1077,12 @@ func (s *Service) ListReconciliationRuns(tenantID string) ([]ReconciliationRun, 
 
 // ============ Service & Handler ============
 
+type queryer interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
 type Service struct {
 	database *db.DB
 }
@@ -1041,7 +1103,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) ListFeeStructures(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := paginationParams(c)
-	structures, err := h.service.ListFeeStructures(tenantID, limit, offset)
+	structures, err := h.service.ListFeeStructures(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1053,7 +1115,7 @@ func (h *Handler) ListFeeCategories(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	includeInactive := c.Query("include_inactive") == "true"
 
-	categories, err := h.service.ListFeeCategories(tenantID, includeInactive)
+	categories, err := h.service.ListFeeCategories(c.Request.Context(), tenantID, includeInactive)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1114,7 +1176,7 @@ func (h *Handler) CreateFeeCategory(c *gin.Context) {
 		return
 	}
 
-	categoryID, err := h.service.CreateFeeCategory(tenantID, req)
+	categoryID, err := h.service.CreateFeeCategory(c.Request.Context(), tenantID, req)
 	if err != nil {
 		if isUniqueViolation(err) {
 			validation.Conflict(c, "A fee category with this code already exists")
@@ -1147,7 +1209,7 @@ func (h *Handler) UpdateFeeCategory(c *gin.Context) {
 		req.IsActive = &active
 	}
 
-	if err := h.service.UpdateFeeCategory(tenantID, categoryID, req); err != nil {
+	if err := h.service.UpdateFeeCategory(c.Request.Context(), tenantID, categoryID, req); err != nil {
 		if err == sql.ErrNoRows {
 			validation.NotFound(c, "Fee category not found")
 			return
@@ -1167,7 +1229,7 @@ func (h *Handler) DeleteFeeCategory(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	categoryID := c.Param("id")
 
-	if err := h.service.DeleteFeeCategory(tenantID, categoryID); err != nil {
+	if err := h.service.DeleteFeeCategory(c.Request.Context(), tenantID, categoryID); err != nil {
 		if err == sql.ErrNoRows {
 			validation.NotFound(c, "Fee category not found")
 			return
@@ -1195,7 +1257,7 @@ func (h *Handler) CreateFeeStructure(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreateFeeStructure(tenantID, fs)
+	created, err := h.service.CreateFeeStructure(c.Request.Context(), tenantID, fs)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1207,7 +1269,7 @@ func (h *Handler) CreateFeeStructure(c *gin.Context) {
 func (h *Handler) ListLearnerFeeOptions(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	learnerID := c.Param("learner_id")
-	options, err := h.service.ListLearnerFeeOptions(tenantID, learnerID)
+	options, err := h.service.ListLearnerFeeOptions(c.Request.Context(), tenantID, learnerID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1224,7 +1286,7 @@ func (h *Handler) UpsertLearnerFeeOption(c *gin.Context) {
 		return
 	}
 	o.LearnerID = learnerID
-	created, err := h.service.UpsertLearnerFeeOption(tenantID, o)
+	created, err := h.service.UpsertLearnerFeeOption(c.Request.Context(), tenantID, o)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1236,7 +1298,7 @@ func (h *Handler) UpsertLearnerFeeOption(c *gin.Context) {
 func (h *Handler) ListInvoices(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := paginationParams(c)
-	invoices, err := h.service.ListInvoices(tenantID, limit, offset)
+	invoices, err := h.service.ListInvoices(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1251,7 +1313,7 @@ func (h *Handler) CreateInvoice(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreateInvoice(tenantID, inv)
+	created, err := h.service.CreateInvoice(c.Request.Context(), tenantID, inv)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1263,7 +1325,7 @@ func (h *Handler) CreateInvoice(c *gin.Context) {
 func (h *Handler) ListInvoiceLines(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	invoiceID := c.Param("invoice_id")
-	lines, err := h.service.ListInvoiceLines(tenantID, invoiceID)
+	lines, err := h.service.ListInvoiceLines(c.Request.Context(), tenantID, invoiceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1280,7 +1342,7 @@ func (h *Handler) CreateInvoiceLine(c *gin.Context) {
 		return
 	}
 	l.InvoiceID = invoiceID
-	created, err := h.service.CreateInvoiceLine(tenantID, l)
+	created, err := h.service.CreateInvoiceLine(c.Request.Context(), tenantID, l)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1292,7 +1354,7 @@ func (h *Handler) CreateInvoiceLine(c *gin.Context) {
 func (h *Handler) ListPayments(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := paginationParams(c)
-	payments, err := h.service.ListPayments(tenantID, limit, offset)
+	payments, err := h.service.ListPayments(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1307,7 +1369,7 @@ func (h *Handler) CreatePayment(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreatePayment(tenantID, p)
+	created, err := h.service.CreatePayment(c.Request.Context(), tenantID, p)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1323,7 +1385,7 @@ func (h *Handler) AllocatePayment(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.AllocatePayment(tenantID, alloc)
+	created, err := h.service.AllocatePayment(c.Request.Context(), tenantID, alloc)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1335,7 +1397,7 @@ func (h *Handler) AllocatePayment(c *gin.Context) {
 func (h *Handler) ListCredits(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := paginationParams(c)
-	credits, err := h.service.ListCredits(tenantID, limit, offset)
+	credits, err := h.service.ListCredits(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1350,7 +1412,7 @@ func (h *Handler) CreateCredit(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreateCredit(tenantID, credit)
+	created, err := h.service.CreateCredit(c.Request.Context(), tenantID, credit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1362,7 +1424,7 @@ func (h *Handler) CreateCredit(c *gin.Context) {
 func (h *Handler) ListAdjustments(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := paginationParams(c)
-	adjustments, err := h.service.ListAdjustments(tenantID, limit, offset)
+	adjustments, err := h.service.ListAdjustments(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1377,7 +1439,7 @@ func (h *Handler) CreateAdjustment(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreateAdjustment(tenantID, a)
+	created, err := h.service.CreateAdjustment(c.Request.Context(), tenantID, a)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1389,7 +1451,7 @@ func (h *Handler) CreateAdjustment(c *gin.Context) {
 func (h *Handler) ListRefunds(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := paginationParams(c)
-	refunds, err := h.service.ListRefunds(tenantID, limit, offset)
+	refunds, err := h.service.ListRefunds(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1404,7 +1466,7 @@ func (h *Handler) CreateRefund(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreateRefund(tenantID, r)
+	created, err := h.service.CreateRefund(c.Request.Context(), tenantID, r)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1416,7 +1478,7 @@ func (h *Handler) CreateRefund(c *gin.Context) {
 func (h *Handler) ListMPESATransactions(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := paginationParams(c)
-	txns, err := h.service.ListMPESATransactions(tenantID, limit, offset)
+	txns, err := h.service.ListMPESATransactions(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1431,7 +1493,7 @@ func (h *Handler) CreateMPESATransaction(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreateMPESATransaction(tenantID, t)
+	created, err := h.service.CreateMPESATransaction(c.Request.Context(), tenantID, t)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1447,7 +1509,7 @@ func (h *Handler) CreateMPESASTKRequest(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreateMPESASTKRequest(tenantID, r)
+	created, err := h.service.CreateMPESASTKRequest(c.Request.Context(), tenantID, r)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1459,7 +1521,7 @@ func (h *Handler) CreateMPESASTKRequest(c *gin.Context) {
 func (h *Handler) GetReceiptSequence(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	period := c.Param("period")
-	seq, err := h.service.GetReceiptSequence(tenantID, period)
+	seq, err := h.service.GetReceiptSequence(c.Request.Context(), tenantID, period)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1470,7 +1532,7 @@ func (h *Handler) GetReceiptSequence(c *gin.Context) {
 func (h *Handler) IncrementReceiptSequence(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	sequenceID := c.Param("sequence_id")
-	if err := h.service.IncrementReceiptSequence(tenantID, sequenceID); err != nil {
+	if err := h.service.IncrementReceiptSequence(c.Request.Context(), tenantID, sequenceID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
@@ -1480,7 +1542,7 @@ func (h *Handler) IncrementReceiptSequence(c *gin.Context) {
 // Capitation Receipts handler
 func (h *Handler) ListCapitationReceipts(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	receipts, err := h.service.ListCapitationReceipts(tenantID)
+	receipts, err := h.service.ListCapitationReceipts(c.Request.Context(), tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -1491,7 +1553,7 @@ func (h *Handler) ListCapitationReceipts(c *gin.Context) {
 // Reconciliation Runs handler
 func (h *Handler) ListReconciliationRuns(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	runs, err := h.service.ListReconciliationRuns(tenantID)
+	runs, err := h.service.ListReconciliationRuns(c.Request.Context(), tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return

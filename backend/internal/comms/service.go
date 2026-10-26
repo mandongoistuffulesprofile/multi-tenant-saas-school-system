@@ -5,7 +5,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Service struct {
@@ -22,6 +24,17 @@ type Handler struct {
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
+}
+
+// tx resolves the request-scoped tenant transaction. On an authenticated
+// route the middleware guarantees a tx is present; a nil here is a bug, so
+// we abort with 500 instead of silently falling back to the pooled db.
+func (h *Handler) tx(c *gin.Context) *sqlx.Tx {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+	}
+	return tx
 }
 
 // MessageTemplate
@@ -41,8 +54,12 @@ type MessageTemplate struct {
 }
 
 func (h *Handler) ListMessageTemplates(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT template_id, tenant_id, template_name, channel, subject,
 			body_text, body_html, is_active, is_default, created_by, created_at, updated_at
 		 FROM message_templates WHERE (tenant_id = $1 OR tenant_id IS NULL)
@@ -92,8 +109,12 @@ type OutboundMessage struct {
 }
 
 func (h *Handler) ListOutboundMessages(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT message_id, tenant_id, template_id, recipient_type, recipient_id,
 			channel, recipient_address, subject, body_text, status,
 			provider_message_id, sent_at, delivered_at, read_at, error_message,
@@ -145,8 +166,12 @@ type Broadcast struct {
 }
 
 func (h *Handler) ListBroadcasts(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT broadcast_id, tenant_id, broadcast_name, channel, target_audience,
 			target_grade_ids, subject, body_text, status, scheduled_at, sent_at,
 			completed_at, total_recipients, sent_count, failed_count, created_by,
@@ -190,8 +215,12 @@ type OptOut struct {
 }
 
 func (h *Handler) ListOptOuts(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT opt_out_id, tenant_id, user_id, channel, reason,
 			opted_out_at, opted_back_in_at, is_active
 		 FROM opt_outs WHERE tenant_id = $1 AND is_active = TRUE
