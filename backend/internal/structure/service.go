@@ -12,7 +12,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -30,6 +32,15 @@ type Handler struct {
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
+}
+
+// tx resolves the request-scoped tenant transaction.
+func (h *Handler) tx(c *gin.Context) *sqlx.Tx {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+	}
+	return tx
 }
 
 // Grade is global reference data (PP1..Grade 9 plus junior secondary).
@@ -81,7 +92,11 @@ type TeachingAssignment struct {
 // ---------- Grades (global reference) ----------
 
 func (h *Handler) ListGrades(c *gin.Context) {
-	rows, err := h.service.database.Query(
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
+	rows, err := tx.Query(
 		`SELECT grade_id, grade_label, level_band, lessons_per_week FROM grades ORDER BY grade_label`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -104,8 +119,12 @@ func (h *Handler) ListGrades(c *gin.Context) {
 // ---------- Streams ----------
 
 func (h *Handler) ListStreams(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT stream_id, tenant_id, stream_name, created_at FROM streams WHERE tenant_id = $1 ORDER BY stream_name`,
 		tenantID)
 	if err != nil {
@@ -127,6 +146,10 @@ func (h *Handler) ListStreams(c *gin.Context) {
 }
 
 func (h *Handler) CreateStream(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		StreamName string `json:"stream_name" binding:"required"`
 	}
@@ -144,7 +167,7 @@ func (h *Handler) CreateStream(c *gin.Context) {
 
 	tenantID := c.GetString("tenant_id")
 	var streamID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO streams (tenant_id, stream_name) VALUES ($1, $2) RETURNING stream_id`,
 		tenantID, req.StreamName).Scan(&streamID)
 	if err != nil {
@@ -159,6 +182,10 @@ func (h *Handler) CreateStream(c *gin.Context) {
 }
 
 func (h *Handler) UpdateStream(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	streamID := c.Param("id")
 	var req struct {
 		StreamName string `json:"stream_name" binding:"required"`
@@ -168,7 +195,7 @@ func (h *Handler) UpdateStream(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE streams SET stream_name = $1 WHERE stream_id = $2 AND tenant_id = $3`,
 		strings.TrimSpace(req.StreamName), streamID, tenantID)
 	if err != nil {
@@ -183,9 +210,13 @@ func (h *Handler) UpdateStream(c *gin.Context) {
 }
 
 func (h *Handler) DeleteStream(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	streamID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`DELETE FROM streams WHERE stream_id = $1 AND tenant_id = $2`, streamID, tenantID)
 	if err != nil {
 		// A stream still referenced by a class group must not disappear.
@@ -206,6 +237,10 @@ func (h *Handler) DeleteStream(c *gin.Context) {
 // ---------- Class groups ----------
 
 func (h *Handler) ListClassGroups(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	yearID := c.Query("year_id")
 
@@ -231,7 +266,7 @@ func (h *Handler) ListClassGroups(c *gin.Context) {
 	}
 	query += " ORDER BY ay.year_label DESC, g.grade_label, s.stream_name"
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -253,6 +288,10 @@ func (h *Handler) ListClassGroups(c *gin.Context) {
 }
 
 func (h *Handler) CreateClassGroup(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		YearID         string `json:"year_id" binding:"required"`
 		GradeID        string `json:"grade_id" binding:"required"`
@@ -268,12 +307,12 @@ func (h *Handler) CreateClassGroup(c *gin.Context) {
 	var classGroupID string
 	var err error
 	if strings.TrimSpace(req.ClassTeacherID) == "" {
-		err = h.service.database.QueryRow(
+		err = tx.QueryRow(
 			`INSERT INTO class_groups (tenant_id, year_id, grade_id, stream_id)
 			 VALUES ($1, $2, $3, $4) RETURNING class_group_id`,
 			tenantID, req.YearID, req.GradeID, req.StreamID).Scan(&classGroupID)
 	} else {
-		err = h.service.database.QueryRow(
+		err = tx.QueryRow(
 			`INSERT INTO class_groups (tenant_id, year_id, grade_id, stream_id, class_teacher_id)
 			 VALUES ($1, $2, $3, $4, $5) RETURNING class_group_id`,
 			tenantID, req.YearID, req.GradeID, req.StreamID, req.ClassTeacherID).Scan(&classGroupID)
@@ -296,6 +335,10 @@ func (h *Handler) CreateClassGroup(c *gin.Context) {
 }
 
 func (h *Handler) UpdateClassGroup(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	classGroupID := c.Param("id")
 	var req struct {
 		ClassTeacherID string `json:"class_teacher_id"`
@@ -310,7 +353,7 @@ func (h *Handler) UpdateClassGroup(c *gin.Context) {
 	if strings.TrimSpace(req.ClassTeacherID) != "" {
 		teacher = req.ClassTeacherID
 	}
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE class_groups SET class_teacher_id = $1 WHERE class_group_id = $2 AND tenant_id = $3`,
 		teacher, classGroupID, tenantID)
 	if err != nil {
@@ -325,9 +368,13 @@ func (h *Handler) UpdateClassGroup(c *gin.Context) {
 }
 
 func (h *Handler) DeleteClassGroup(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	classGroupID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`DELETE FROM class_groups WHERE class_group_id = $1 AND tenant_id = $2`, classGroupID, tenantID)
 	if err != nil {
 		if isForeignKeyViolation(err) {
@@ -347,6 +394,10 @@ func (h *Handler) DeleteClassGroup(c *gin.Context) {
 // ---------- Teaching assignments ----------
 
 func (h *Handler) ListTeachingAssignments(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	yearID := c.Query("year_id")
 	classGroupID := c.Query("class_group_id")
@@ -379,7 +430,7 @@ func (h *Handler) ListTeachingAssignments(c *gin.Context) {
 	}
 	query += " ORDER BY g.grade_label, s.stream_name, ta.subject_id"
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -401,6 +452,10 @@ func (h *Handler) ListTeachingAssignments(c *gin.Context) {
 }
 
 func (h *Handler) CreateTeachingAssignment(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		StaffMembershipID string `json:"staff_membership_id" binding:"required"`
 		ClassGroupID      string `json:"class_group_id" binding:"required"`
@@ -413,7 +468,7 @@ func (h *Handler) CreateTeachingAssignment(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 	var assignmentID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO teaching_assignments (tenant_id, staff_membership_id, class_group_id, subject_id, academic_year_id)
 		 VALUES ($1, $2, $3, $4, $5) RETURNING assignment_id`,
 		tenantID, req.StaffMembershipID, req.ClassGroupID, req.SubjectID, req.AcademicYearID).Scan(&assignmentID)
@@ -435,9 +490,13 @@ func (h *Handler) CreateTeachingAssignment(c *gin.Context) {
 }
 
 func (h *Handler) DeleteTeachingAssignment(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	assignmentID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`DELETE FROM teaching_assignments WHERE assignment_id = $1 AND tenant_id = $2`, assignmentID, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -452,6 +511,10 @@ func (h *Handler) DeleteTeachingAssignment(c *gin.Context) {
 
 // RolloverClassGroups copies the current year's class groups into a new year.
 func (h *Handler) RolloverClassGroups(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		FromYearID string   `json:"from_year_id" binding:"required"`
 		ToYearID   string   `json:"to_year_id" binding:"required"`
@@ -478,7 +541,7 @@ func (h *Handler) RolloverClassGroups(c *gin.Context) {
 
 	// Preview mode returns what would be copied without writing.
 	if c.Query("dry_run") == "true" {
-		rows, err := h.service.database.Query(
+		rows, err := tx.Query(
 			`SELECT cg.grade_id, g.grade_label, cg.stream_id, s.stream_name
 			 FROM class_groups cg
 			 LEFT JOIN grades g ON g.grade_id = cg.grade_id
@@ -509,7 +572,7 @@ func (h *Handler) RolloverClassGroups(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`INSERT INTO class_groups (tenant_id, year_id, grade_id, stream_id, class_teacher_id)
 		 SELECT cg.tenant_id, $3, cg.grade_id, cg.stream_id, cg.class_teacher_id
 		 FROM class_groups cg
