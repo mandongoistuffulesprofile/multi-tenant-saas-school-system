@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface StudentRow {
   admissionNumber: string;
@@ -7,6 +7,12 @@ interface StudentRow {
   english: string;
   kiswahili: string;
 }
+
+const FIELDS = ['math', 'english', 'kiswahili'] as const;
+const isInvalid = (v: string) => {
+  const n = Number(v);
+  return v !== '' && (isNaN(n) || n < 0 || n > 100);
+};
 
 export const BroadsheetGrid: React.FC<{ classId: string }> = ({ classId }) => {
   const [rows, setRows] = useState<StudentRow[]>([
@@ -28,11 +34,26 @@ export const BroadsheetGrid: React.FC<{ classId: string }> = ({ classId }) => {
     sessionStorage.setItem(`draft_broadsheet_${classId}`, JSON.stringify(updated));
   };
 
+  const focusCell = (r: number, c: number) => {
+    const el = document.getElementById(`row-${r}-col-${c}`) as HTMLInputElement | null;
+    if (el) el.focus();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, colIndex: number) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const nextRowInput = document.getElementById(`row-${rowIndex + 1}-col-${colIndex}`);
-      if (nextRowInput) nextRowInput.focus();
+      focusCell(rowIndex + 1, colIndex);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const nextCol = colIndex + 1;
+      if (nextCol < FIELDS.length) focusCell(rowIndex, nextCol);
+      else focusCell(rowIndex + 1, 0);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      focusCell(rowIndex + 1, colIndex);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusCell(rowIndex - 1, colIndex);
     }
   };
 
@@ -57,7 +78,7 @@ export const BroadsheetGrid: React.FC<{ classId: string }> = ({ classId }) => {
           {rows.map((row, rIdx) => (
             <tr key={row.admissionNumber} className="hover:bg-slate-50">
               <td className="border p-2 font-medium">{row.admissionNumber} - {row.studentName}</td>
-              {(['math', 'english', 'kiswahili'] as const).map((field, cIdx) => (
+              {FIELDS.map((field, cIdx) => (
                 <td key={field} className="border p-1">
                   <input
                     id={`row-${rIdx}-col-${cIdx}`}
@@ -65,7 +86,10 @@ export const BroadsheetGrid: React.FC<{ classId: string }> = ({ classId }) => {
                     value={row[field]}
                     onChange={(e) => handleChange(rIdx, field, e.target.value)}
                     onKeyDown={(e) => handleKeyDown(e, rIdx, cIdx)}
-                    className="w-full p-1 border rounded focus:ring-2 focus:ring-blue-500 text-center uppercase"
+                    className={`w-full p-1 border rounded focus:ring-2 text-center uppercase ${
+                      isInvalid(row[field]) ? 'border-red-500 bg-red-50 focus:ring-red-500' : 'focus:ring-blue-500'
+                    }`}
+                    aria-invalid={isInvalid(row[field])}
                   />
                 </td>
               ))}
