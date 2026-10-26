@@ -36,3 +36,28 @@
   body.printing-pack .print-area { padding: 0 !important; }
   body.printing-pack { background: #fff; }
 }
+
+
+/* === SkulApp Enterprise Foundations === */
+html, body {
+  scrollbar-gutter: stable both-edges;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+.financial-num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
