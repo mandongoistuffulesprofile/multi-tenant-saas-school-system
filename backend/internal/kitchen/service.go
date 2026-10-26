@@ -47,60 +47,52 @@ type CreateMealRecipeRequest struct {
 }
 
 type StoreRequisition struct {
-	ID               string                `json:"id"`
-	TenantID         string                `json:"tenant_id"`
-	RequisitionDate  string                `json:"requisition_date"`
-	MealType         string                `json:"meal_type"`
-	ExpectedServings int                   `json:"expected_servings"`
-	RequestedBy      *string               `json:"requested_by,omitempty"`
-	EnteredBy        *string               `json:"entered_by,omitempty"`
-	Status           string                `json:"status"`
-	ApprovedBy       *string               `json:"approved_by,omitempty"`
-	ApprovedAt       *string               `json:"approved_at,omitempty"`
-	IssuedBy         *string               `json:"issued_by,omitempty"`
-	IssuedAt         *string               `json:"issued_at,omitempty"`
-	ReconciledBy     *string               `json:"reconciled_by,omitempty"`
-	ReconciledAt     *string               `json:"reconciled_at,omitempty"`
-	PaperRefNumber   *string               `json:"paper_ref_number,omitempty"`
-	Notes            *string               `json:"notes,omitempty"`
-	CreatedAt        string                `json:"created_at"`
-	UpdatedAt        string                `json:"updated_at"`
-	Items            []StoreRequisitionItem `json:"items,omitempty"`
+	ID              string                `json:"id"`
+	TenantID        string                `json:"tenant_id"`
+	SlipNumber      string                `json:"slip_number"`
+	RequisitionDate string                `json:"requisition_date"`
+	MealType        string                `json:"meal_type"`
+	RecipeID        *string               `json:"recipe_id,omitempty"`
+	BoarderCountFed int                   `json:"boarder_count_fed"`
+	Status          string                `json:"status"`
+	ApprovedBy      *string               `json:"approved_by,omitempty"`
+	ApprovedAt      *string               `json:"approved_at,omitempty"`
+	ApprovalReason  *string               `json:"approval_reason,omitempty"`
+	CreatedBy       *string               `json:"created_by,omitempty"`
+	CreatedAt       string                `json:"created_at"`
+	UpdatedAt       string                `json:"updated_at"`
+	Items           []StoreRequisitionItem `json:"items,omitempty"`
 }
 
 type StoreRequisitionItem struct {
-	ID                 string   `json:"id"`
-	TenantID           string   `json:"tenant_id"`
-	RequisitionID      string   `json:"requisition_id"`
-	InventoryItemID    string   `json:"inventory_item_id"`
-	RecipeID           *string  `json:"recipe_id,omitempty"`
-	RequestedQuantity  float64  `json:"requested_quantity"`
-	Unit               string   `json:"unit"`
-	ApprovedQuantity   *float64 `json:"approved_quantity,omitempty"`
-	IssuedQuantity     *float64 `json:"issued_quantity,omitempty"`
-	ActualQuantityUsed *float64 `json:"actual_quantity_used,omitempty"`
-	VarianceQuantity   *float64 `json:"variance_quantity,omitempty"`
-	VariancePercentage *float64 `json:"variance_percentage,omitempty"`
-	UnitCost           *float64 `json:"unit_cost,omitempty"`
-	LineTotal          *float64 `json:"line_total,omitempty"`
-	Notes              *string  `json:"notes,omitempty"`
-	CreatedAt          string   `json:"created_at"`
+	ID             string   `json:"id"`
+	TenantID       string   `json:"tenant_id"`
+	RequisitionID  string   `json:"requisition_id"`
+	InventoryItemID string  `json:"inventory_item_id"`
+	ExpectedQty    float64  `json:"expected_qty"`
+	ActualIssuedQty float64 `json:"actual_issued_qty"`
+	VarianceQty    float64  `json:"variance_qty"`
+	VariancePct    float64  `json:"variance_pct"`
+	UnitCostAtTime *float64 `json:"unit_cost_at_time,omitempty"`
+	Notes          *string  `json:"notes,omitempty"`
+	CreatedAt      string   `json:"created_at"`
 }
 
 type CreateRequisitionRequest struct {
-	RequisitionDate  string                       `json:"requisition_date" binding:"required"`
-	MealType         string                       `json:"meal_type" binding:"required"`
-	ExpectedServings int                          `json:"expected_servings" binding:"required,min=1"`
-	PaperRefNumber   *string                      `json:"paper_ref_number"`
-	Notes            *string                      `json:"notes"`
-	Items            []CreateRequisitionItemRequest `json:"items" binding:"required,min=1"`
+	SlipNumber      string                        `json:"slip_number" binding:"required"`
+	RequisitionDate string                        `json:"requisition_date" binding:"required"`
+	MealType        string                        `json:"meal_type" binding:"required"`
+	RecipeID        *string                       `json:"recipe_id"`
+	BoarderCountFed int                           `json:"boarder_count_fed" binding:"required,min=1"`
+	Notes           *string                       `json:"notes"`
+	Items           []CreateRequisitionItemRequest `json:"items" binding:"required,min=1"`
 }
 
 type CreateRequisitionItemRequest struct {
-	InventoryItemID   string  `json:"inventory_item_id" binding:"required"`
-	RecipeID          *string `json:"recipe_id"`
-	RequestedQuantity float64 `json:"requested_quantity" binding:"required,gt=0"`
-	Unit              string  `json:"unit" binding:"required"`
+	InventoryItemID  string  `json:"inventory_item_id" binding:"required"`
+	ExpectedQty      float64 `json:"expected_qty" binding:"required,gte=0"`
+	ActualIssuedQty  float64 `json:"actual_issued_qty" binding:"required,gt=0"`
+	UnitCost         *float64 `json:"unit_cost"`
 }
 
 func (s *Service) q(ctx context.Context) queryer {
@@ -112,7 +104,7 @@ func (s *Service) q(ctx context.Context) queryer {
 
 func (s *Service) ListRecipes(ctx context.Context, tenantID string, mealType string, includeInactive bool) ([]MealRecipe, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, recipe_name, meal_type, servings_per_batch, instructions, is_active, created_by, created_at, updated_at
+	query := `SELECT id, tenant_id, name, meal_type, is_active, created_by, created_at, updated_at
 			  FROM meal_recipes WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	if mealType != "" {
@@ -133,8 +125,7 @@ func (s *Service) ListRecipes(ctx context.Context, tenantID string, mealType str
 	var recipes []MealRecipe
 	for rows.Next() {
 		var r MealRecipe
-		if err := rows.Scan(&r.ID, &r.TenantID, &r.RecipeName, &r.MealType, &r.ServingsPerBatch,
-			&r.Instructions, &r.IsActive, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.TenantID, &r.RecipeName, &r.MealType, &r.IsActive, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		recipes = append(recipes, r)
@@ -146,12 +137,11 @@ func (s *Service) CreateRecipe(ctx context.Context, tenantID, userID string, req
 	q := s.q(ctx)
 	var r MealRecipe
 	err := q.QueryRow(
-		`INSERT INTO meal_recipes (tenant_id, recipe_name, meal_type, servings_per_batch, instructions, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, tenant_id, recipe_name, meal_type, servings_per_batch, instructions, is_active, created_by, created_at, updated_at`,
-		tenantID, req.RecipeName, req.MealType, req.ServingsPerBatch, req.Instructions, nullIfEmpty(userID),
-	).Scan(&r.ID, &r.TenantID, &r.RecipeName, &r.MealType, &r.ServingsPerBatch,
-		&r.Instructions, &r.IsActive, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
+		`INSERT INTO meal_recipes (tenant_id, name, meal_type, created_by)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, tenant_id, name, meal_type, is_active, created_by, created_at, updated_at`,
+		tenantID, req.RecipeName, req.MealType, nullIfEmpty(userID),
+	).Scan(&r.ID, &r.TenantID, &r.RecipeName, &r.MealType, &r.IsActive, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
@@ -164,9 +154,8 @@ func (s *Service) CreateRecipe(ctx context.Context, tenantID, userID string, req
 
 func (s *Service) ListRequisitions(ctx context.Context, tenantID string, status string, fromDate, toDate string, limit, offset int) ([]StoreRequisition, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, requisition_date, meal_type, expected_servings, requested_by, entered_by,
-			  status, approved_by, approved_at, issued_by, issued_at, reconciled_by, reconciled_at,
-			  paper_ref_number, notes, created_at, updated_at
+	query := `SELECT id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed,
+			  status, approved_by, approved_at, approval_reason, created_by, created_at, updated_at
 			  FROM daily_store_requisitions WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	argIdx := 2
@@ -197,9 +186,9 @@ func (s *Service) ListRequisitions(ctx context.Context, tenantID string, status 
 	var reqs []StoreRequisition
 	for rows.Next() {
 		var r StoreRequisition
-		if err := rows.Scan(&r.ID, &r.TenantID, &r.RequisitionDate, &r.MealType, &r.ExpectedServings,
-			&r.RequestedBy, &r.EnteredBy, &r.Status, &r.ApprovedBy, &r.ApprovedAt, &r.IssuedBy, &r.IssuedAt,
-			&r.ReconciledBy, &r.ReconciledAt, &r.PaperRefNumber, &r.Notes, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.TenantID, &r.SlipNumber, &r.RequisitionDate, &r.MealType, &r.RecipeID,
+			&r.BoarderCountFed, &r.Status, &r.ApprovedBy, &r.ApprovedAt, &r.ApprovalReason, &r.CreatedBy,
+			&r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		reqs = append(reqs, r)
@@ -216,14 +205,12 @@ func (s *Service) CreateRequisition(ctx context.Context, tenantID, userID string
 
 	var r StoreRequisition
 	err := tx.QueryRow(
-		`INSERT INTO daily_store_requisitions (tenant_id, requisition_date, meal_type, expected_servings, requested_by, entered_by, paper_ref_number, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		 RETURNING id, tenant_id, requisition_date, meal_type, expected_servings, requested_by, entered_by, status,
-		 approved_by, approved_at, issued_by, issued_at, reconciled_by, reconciled_at, paper_ref_number, notes, created_at, updated_at`,
-		tenantID, req.RequisitionDate, req.MealType, req.ExpectedServings, nullIfEmpty(userID), nullIfEmpty(userID), req.PaperRefNumber, req.Notes,
-	).Scan(&r.ID, &r.TenantID, &r.RequisitionDate, &r.MealType, &r.ExpectedServings,
-		&r.RequestedBy, &r.EnteredBy, &r.Status, &r.ApprovedBy, &r.ApprovedAt, &r.IssuedBy, &r.IssuedAt,
-		&r.ReconciledBy, &r.ReconciledAt, &r.PaperRefNumber, &r.Notes, &r.CreatedAt, &r.UpdatedAt)
+		`INSERT INTO daily_store_requisitions (tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'RECONCILED', $7)
+		 RETURNING id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status, approved_by, approved_at, approval_reason, created_by, created_at, updated_at`,
+		tenantID, req.SlipNumber, req.RequisitionDate, req.MealType, nullIfEmptyStr(req.RecipeID), req.BoarderCountFed, nullIfEmpty(userID),
+	).Scan(&r.ID, &r.TenantID, &r.SlipNumber, &r.RequisitionDate, &r.MealType, &r.RecipeID, &r.BoarderCountFed, &r.Status,
+		&r.ApprovedBy, &r.ApprovedAt, &r.ApprovalReason, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
@@ -234,9 +221,9 @@ func (s *Service) CreateRequisition(ctx context.Context, tenantID, userID string
 
 	for _, item := range req.Items {
 		_, err := tx.Exec(
-			`INSERT INTO store_requisition_items (tenant_id, requisition_id, inventory_item_id, recipe_id, requested_quantity, unit)
+			`INSERT INTO store_requisition_items (tenant_id, requisition_id, inventory_item_id, expected_qty, actual_issued_qty, unit_cost_at_time)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			tenantID, r.ID, item.InventoryItemID, item.RecipeID, item.RequestedQuantity, item.Unit,
+			tenantID, r.ID, item.InventoryItemID, item.ExpectedQty, item.ActualIssuedQty, item.UnitCost,
 		)
 		if err != nil {
 			return nil, err
@@ -244,9 +231,8 @@ func (s *Service) CreateRequisition(ctx context.Context, tenantID, userID string
 	}
 
 	rows, err := tx.Query(
-		`SELECT id, tenant_id, requisition_id, inventory_item_id, recipe_id, requested_quantity, unit,
-		 approved_quantity, issued_quantity, actual_quantity_used, variance_quantity, variance_percentage,
-		 unit_cost, line_total, notes, created_at
+		`SELECT id, tenant_id, requisition_id, inventory_item_id, expected_qty, actual_issued_qty,
+		 variance_qty, variance_pct, unit_cost_at_time, notes, created_at
 		 FROM store_requisition_items WHERE tenant_id = $1 AND requisition_id = $2`,
 		tenantID, r.ID,
 	)
@@ -254,9 +240,11 @@ func (s *Service) CreateRequisition(ctx context.Context, tenantID, userID string
 		defer rows.Close()
 		for rows.Next() {
 			var i StoreRequisitionItem
-			if err := rows.Scan(&i.ID, &i.TenantID, &i.RequisitionID, &i.InventoryItemID, &i.RecipeID,
-				&i.RequestedQuantity, &i.Unit, &i.ApprovedQuantity, &i.IssuedQuantity, &i.ActualQuantityUsed,
-				&i.VarianceQuantity, &i.VariancePercentage, &i.UnitCost, &i.LineTotal, &i.Notes, &i.CreatedAt); err == nil {
+			var unitCost *float64
+			if err := rows.Scan(&i.ID, &i.TenantID, &i.RequisitionID, &i.InventoryItemID,
+				&i.ExpectedQty, &i.ActualIssuedQty, &i.VarianceQty, &i.VariancePct,
+				&unitCost, &i.Notes, &i.CreatedAt); err == nil {
+				i.UnitCostAtTime = unitCost
 				r.Items = append(r.Items, i)
 			}
 		}
@@ -269,4 +257,11 @@ func nullIfEmpty(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+func nullIfEmptyStr(s *string) interface{} {
+	if s == nil || strings.TrimSpace(*s) == "" {
+		return nil
+	}
+	return *s
 }
