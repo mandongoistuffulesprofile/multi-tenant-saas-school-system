@@ -1,7 +1,7 @@
 import React from 'react';
-import { LucideIcon, FileSpreadsheet } from 'lucide-react';
+import { LucideIcon, FileSpreadsheet, Plus } from 'lucide-react';
 
-interface InstitutionalEmptyStateProps {
+export interface InstitutionalEmptyStateProps {
   title: string;
   description: string;
   actionLabel?: string;
@@ -26,8 +26,9 @@ export const InstitutionalEmptyState: React.FC<InstitutionalEmptyStateProps> = (
       {actionLabel && onAction && (
         <button
           onClick={onAction}
-          className="inline-flex items-center gap-2 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-lg transition shadow-xs cursor-pointer"
+          className="inline-flex items-center gap-1.5 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-lg transition shadow-xs cursor-pointer"
         >
+          <Plus className="w-3.5 h-3.5" />
           {actionLabel}
         </button>
       )}

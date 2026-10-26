@@ -16,6 +16,13 @@ const (
 	TenantIDKey contextKey = "tenant_id"
 	UserIDKey   contextKey = "user_id"
 	UserRoleKey contextKey = "user_role"
+
+	// Gin context keys (string-based, used by c.Get/c.Set).
+	ContextRequestID = "request_id"
+	ContextTenantID  = "tenant_id"
+	ContextUserID    = "user_id"
+	ContextRoles     = "roles"
+	ContextRole      = "role"
 )
 
 // TenantResolver resolves tenant ID from subdomain (e.g. school1.domain.com) or X-Tenant-ID header
@@ -68,14 +75,21 @@ func RequireAuth(authService *auth.AuthService) func(http.Handler) http.Handler 
 
 			// Ensure tenant isolation boundary: Token tenant MUST match request tenant if resolved
 			reqTenant, _ := r.Context().Value(TenantIDKey).(uuid.UUID)
-			if reqTenant != uuid.Nil && claims.TenantID != reqTenant {
-				http.Error(w, `{"error":"forbidden: cross-tenant access denied"}`, http.StatusForbidden)
-				return
+			if reqTenant != uuid.Nil {
+				claimsTenantID, _ := uuid.Parse(claims.TenantID)
+				if claimsTenantID != reqTenant {
+					http.Error(w, `{"error":"forbidden: cross-tenant access denied"}`, http.StatusForbidden)
+					return
+				}
 			}
 
 			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
 			ctx = context.WithValue(ctx, TenantIDKey, claims.TenantID)
-			ctx = context.WithValue(ctx, UserRoleKey, claims.Role)
+			role := ""
+			if len(claims.Roles) > 0 {
+				role = claims.Roles[0]
+			}
+			ctx = context.WithValue(ctx, UserRoleKey, role)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

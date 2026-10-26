@@ -51,7 +51,7 @@ export default function SchoolProfilePage() {
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-3xl mx-auto">
           <div className="card p-8 text-center">
-            <span className="text-4xl">🏫</span>
+            <span className="text-4xl"></span>
             <p className="text-body mt-4">School not found</p>
           </div>
         </div>

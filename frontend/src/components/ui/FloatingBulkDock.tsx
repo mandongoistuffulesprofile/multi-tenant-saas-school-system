@@ -1,7 +1,7 @@
 import React from 'react';
 import { Receipt, FileSpreadsheet, X } from 'lucide-react';
 
-interface FloatingBulkDockProps {
+export interface FloatingBulkDockProps {
   selectedCount: number;
   onClear: () => void;
   onBatchInvoice?: () => void;

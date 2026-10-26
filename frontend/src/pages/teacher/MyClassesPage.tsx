@@ -45,7 +45,7 @@ export default function MyClassesPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {classLearners.map((l) => (
               <div key={l.learner_id} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-gray-50 border border-gray-100">
-                <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-lg">{l.photo_ref ? "📷" : "👤"}</div>
+                <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-lg">{l.photo_ref ? "📷" : ""}</div>
                 <span className="text-xs font-medium text-gray-900 truncate w-full text-center">
                   {l.first_name} {l.last_name}
                 </span>

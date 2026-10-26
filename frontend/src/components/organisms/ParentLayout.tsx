@@ -13,10 +13,10 @@ interface Tab {
 
 const TABS: Tab[] = [
   { path: "/parent", labelKey: "parent.home", icon: "🏠" },
-  { path: "/parent/progress", labelKey: "parent.progress", icon: "📈" },
-  { path: "/parent/fees", labelKey: "parent.fees_pay", icon: "💰" },
-  { path: "/parent/receipts", labelKey: "parent.receipts", icon: "🧾" },
-  { path: "/parent/attendance", labelKey: "parent.attendance", icon: "✅" },
+  { path: "/parent/progress", labelKey: "parent.progress", icon: "" },
+  { path: "/parent/fees", labelKey: "parent.fees_pay", icon: "" },
+  { path: "/parent/receipts", labelKey: "parent.receipts", icon: "" },
+  { path: "/parent/attendance", labelKey: "parent.attendance", icon: "" },
   { path: "/parent/notices", labelKey: "parent.notices", icon: "📢" },
   { path: "/parent/consents", labelKey: "parent.consents", icon: "✍️" },
 ] as const;
