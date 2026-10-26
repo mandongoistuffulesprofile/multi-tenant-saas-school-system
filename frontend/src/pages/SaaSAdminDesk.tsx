@@ -1,5 +1,5 @@
 import { api } from "../lib/api";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatKES } from '../utils/kenyaFormatters';
 
 interface SchoolTenant {
@@ -13,67 +13,66 @@ interface SchoolTenant {
   residency: 'DAY_AND_BOARDING' | 'DAY_ONLY';
   paybill: string;
   learner_count: number;
+  staff_count?: number;
   license_status: 'ACTIVE' | 'GRACE_PERIOD' | 'SUSPENDED';
   term_subscription_fee: number;
   contact_headteacher: string;
   phone_headteacher: string;
 }
 
-const INITIAL_TENANTS: SchoolTenant[] = [
-  {
-    id: '11111111-1111-1111-1111-111111111111',
-    name: 'MANDONGOI COMPREHENSIVE SCHOOL',
-    slug: 'mandongoi',
-    moe_code: 'MoE/PRI/2019/4021',
-    county: 'Kitui',
-    sub_county: 'Mwingi North',
-    category: 'PUBLIC_COMPREHENSIVE',
-    residency: 'DAY_AND_BOARDING',
-    paybill: '522123',
-    learner_count: 580,
-    license_status: 'ACTIVE',
-    term_subscription_fee: 35000,
-    contact_headteacher: 'Joel Maundu',
-    phone_headteacher: '0712345678',
-  },
-  {
-    id: '22222222-2222-2222-2222-222222222222',
-    name: "ST. PETER'S ACADEMY & JUNIOR SCHOOL",
-    slug: 'st-peters',
-    moe_code: 'MoE/PRI/2021/8801',
-    county: 'Machakos',
-    sub_county: 'Machakos Central',
-    category: 'PRIVATE_ACADEMY',
-    residency: 'DAY_ONLY',
-    paybill: '600110',
-    learner_count: 420,
-    license_status: 'ACTIVE',
-    term_subscription_fee: 30000,
-    contact_headteacher: 'Agnes Mutisya',
-    phone_headteacher: '0722998877',
-  },
-  {
-    id: '33333333-3333-3333-3333-333333333333',
-    name: 'KYUSO COMPREHENSIVE BOARDING',
-    slug: 'kyuso-boarding',
-    moe_code: 'MoE/PRI/2018/1102',
-    county: 'Kitui',
-    sub_county: 'Kyuso',
-    category: 'PUBLIC_COMPREHENSIVE',
-    residency: 'DAY_AND_BOARDING',
-    paybill: '522890',
-    learner_count: 710,
-    license_status: 'GRACE_PERIOD',
-    term_subscription_fee: 45000,
-    contact_headteacher: 'Peter Musyoka',
-    phone_headteacher: '0733441122',
-  },
-];
+
 
 export const SaaSAdminDesk: React.FC = () => {
-  const [tenants, setTenants] = useState<SchoolTenant[]>(INITIAL_TENANTS);
+  const [tenants, setTenants] = useState<SchoolTenant[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Plan pricing must match the platform control plane (server.js PLATFORM_PLANS).
+  const PLAN_FEE: Record<string, number> = { BASIC: 0, STANDARD: 9900, ENTERPRISE: 24900 };
+
+  useEffect(() => {
+    let alive = true;
+    api.get("/platform/tenants")
+      .then((res) => {
+        if (!alive) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        setTenants(rows.map((r: any) => ({
+          id: r.tenant_id,
+          name: r.school_name || r.subdomain,
+          slug: r.subdomain || '',
+          moe_code: '',
+          county: '',
+          sub_county: '',
+          category: 'PUBLIC_COMPREHENSIVE',
+          residency: 'DAY_ONLY',
+          paybill: '',
+          learner_count: Number(r.learners ?? r.student_count ?? 0),
+          license_status: (r.status || (r.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
+          term_subscription_fee: PLAN_FEE[r.plan_code] ?? 0,
+          contact_headteacher: '',
+          phone_headteacher: '',
+          staff_count: Number(r.staff_count ?? 0),
+        })));
+      })
+      .catch(() => { /* console handled by axios interceptor */ })
+      .finally(() => alive && setLoading(false));
+    const iv = setInterval(() => {
+      api.get("/platform/tenants").then((res) => {
+        if (!alive) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        setTenants(rows.map((r: any) => ({
+          id: r.tenant_id, name: r.school_name || r.subdomain, slug: r.subdomain || '',
+          moe_code: '', county: '', sub_county: '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_ONLY',
+          paybill: '', learner_count: Number(r.learners ?? r.student_count ?? 0),
+          license_status: (r.status || (r.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
+          term_subscription_fee: PLAN_FEE[r.plan_code] ?? 0, contact_headteacher: '', phone_headteacher: '',
+          staff_count: Number(r.staff_count ?? 0),
+        })));
+      }).catch(() => {});
+    }, 30000);
+    return () => { alive = false; clearInterval(iv); };
+  }, []);
 
   // New School Wizard Form State
   const [wizardData, setWizardData] = useState({
@@ -85,6 +84,7 @@ export const SaaSAdminDesk: React.FC = () => {
     category: 'PUBLIC_COMPREHENSIVE' as const,
     residency: 'DAY_AND_BOARDING' as const,
     paybill: '',
+    admin_email: '',
     headteacher_name: '',
     headteacher_phone: '',
     term_fee: 30000,
@@ -95,44 +95,83 @@ export const SaaSAdminDesk: React.FC = () => {
     setTimeout(() => setToast(null), 5000);
   };
 
-  const handleCreateTenant = (e: React.FormEvent) => {
+  const handleCreateTenant = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newTenant: SchoolTenant = {
-      id: `${Date.now()}-uuid`,
-      name: wizardData.name.toUpperCase(),
-      slug: wizardData.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-      moe_code: wizardData.moe_code,
-      county: wizardData.county,
-      sub_county: wizardData.sub_county,
-      category: wizardData.category,
-      residency: wizardData.residency,
-      paybill: wizardData.paybill,
-      learner_count: 0,
-      license_status: 'ACTIVE',
-      term_subscription_fee: wizardData.term_fee,
-      contact_headteacher: wizardData.headteacher_name,
-      phone_headteacher: wizardData.headteacher_phone,
-    };
-
-    setTenants([...tenants, newTenant]);
-    setIsOnboardingOpen(false);
-    showToast(`✓ Shule mpya '${newTenant.name}' imesajiliwa! Mitaala ya KICD na Vote-Heads zimepandikizwa moja kwa moja.`);
+    if (!wizardData.name.trim() || !wizardData.slug.trim() || !wizardData.admin_email.trim()) {
+      showToast('Jina la shule, subdomain na barua pepe ya msimamizi ni lazima.');
+      return;
+    }
+    try {
+      const res = await api.post('/platform/tenants', {
+        school_name: wizardData.name.trim(),
+        subdomain: wizardData.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+        admin_email: wizardData.admin_email.toLowerCase().trim(),
+        admin_phone: wizardData.headteacher_phone || '',
+        plan: 'STANDARD',
+        county: wizardData.county || '',
+      });
+      const created = res.data || {};
+      await api.get('/platform/tenants').then((r) => {
+        const rows = Array.isArray(r.data) ? r.data : [];
+        setTenants(rows.map((x: any) => ({
+          id: x.tenant_id, name: x.school_name || x.subdomain, slug: x.subdomain || '',
+          moe_code: '', county: '', sub_county: '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_ONLY',
+          paybill: '', learner_count: Number(x.learners ?? x.student_count ?? 0),
+          license_status: (x.status || (x.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
+          term_subscription_fee: PLAN_FEE[x.plan_code] ?? 0, contact_headteacher: '', phone_headteacher: '',
+        })));
+      });
+      setIsOnboardingOpen(false);
+      showToast(`✓ '${created.school_name || wizardData.name}' imesajiliwa. Msimamizi: ${created.admin_email} · Password ya muda (iona mara moja): ${created.temp_password}`);
+      setWizardData({ name: '', slug: '', moe_code: '', county: 'Kitui', sub_county: '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_AND_BOARDING', paybill: '', admin_email: '', headteacher_name: '', headteacher_phone: '', term_fee: 30000 });
+    } catch (err: any) {
+      showToast(err.response?.data?.message || 'Usajili umeshindikana.');
+    }
   };
 
-  const toggleLicenseStatus = (id: string) => {
-    setTenants(prev =>
-      prev.map(t => {
-        if (t.id === id) {
-          const nextStatus = t.license_status === 'ACTIVE' ? 'GRACE_PERIOD' : t.license_status === 'GRACE_PERIOD' ? 'SUSPENDED' : 'ACTIVE';
-          return { ...t, license_status: nextStatus };
-        }
-        return t;
-      })
-    );
+  const toggleLicenseStatus = async (id: string) => {
+    const t0 = tenants.find((t) => t.id === id);
+    if (!t0) return;
+    // Backend control plane only accepts ACTIVE | SUSPENDED.
+    const next = t0.license_status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    try {
+      await api.put(`/platform/tenants/${id}/status`, { status: next });
+      setTenants((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, license_status: next } : t)),
+      );
+      showToast(next === 'ACTIVE' ? `✓ '${t0.name}' imehudumiwa tena (ACTIVE).` : `⚠ '${t0.name}' imesimamishwa (SUSPENDED). Watumiaji hawawezi kuingia.`);
+    } catch {
+      showToast('Imeshindikana kubadilisha hali ya shule. Jaribu tena.');
+    }
   };
 
-  const totalLearners = tenants.reduce((acc, t) => acc + t.learner_count, 0);
-  const totalProjectedRevenue = tenants.reduce((acc, t) => acc + t.term_subscription_fee, 0);
+  /* Time-boxed impersonation: mints a real imp:true JWT scoped to the tenant,
+   * stashes the platform session for one-click restore (exit in Layout header). */
+  const handleLoginAs = async (t0: SchoolTenant) => {
+    const reason = window.prompt(`Sababu ya kuingia kama ${t0.name} (huingia kwenye Platform Audit):`);
+    if (!reason) return;
+    try {
+      const res = await api.post("/platform/impersonations", { tenant_id: t0.id, reason });
+      const tok = res.data?.impersonation_token;
+      if (!tok) throw new Error("No impersonation token returned");
+      const restore = {
+        access: localStorage.getItem("access_token"),
+        refresh: localStorage.getItem("refresh_token"),
+        roles: localStorage.getItem("roles"),
+      };
+      sessionStorage.setItem("imp_restore", JSON.stringify(restore));
+      localStorage.setItem("imp_school", res.data.school_name || t0.name);
+      localStorage.setItem("access_token", tok);
+      localStorage.setItem("roles", JSON.stringify(["ADMIN"]));
+      showToast(`⚠ Session ya ukaguzi: ${res.data.school_name} (hadi ${res.data.expires_at || "60 min"}).`);
+      window.location.href = "/dashboard";
+    } catch (err: any) {
+      showToast(err.response?.data?.message || "Impersonation imeshindikana.");
+    }
+  };
+
+  const totalLearners = tenants.reduce((acc, t) => acc + t.learner_count, 0);  const totalProjectedRevenue = tenants.reduce((acc, t) => acc + t.term_subscription_fee, 0);
+  const totalStaff = tenants.reduce((acc, t) => acc + Number(t.staff_count || 0), 0);
 
   return (
     <div className="space-y-4">
@@ -179,9 +218,9 @@ export const SaaSAdminDesk: React.FC = () => {
             <p className="text-[10px] text-slate-400">Makadirio ya Mapato ya SaaS</p>
           </div>
           <div>
-            <span className="text-slate-400">Hali ya M-Pesa Daraja:</span>
-            <div className="text-2xl font-black text-emerald-400 font-mono mt-0.5">99.8%</div>
-            <p className="text-[10px] text-slate-400">Webhooks na Staging Uptime</p>
+            <span className="text-slate-400">Jumla ya Walimu na Wafanyakazi:</span>
+            <div className="text-2xl font-black text-blue-400 font-mono mt-0.5">{totalStaff.toLocaleString()}</div>
+            <p className="text-[10px] text-slate-400">Across all tenant schools</p>
           </div>
         </div>
       </div>
@@ -248,7 +287,7 @@ export const SaaSAdminDesk: React.FC = () => {
                 </td>
                 <td className="p-3.5 text-center">
                   <button
-                    onClick={() => showToast(`Inaingia kama Msaidizi wa Kiufundi kwenye shule: ${t.name}...`)}
+                    onClick={() => handleLoginAs(t)}
                     className="px-2.5 py-1 text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg cursor-pointer"
                   >
                     Fungua Shule (Login As)
@@ -412,6 +451,21 @@ export const SaaSAdminDesk: React.FC = () => {
                   />
                 </div>
               </div>
+
+              <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-1">
+                Admin Email (School Administrator Login) *
+              </label>
+              <input
+                type="email"
+                required
+                value={wizardData.admin_email}
+                onChange={(e) => setWizardData({ ...wizardData, admin_email: e.target.value })}
+                placeholder="admin@newschool.ac.ke"
+                className="w-full p-2 mb-3 border border-slate-300 rounded-lg font-mono"
+              />
+              <p className="text-[10px] text-slate-400 mb-3">
+                A temporary password is generated server-side and shown exactly once after onboarding.
+              </p>
 
               <div className="flex justify-end gap-2 pt-3 border-t">
                 <button

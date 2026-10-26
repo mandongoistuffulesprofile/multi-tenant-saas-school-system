@@ -4,36 +4,58 @@ import { useAuthStore } from "../lib/authStore";
 import { api } from "../lib/api";
 import Card from "../components/atoms/Card";
 import Badge from "../components/atoms/Badge";
+import Button from "../components/atoms/Button";
 import ViewState from "../components/organisms/ViewState";
 import DataTable from "../components/organisms/DataTable";
 import { LearningArea } from "../lib/types";
+import { useToast } from "../components/toast/ToastProvider";
 
 export default function TeachingAllocationPage() {
   const handleSaveAllocation = async (allocations: any) => {
+    // Only post real (teacher-id) selections.
+    const payload = Object.fromEntries(Object.entries(allocations).filter(([, v]) => !!v));
     try {
-      await api.post("/structure/teaching-allocations", allocations);
-      alert("Teaching allocations saved to database!");
+      await api.post("/structure/teaching-allocations", payload);
+      toast("Teaching allocations saved to database!", { type: "success" });
     } catch {
-      alert("Failed to save allocation");
+      toast("Failed to save allocation", { type: "error" });
     }
   };
 
   const { t } = useTranslation();
+  const { toast } = useToast();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [areas, setAreas] = useState<LearningArea[]>([]);
   const [allocation, setAllocation] = useState<Record<string, string | undefined>>({});
+  const [teachers, setTeachers] = useState<{ id: string; name: string; subjects: string[] }[]>([]);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    // Real staff directory — teachers (and admins able to take a class).
+    api
+      .get("/staff")
+      .then((r) => {
+        if (!Array.isArray(r.data)) return;
+        const rows = r.data.filter((s: any) => ["teacher", "head", "deputy", "admin"].includes(s.role))
+          .map((s: any) => ({
+            id: s.staff_id || s.user_id,
+            name: s.full_name || s.name || s.email,
+            subjects: [] as string[],
+          }));
+        setTeachers(rows);
+        setState("content");
+      })
+      .catch(() => setState("error"));
     api.get<LearningArea[]>("/curriculum/areas")
-      .then((r) => { setAreas(Array.isArray(r.data) ? r.data : []); setState("content"); })
+      .then((r) => { setAreas(Array.isArray(r.data) ? r.data : []); })
       .catch(() => setState("error"));
   }, []);
 
-  const teachers = [
-    { id: "t1", name: "Ms. Wanjiku", subjects: ["Mathematics", "English"] },
-    { id: "t2", name: "Mr. Otieno", subjects: ["Science", "Social Studies"] },
-    { id: "t3", name: "Ms. Njeri", subjects: ["Kiswahili", "CRE"] },
-  ];
+  const handleSave = async () => {
+    setSaving(true);
+    await handleSaveAllocation(allocation);
+    setSaving(false);
+  };
 
   if (state === "loading") return <ViewState state="loading" />;
   if (state === "error") return <ViewState state="error" onRetry={() => setState("loading")} />;
@@ -100,7 +122,12 @@ export default function TeachingAllocationPage() {
             </tbody>
           </table>
         </div>
-        <p className="text-caption text-muted mt-2">{t("unassigned_warning")}</p>
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-caption text-muted">{t("unassigned_warning")}</p>
+          <Button variant="primary" onClick={handleSave} disabled={saving || Object.keys(allocation).length === 0}>
+            {saving ? "Saving…" : t("save", { defaultMessage: "Save allocations" })}
+          </Button>
+        </div>
       </Card>
     </div>
   );

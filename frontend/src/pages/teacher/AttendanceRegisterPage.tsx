@@ -9,6 +9,7 @@ import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 import { saveAttendanceMark, getAttendanceMarks, DEVICE_ID } from "../../lib/offline";
 import { AttendanceRegister, AttendanceMark, Learner } from "../../lib/types";
+import { useToast } from "../../components/toast/ToastProvider";
 
 const MARKS = ["PRESENT", "ABSENT", "LATE", "EXCUSED"];
 const MARK_COLORS: Record<string, string> = {
@@ -20,6 +21,7 @@ const MARK_COLORS: Record<string, string> = {
 
 export default function AttendanceRegisterPage() {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const { roles } = useAuthStore();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [registers, setRegisters] = useState<AttendanceRegister[]>([]);
@@ -151,8 +153,8 @@ export default function AttendanceRegisterPage() {
           try {
             const entries = Object.entries(marks).map(([learner_id, mark]) => ({ learner_id, mark }));
             await api.post("/attendance/marks/batch", { register_id: selected.register_id, marks: entries });
-            alert("Attendance saved successfully!");
-          } catch (e) { alert("Failed to save attendance"); }
+            toast("Attendance saved successfully!", { type: "success" });
+          } catch (e) { toast("Failed to save attendance", { type: "error" }); }
         }}>
           {t("teacher.save_register", { defaultMessage: "Save Register" })}
         </Button>

@@ -2,20 +2,22 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
+import { useToast } from "../components/toast/ToastProvider";
 
 export default function SchoolProfilePage() {
   const handleSaveProfile = async (updates: any) => {
     try {
       await api.patch("/school", updates);
-      alert("School profile saved successfully!");
+      toast("School profile saved successfully!", { type: "success" });
     } catch {
-      alert("Failed to update school profile");
+      toast("Failed to update school profile", { type: "error" });
     }
   };
 
   const [school, setSchool] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
+  const { toast } = useToast();
 
   useEffect(() => {
     api.get("/school").then((res) => {

@@ -1,7 +1,7 @@
+import { api } from "../../lib/api";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";
-import Badge from "../../components/atoms/Badge";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 import { AccessLog } from "../../lib/types";
@@ -14,35 +14,48 @@ export default function PlatformAuditPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    setLogs([
-      { log_id: "l1", tenant_id: "t1", user_id: "u1", action: "LOGIN", resource_type: "auth", resource_id: "u1", ip_address: "192.168.1.50", accessed_at: "2024-01-15 07:30:00" },
-      { log_id: "l2", tenant_id: "t2", user_id: "u2", action: "VIEW_REPORT", resource_type: "report", resource_id: "r1", ip_address: "10.0.0.20", accessed_at: "2024-01-15 08:15:00" },
-      { log_id: "l3", tenant_id: "t1", user_id: "u3", action: "EXPORT", resource_type: "learners", resource_id: "all", ip_address: "172.16.0.5", accessed_at: "2024-01-15 09:00:00" },
-    ]);
-    setState("content");
+    let alive = true;
+    // Real audit trail: server-written audit_log rows (logins, impersonation,
+    // writes, consent changes, report runs…).
+    api
+      .get("/platform/audit")
+      .then((r) => {
+        if (!alive) return;
+        setLogs(Array.isArray(r.data) ? r.data : []);
+        setState("content");
+      })
+      .catch(() => alive && setState("error"));
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const filtered = logs.filter((l) => l.action.toLowerCase().includes(search.toLowerCase()) || l.resource_type.includes(search.toLowerCase()));
+  const filtered = logs.filter((l) =>
+    (l.action || "").toLowerCase().includes(search.toLowerCase()) ||
+    (l.resource_type || "").toLowerCase().includes(search.toLowerCase()) ||
+    (l.tenant_code || l.tenant_id || "").toString().toLowerCase().includes(search.toLowerCase())
+  );
 
   if (state === "loading") return <ViewState state="loading" />;
-  if (filtered.length === 0) return <ViewState state="empty" message={t("no_audit_logs", { defaultMessage: "No audit logs" })} />;
+  if (state === "error") return <ViewState state="error" message={'Failed to load audit trail'} />;
+  if (filtered.length === 0) return <ViewState state="empty" message={'No audit logs'} />;
 
   return (
     <div className="p-4 space-y-4">
       <h1 className="text-display font-display">{t("saas.audit")}</h1>
       <Card className="p-4">
-        <Input placeholder={t("saas.search_audit", { defaultMessage: "Search audit log" })} value={search} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)} className="max-w-sm" />
+        <Input placeholder={'Search audit log'} value={search} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)} className="max-w-sm" />
         <DataTable
           data={filtered}
           columns={[
-            { key: "accessed_at", header: t("timestamp") },
+            { key: "accessed_at", header: t("timestamp"), render: (row: any) => String(row.accessed_at || "").replace("T", " ").slice(0, 19) },
             { key: "action", header: t("action") },
             { key: "resource_type", header: t("saas.resource_type") },
             { key: "resource_id", header: t("saas.resource_id") },
-            { key: "tenant_id", header: t("tenant_id") },
+            { key: "tenant_code", header: t("tenant_id"), render: (row: any) => row.tenant_code || row.tenant_id || "—" },
             { key: "ip_address", header: t("saas.ip_address") },
           ]}
-          emptyMessage={t("no_audit_logs", { defaultMessage: "No audit logs" })}
+          emptyMessage={'No audit logs'}
           keyField="log_id"
         />
       </Card>

@@ -2,7 +2,6 @@ import { api } from "../../lib/api";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";
-import Badge from "../../components/atoms/Badge";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 
@@ -19,16 +18,23 @@ export default function ParentAttendancePage() {
   const [marks, setMarks] = useState<Mark[]>([]);
 
   useEffect(() => {
-    setMarks([
-      { date: "2024-01-15", status: "PRESENT", learner: "Brian Omondi", class_name: "Grade 4 East" },
-      { date: "2024-01-16", status: "ABSENT", learner: "Brian Omondi", class_name: "Grade 4 East" },
-      { date: "2024-01-17", status: "PRESENT", learner: "Brian Omondi", class_name: "Grade 4 East" },
-    ]);
-    setState("content");
+    let alive = true;
+    api
+      .get("/parent/attendance")
+      .then((r) => {
+        if (!alive) return;
+        setMarks(Array.isArray(r.data) ? r.data : []);
+        setState("content");
+      })
+      .catch(() => alive && setState("error"));
+    return () => {
+      alive = false;
+    };
   }, []);
 
   if (state === "loading") return <ViewState state="loading" />;
-  if (marks.length === 0) return <ViewState state="empty" message={t("no_attendance", { defaultMessage: "No attendance records" })} />;
+  if (state === "error") return <ViewState state="error" message={'Failed to load attendance'} />;
+  if (marks.length === 0) return <ViewState state="empty" message={'No attendance records'} />;
 
   return (
     <div className="p-4 space-y-4">
@@ -42,7 +48,7 @@ export default function ParentAttendancePage() {
             { key: "class_name", header: t("class") },
             { key: "status", header: t("status"), render: (row: any) => <BadgeVariant row={row} /> },
           ]}
-          emptyMessage={t("no_attendance", { defaultMessage: "No attendance records" })}
+          emptyMessage={'No attendance records'}
           keyField="date"
         />
       </Card>

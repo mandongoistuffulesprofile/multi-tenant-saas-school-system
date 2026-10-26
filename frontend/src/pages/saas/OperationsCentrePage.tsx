@@ -14,41 +14,53 @@ export default function OperationsCentrePage() {
   const [usage, setUsage] = useState<TenantUsage[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
+  const [health, setHealth] = useState<any[]>([]);
 
   useEffect(() => {
     apiGet<TenantUsage[]>("/platform/usage").then((d) => setUsage(Array.isArray(d) ? d : []));
     apiGet<Plan[]>("/platform/plans").then((d) => setPlans(Array.isArray(d) ? d : []));
     apiGet<Subscription[]>("/platform/subscriptions").then((d) => setSubs(Array.isArray(d) ? d : []));
+    apiGet<any[]>("/platform/integrations").then((d) => setHealth(Array.isArray(d) ? d : []));
     setState("content");
+    // Safety net for any silently-hung fetch: the KPIs render with defaults.
+    const safety = setTimeout(() => setState((s) => (s === "loading" ? "content" : s)), 2500);
+    return () => clearTimeout(safety);
   }, []);
 
   if (state === "loading") return <ViewState state="loading" />;
 
+  // Logical fix: "Active Tenants" counts tenants, and MRR is derived from what
+  // tenants actually subscribe to — never from the plan catalog.
+  const activeTenants = usage.length;
+  const mrr = subs.reduce((sum, s) => {
+    const plan = plans.find((p) => p.plan_id === s.plan_id);
+    return sum + (s.status === "CANCELLED" ? 0 : plan?.price_monthly ?? 0);
+  }, 0);
+  // Derived from the real platform/integrations rows — no made-up numbers.
+  const healthy = health.filter((h) => h.status === "healthy").length;
+  const alerts = health.filter((h) => h.status === "down" || h.status === "degraded").length;
+  const apiSuccess = healthy + alerts > 0 ? Math.round((healthy / (healthy + alerts)) * 100) : null;
   const latest = usage[0];
   return (
     <div className="p-4 space-y-6">
       <h1 className="text-display font-display">{t("saas.operations")}</h1>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPIStatCard title={t("saas.active_tenants", { defaultMessage: "Active Tenants" })} value={latest?.active_learners ?? 0} />
-        <KPIStatCard title={t("saas.api_success", { defaultMessage: "API Success Rate" })} value="99.4%" trend={{ label: "vs yesterday", value: 0.2, positive: true }} />
-        <KPIStatCard title={t("saas.mrr", { defaultMessage: "MRR" })} value={`KES ${plans.reduce((s, p) => s + p.price_monthly, 0)}`} />
-        <KPIStatCard title={t("saas.alerts", { defaultMessage: "Alerts" })} value={2} trend={{ label: "critical", value: 0, positive: false }} />
+        <KPIStatCard title={'Active Tenants'} value={activeTenants} />
+        <KPIStatCard title={'API Success Rate'} value={apiSuccess != null ? `${apiSuccess}%` : "—"} />
+        <KPIStatCard title={'MRR'} value={`KES ${mrr.toLocaleString()}`} />
+        <KPIStatCard title={'Alerts'} value={alerts} trend={alerts > 0 ? { label: "providers degraded", value: alerts, positive: false } : undefined} />
       </div>
       <Card className="p-4">
-        <h3 className="text-heading mb-3">{t("saas.integration_health", { defaultMessage: "Integration Health" })}</h3>
+        <h3 className="text-heading mb-3">{'Integration Health'}</h3>
         <DataTable
-          data={[
-            { name: "M-Pesa STK", status: "healthy", rate: "98.2%", lag: "120ms" },
-            { name: "SMS Gateway", status: "healthy", rate: "99.1%", lag: "80ms" },
-            { name: "WhatsApp", status: "degraded", rate: "87.4%", lag: "450ms" },
-          ] as any}
+          data={health.map((h) => ({ name: h.name, status: h.status, rate: h.success_rate != null ? `${h.success_rate}%` : "—", lag: h.callback_lag ?? "—" })) as any}
           columns={[
             { key: "name", header: t("name") },
             { key: "status", header: t("status"), render: (row: any) => <Badge variant="default">{row.status}</Badge> },
             { key: "rate", header: t("saas.success_rate") },
             { key: "lag", header: t("saas.callback_lag") },
           ]}
-          emptyMessage={t("no_data", { defaultMessage: "No data" })}
+          emptyMessage={'No data'}
           keyField="name"
         />
       </Card>

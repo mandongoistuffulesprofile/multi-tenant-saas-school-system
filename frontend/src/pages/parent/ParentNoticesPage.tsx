@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { api } from "../../lib/api";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";
 import ViewState from "../../components/organisms/ViewState";
@@ -15,10 +16,26 @@ interface Notice {
 
 export default function ParentNoticesPage() {
   const { t } = useTranslation();
-  const [notices, setNotices] = useState<Notice[]>([
-    { id: "n1", title: "Term 1 Opens", body: "School reopens on Monday 8th January.", date: "2024-01-05", read: false, channel: "SMS" },
-    { id: "n2", title: "Sports Day", body: "Annual sports day on Saturday.", date: "2024-01-10", read: true, channel: "IN_APP" },
-  ]);
+  const [state, setState] = useState<"loading" | "content" | "empty" | "error">("loading");
+  const [notices, setNotices] = useState<Notice[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get("/notices/parent")
+      .then((r) => {
+        if (!alive) return;
+        setNotices(Array.isArray(r.data) ? r.data : []);
+        setState("content");
+      })
+      .catch(() => alive && setState("error"));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (state === "loading") return <ViewState state="loading" />;
+  if (state === "error") return <ViewState state="error" message={'Failed to load notices'} />;
 
   return (
     <div className="p-4 space-y-4">
@@ -29,11 +46,11 @@ export default function ParentNoticesPage() {
           columns={[
             { key: "title", header: t("title") },
             { key: "body", header: t("message") },
-            { key: "date", header: t("date") },
+            { key: "date", header: t("date"), render: (row: any) => String(row.date || "").slice(0, 10) },
             { key: "read", header: t("status"), render: (row: any) => <BadgeVariant row={row} /> },
             { key: "channel", header: t("channel") },
           ]}
-          emptyMessage={t("no_notices", { defaultMessage: "No notices" })}
+          emptyMessage={'No notices'}
           keyField="id"
         />
       </Card>

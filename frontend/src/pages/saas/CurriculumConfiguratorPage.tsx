@@ -1,3 +1,4 @@
+import { api } from "../../lib/api";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";
@@ -11,14 +12,24 @@ export default function SaaSCurriculumPage() {
   const [versions, setVersions] = useState<any[]>([]);
 
   useEffect(() => {
-    setVersions([
-      { version_id: "v1", version_label: "CBC 2024", is_published: true, effective_from: "2024-01-01", description: "Competency Based Curriculum 2024" },
-      { version_id: "v2", version_label: "CBC 2025 Draft", is_published: false, effective_from: "2025-01-01", description: "Draft for review" },
-    ]);
-    setState("content");
+    let alive = true;
+    // Platform curriculum register: seeded CBC versions, one source of truth
+    // for the school-side Curriculum configurator too.
+    api
+      .get("/curriculum/versions")
+      .then((r) => {
+        if (!alive) return;
+        setVersions(Array.isArray(r.data) ? r.data : []);
+        setState("content");
+      })
+      .catch(() => alive && setState("error"));
+    return () => {
+      alive = false;
+    };
   }, []);
 
   if (state === "loading") return <ViewState state="loading" />;
+  if (state === "error") return <ViewState state="error" message={'Failed to load curriculum versions'} />;
 
   return (
     <div className="p-4 space-y-4">
@@ -33,7 +44,7 @@ export default function SaaSCurriculumPage() {
             { key: "is_published", header: t("status"), render: (row: any) => <Badge variant="default">{row.is_published ? t("published") : t("draft")}</Badge> },
             { key: "actions", header: t("actions"), render: () => <></> },
           ]}
-          emptyMessage={t("no_curriculum", { defaultMessage: "No curriculum versions" })}
+          emptyMessage={'No curriculum versions'}
           keyField="version_id"
         />
       </Card>

@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
+import { useToast } from "../components/toast/ToastProvider";
 
 export default function ReportsPage() {
   const [generating, setGenerating] = useState(false);
@@ -11,11 +12,11 @@ export default function ReportsPage() {
     setGenerating(true);
     try {
       await api.post("/reports/runs", { term_id: termId || "current", template_id: "standard_cbc" });
-      alert("Report cards generation initiated!");
+      toast("Report cards generation initiated!", { type: "success" });
       // Reload reports
       api.get("/reports/cards").then((r) => setCards(Array.isArray(r.data) ? r.data : []));
     } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to generate report run");
+      toast(err.response?.data?.message || "Failed to generate report run", { type: "error" });
     } finally {
       setGenerating(false);
     }
@@ -26,6 +27,7 @@ export default function ReportsPage() {
   const [cards, setCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
+  const { toast } = useToast();
 
   useEffect(() => {
     Promise.all([
@@ -44,7 +46,16 @@ export default function ReportsPage() {
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-heading mb-6">Reports</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-heading">Reports</h2>
+        <button
+          className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
+          onClick={() => handleGenerateRun()}
+          disabled={generating}
+        >
+          {generating ? "Generating…" : "Generate Report Cards"}
+        </button>
+      </div>
           {loading ? (
             <Skeleton rows={5} columns={5} />
           ) : (
@@ -68,7 +79,7 @@ export default function ReportsPage() {
                 emptyMessage="No report cards found"
                 columns={[
                   { key: "card_number", header: "Card No." },
-                  { key: "learner_id", header: "Learner" },
+                  { key: "learner_id", header: "Learner", render: (r) => r.learner_name || r.learner_id },
                   { key: "grade_id", header: "Grade" },
                   { key: "status", header: "Status" },
                   { key: "percentage", header: "Percentage", render: (r) => r.percentage != null ? `${r.percentage}%` : "—" },

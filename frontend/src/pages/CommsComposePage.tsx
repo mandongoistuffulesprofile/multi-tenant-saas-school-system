@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
+import { useToast } from "../components/toast/ToastProvider";
 
 export default function CommsComposePage() {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -9,6 +10,7 @@ export default function CommsComposePage() {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const { t } = useTranslation();
+  const { toast } = useToast();
 
   // Load templates on mount.
   if (templates.length === 0) {
@@ -35,9 +37,9 @@ export default function CommsComposePage() {
         template_id: selectedTemplate,
         body_text: body,
       });
-      alert("Message sent");
+      toast("Message sent", { type: "success" });
     } catch {
-      alert("Failed to send message");
+      toast("Failed to send message", { type: "error" });
     } finally {
       setSending(false);
     }

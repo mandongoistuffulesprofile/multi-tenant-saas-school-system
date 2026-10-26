@@ -9,9 +9,11 @@ import ViewState from "../components/organisms/ViewState";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
 import { StaffRow, StaffCreateRequest } from "../lib/types";
+import { useToast } from "../components/toast/ToastProvider";
 
 export default function StaffPage() {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [open, setOpen] = useState(false);
@@ -33,7 +35,7 @@ export default function StaffPage() {
     setSaving(true);
     api.post("/staff", form)
       .then(() => { setOpen(false); api.get<StaffRow[]>("/staff").then((r) => setStaff(Array.isArray(r.data) ? r.data : [])); })
-      .catch((err) => { alert(err.response?.data?.message || "Failed to save staff"); })
+      .catch((err) => { toast(err.response?.data?.message || "Failed to save staff", { type: "error" }); })
       .finally(() => setSaving(false));
   };
 

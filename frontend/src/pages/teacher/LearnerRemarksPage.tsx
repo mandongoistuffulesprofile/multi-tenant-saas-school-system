@@ -8,13 +8,16 @@ import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 import { Learner } from "../../lib/types";
+import { useToast } from "../../components/toast/ToastProvider";
 
 export default function LearnerRemarksPage() {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [learners, setLearners] = useState<Learner[]>([]);
   const [selected, setSelected] = useState<Learner | null>(null);
   const [remark, setRemark] = useState("");
+  const [publishing, setPublishing] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -36,9 +39,9 @@ export default function LearnerRemarksPage() {
         <Card className="p-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <label className="label block" htmlFor="learner-select">{t("select_learner", { defaultMessage: "Select learner" })}</label>
+              <label className="label block" htmlFor="learner-select">{'Select learner'}</label>
               <select id="learner-select" className="input-field" value={selected?.learner_id ?? ""} onChange={(e) => setSelected(learners.find((l) => l.learner_id === e.target.value) ?? null)}>
-                <option value="">{t("select_learner", { defaultMessage: "Select learner" })}</option>
+                <option value="">{'Select learner'}</option>
                 {learners.map((l) => <option key={l.learner_id} value={l.learner_id}>{l.first_name} {l.last_name} ({l.admission_number})</option>)}
               </select>
             </div>
@@ -72,12 +75,38 @@ export default function LearnerRemarksPage() {
                 ))}
               </div>
               <div className="pt-4 border-t">
-                <label className="label block">{t("term_remark", { defaultMessage: "Term remark" })}</label>
+                <label className="label block">{'Term remark'}</label>
                 <Input value={remark} onChange={(e) => setRemark(e.target.value)} className="h-32" />
               </div>
               <div className="flex justify-end gap-2 pt-4">
                 <Button variant="secondary" onClick={() => setRemark("")}>{t("save_draft")}</Button>
-                <Button variant="primary" onClick={async () => { try { await api.post("/reports/cards/comments", { remarks: "Competency remarks submitted", status: "PUBLISHED" }).catch(() => {}); alert("Remarks published successfully!"); } catch(e) { alert("Saved locally"); } }}>{t("teacher.publish")}</Button>
+                <Button
+                  variant="primary"
+                  loading={publishing}
+                  onClick={async () => {
+                    setPublishing(true);
+                    try {
+                      const competencyRemark = Object.entries(values)
+                        .filter(([, lv]) => lv)
+                        .map(([c, lv]) => `${c}: ${lv}`)
+                        .join(" | ");
+                      await api.post("/reports/cards/comments", {
+                        learner_id: selected.learner_id,
+                        remarks: [competencyRemark, remark].filter(Boolean).join(" — "),
+                        status: "PUBLISHED",
+                      });
+                      toast("Remarks published to the learner's report card!", { type: "success" });
+                      setRemark("");
+                      setValues({});
+                    } catch (e: any) {
+                      toast(e.response?.data?.message || "Could not publish remarks", { type: "error" });
+                    } finally {
+                      setPublishing(false);
+                    }
+                  }}
+                >
+                  {t("teacher.publish")}
+                </Button>
               </div>
             </div>
           </Card>
