@@ -141,7 +141,9 @@ var updatableSchoolFields = map[string]struct{}{
 	"status":             {},
 }
 
-func (s *Service) UpdateSchool(tenantID string, updates map[string]interface{}) (*GetSchoolResponse, error) {
+func (s *Service) UpdateSchool(ctx context.Context, tenantID string, updates map[string]interface{}) (*GetSchoolResponse, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	setParts := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -171,7 +173,7 @@ func (s *Service) UpdateSchool(tenantID string, updates map[string]interface{}) 
 	)
 
 	var tid, schoolName, subdomain, schoolType, fundingMode, status string
-	err := s.database.QueryRow(query, args...).Scan(
+	err := q.QueryRow(query, args...).Scan(
 		&tid, &schoolName, &subdomain, &schoolType, &fundingMode, &status,
 	)
 	if err != nil {
@@ -205,8 +207,10 @@ type PaymentChannel struct {
 	CreatedAt           string   `json:"created_at"`
 }
 
-func (s *Service) ListPaymentChannels(tenantID string) ([]PaymentChannel, error) {
-	rows, err := s.database.Query(
+func (s *Service) ListPaymentChannels(ctx context.Context, tenantID string) ([]PaymentChannel, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	rows, err := q.Query(
 		`SELECT channel_id, tenant_id, channel_type, shortcode_or_account, label,
 			environment, is_default, status, reference_format,
 			routed_fee_categories, channel_token, c2b_registered, created_at
@@ -235,8 +239,10 @@ func (s *Service) ListPaymentChannels(tenantID string) ([]PaymentChannel, error)
 	return channels, nil
 }
 
-func (s *Service) CreatePaymentChannel(tenantID string, ch PaymentChannel) (*PaymentChannel, error) {
-	err := s.database.QueryRow(
+func (s *Service) CreatePaymentChannel(ctx context.Context, tenantID string, ch PaymentChannel) (*PaymentChannel, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	err := q.QueryRow(
 		`INSERT INTO school_payment_channels (tenant_id, channel_type, shortcode_or_account, label,
 			environment, is_default, status, reference_format, routed_fee_categories, channel_token)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -264,10 +270,12 @@ type FinanceSettings struct {
 	PresetLabel          string   `json:"preset_label"`
 }
 
-func (s *Service) GetFinanceSettings(tenantID string) (*FinanceSettings, error) {
+func (s *Service) GetFinanceSettings(ctx context.Context, tenantID string) (*FinanceSettings, error) {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	var fs FinanceSettings
 	var cats []byte
-	err := s.database.QueryRow(
+	err := q.QueryRow(
 		`SELECT tenant_id, tuition_invoicing, optional_services, capitation_tracking,
 			allowed_fee_categories, arrears_reminders, report_withholding,
 			gate_arrears_denial, preset_label
@@ -298,9 +306,11 @@ func (s *Service) GetFinanceSettings(tenantID string) (*FinanceSettings, error) 
 	return &fs, nil
 }
 
-func (s *Service) UpdateFinanceSettings(tenantID string, fs FinanceSettings) error {
+func (s *Service) UpdateFinanceSettings(ctx context.Context, tenantID string, fs FinanceSettings) error {
+	var q queryer = s.database
+	if t := middleware.TxFromContext(ctx); t != nil { q = t }
 	cats, _ := json.Marshal(fs.AllowedFeeCategories)
-	_, err := s.database.Exec(
+	_, err := q.Exec(
 		`INSERT INTO school_finance_settings (tenant_id, tuition_invoicing, optional_services,
 			capitation_tracking, allowed_fee_categories, arrears_reminders, report_withholding,
 			gate_arrears_denial, preset_label)
@@ -348,7 +358,7 @@ func (h *Handler) UpdateSchool(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	school, err := h.service.UpdateSchool(tenantID, updates)
+	school, err := h.service.UpdateSchool(c.Request.Context(), tenantID, updates)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to update school"})
 		return
@@ -358,7 +368,7 @@ func (h *Handler) UpdateSchool(c *gin.Context) {
 
 func (h *Handler) ListPaymentChannels(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	channels, err := h.service.ListPaymentChannels(tenantID)
+	channels, err := h.service.ListPaymentChannels(c.Request.Context(), tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -373,7 +383,7 @@ func (h *Handler) CreatePaymentChannel(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	created, err := h.service.CreatePaymentChannel(tenantID, ch)
+	created, err := h.service.CreatePaymentChannel(c.Request.Context(), tenantID, ch)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -383,7 +393,7 @@ func (h *Handler) CreatePaymentChannel(c *gin.Context) {
 
 func (h *Handler) GetFinanceSettings(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	fs, err := h.service.GetFinanceSettings(tenantID)
+	fs, err := h.service.GetFinanceSettings(c.Request.Context(), tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -398,7 +408,7 @@ func (h *Handler) UpdateFinanceSettings(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	if err := h.service.UpdateFinanceSettings(tenantID, fs); err != nil {
+	if err := h.service.UpdateFinanceSettings(c.Request.Context(), tenantID, fs); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
