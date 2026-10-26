@@ -6,7 +6,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
+
+// queryer is a minimal interface for database queries, allowing us to swap in
+// a request-scoped transaction when available.
+type queryer interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
 
 type Service struct {
 	database *db.DB
@@ -22,6 +31,18 @@ type Handler struct {
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
+}
+
+// q returns the request-scoped transaction if one is available (set by
+// TenantTxMiddleware via middleware.TxFromGin), otherwise falls back to the
+// handler's database connection. This keeps auth-time flows (which run before
+// tenant context is established) working while letting tenant-scoped routes
+// participate in the request transaction.
+func (h *Handler) q(c *gin.Context) queryer {
+	if tx := middleware.TxFromGin(c); tx != nil {
+		return tx
+	}
+	return h.service.database
 }
 
 // Plan
@@ -42,7 +63,7 @@ type Plan struct {
 }
 
 func (h *Handler) ListPlans(c *gin.Context) {
-	rows, err := h.service.database.Query(
+	rows, err := h.q(c).Query(
 		`SELECT plan_id, plan_code, name, description, price_monthly, price_yearly,
 			currency, max_learners, max_staff, features, is_active, created_at, updated_at
 		 FROM plans WHERE is_active = TRUE ORDER BY price_monthly`,
@@ -85,7 +106,7 @@ type Subscription struct {
 
 func (h *Handler) ListSubscriptions(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := h.q(c).Query(
 		`SELECT subscription_id, tenant_id, plan_id, status, started_at, ends_at,
 			auto_renew, created_by, created_at, updated_at
 		 FROM subscriptions WHERE tenant_id = $1`,
@@ -128,7 +149,7 @@ type PlatformInvoice struct {
 
 func (h *Handler) ListPlatformInvoices(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := h.q(c).Query(
 		`SELECT invoice_id, tenant_id, invoice_number, amount, currency, status,
 			issue_date, due_date, paid_at, created_by, created_at, updated_at
 		 FROM platform_invoices WHERE tenant_id = $1 ORDER BY issue_date DESC`,
@@ -173,7 +194,7 @@ type TenantUsage struct {
 
 func (h *Handler) ListTenantUsage(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := h.q(c).Query(
 		`SELECT usage_id, tenant_id, period_month, active_learners, active_staff,
 			sms_sent, reports_generated, assessments_recorded, payments_processed,
 			gate_taps, storage_mb, created_at, updated_at
@@ -219,7 +240,7 @@ type Export struct {
 
 func (h *Handler) ListExports(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := h.q(c).Query(
 		`SELECT export_id, tenant_id, export_type, status, file_ref, file_name,
 			file_size, record_count, parameters, error_message, created_by,
 			created_at, completed_at

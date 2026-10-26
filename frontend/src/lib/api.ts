@@ -81,6 +81,16 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
+    // Retry transient network failures a couple of times before surfacing.
+    if (!error.response && originalRequest && !originalRequest._networkRetry) {
+      originalRequest._networkRetry = true;
+      originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
+      if (originalRequest._retryCount <= 2) {
+        await new Promise((r) => setTimeout(r, 500 * originalRequest._retryCount));
+        return api(originalRequest);
+      }
+    }
+
     if (error.response?.status !== 401 || !originalRequest) {
       return Promise.reject(error);
     }

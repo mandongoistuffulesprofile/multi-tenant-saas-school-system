@@ -6,6 +6,7 @@ import { I18nextProvider } from "react-i18next";
 import App from "./App";
 import i18n from "./i18n";
 import "./styles/index.css";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/toast/ToastProvider";
 import { installSyncHooks } from "./lib/sync";
 import { useAuthStore, isTokenValid } from "./lib/authStore";
@@ -59,7 +60,9 @@ bootstrapSession().finally(() => {
             deprecation warnings in development. */}
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <ToastProvider>
-            <App />
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
           </ToastProvider>
         </BrowserRouter>
       </I18nextProvider>

@@ -33,7 +33,7 @@ export default function PlatformAuditPage() {
   const filtered = logs.filter((l) =>
     (l.action || "").toLowerCase().includes(search.toLowerCase()) ||
     (l.resource_type || "").toLowerCase().includes(search.toLowerCase()) ||
-    (l.tenant_code || l.tenant_id || "").toString().toLowerCase().includes(search.toLowerCase())
+    (l.tenant_id || "").toString().toLowerCase().includes(search.toLowerCase())
   );
 
   if (state === "loading") return <ViewState state="loading" />;

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 )
 
 // GetLinkedLearners returns the learners a parent/guardian user is linked to.
@@ -12,6 +13,19 @@ import (
 // Auth: requires PARENT or GUARDIAN role (enforced by RequireRole middleware).
 func (h *Handler) GetLinkedLearners(c *gin.Context) {
 	userID := c.GetString("user_id")
+
+	// Get the request-scoped transaction if available (set by TenantTxMiddleware).
+	// This endpoint is under RequireAuthGin, so a transaction should always be present.
+	var tx *sqlx.Tx
+	if v, ok := c.Get("tx"); ok {
+		if t, ok := v.(*sqlx.Tx); ok {
+			tx = t
+		}
+	}
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "NO_TX", "message": "No database transaction available"})
+		return
+	}
 
 	type LinkedLearner struct {
 		LearnerID       string `json:"learner_id"`
@@ -21,7 +35,7 @@ func (h *Handler) GetLinkedLearners(c *gin.Context) {
 		GradeLabel      string `json:"grade_label,omitempty"`
 	}
 
-	rows, err := h.database.Query(
+	rows, err := tx.Query(
 		`SELECT l.learner_id, l.first_name, l.last_name,
 		 l.admission_number, COALESCE(g.grade_label, '') as grade_label
 		 FROM guardians gd

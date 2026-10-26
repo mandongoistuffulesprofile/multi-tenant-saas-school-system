@@ -33,7 +33,7 @@ type Tenant struct {
 }
 
 func (h *Handler) ListTenants(c *gin.Context) {
-	rows, err := h.service.database.Query(
+	rows, err := h.q(c).Query(
 		`SELECT s.tenant_id, s.school_name, s.subdomain, s.school_type, s.funding_mode,
 			s.status, COALESCE(s.county, ''),
 			(SELECT COUNT(*) FROM learners l WHERE l.tenant_id = s.tenant_id AND l.status = 'ACTIVE'),
@@ -94,7 +94,7 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 
 	tenantID := subdomain
 	var exists int
-	if err := h.service.database.QueryRow(`SELECT COUNT(*) FROM schools WHERE tenant_id = $1`, tenantID).Scan(&exists); err == nil && exists > 0 {
+	if err := h.q(c).QueryRow(`SELECT COUNT(*) FROM schools WHERE tenant_id = $1`, tenantID).Scan(&exists); err == nil && exists > 0 {
 		validation.Conflict(c, "That subdomain is already in use")
 		return
 	}
@@ -105,6 +105,12 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		return
 	}
 	defer tx.Rollback()
+
+	// The tenant context must be set for RLS-protected writes inside the tx.
+	if _, err := tx.Exec(`SELECT set_config('app.current_tenant_id', $1, true)`, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	// The tenant context must be set for RLS-protected writes inside the tx.
 	if _, err := tx.Exec(`SELECT set_config('app.current_tenant_id', $1, true)`, tenantID); err != nil {
@@ -225,7 +231,7 @@ func (h *Handler) UpdateTenant(c *gin.Context) {
 	}
 	args = append(args, tenantID)
 
-	result, err := h.service.database.Exec(
+	result, err := h.q(c).Exec(
 		`UPDATE schools SET `+strings.Join(sets, ", ")+` WHERE tenant_id = $`+itoa(len(args)), args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -250,7 +256,7 @@ func (h *Handler) SetTenantStatus(c *gin.Context) {
 		})
 		return
 	}
-	result, err := h.service.database.Exec(
+	result, err := h.q(c).Exec(
 		`UPDATE schools SET status = $1, updated_at = now() WHERE tenant_id = $2`, status, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -282,7 +288,7 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 	adminUserID := c.GetString("user_id")
 
 	var sessionID string
-	err := h.service.database.QueryRow(
+	err := h.q(c).QueryRow(
 		`INSERT INTO impersonation_sessions (admin_user_id, target_user_id, target_tenant_id, reason, expires_at)
 		 VALUES ($1, $2, $3, $4, now() + ($5 || ' minutes')::interval) RETURNING session_id`,
 		adminUserID, req.TargetUserID, req.TargetTenantID, req.Reason, itoa(duration)).Scan(&sessionID)
@@ -300,7 +306,7 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 // EndImpersonation revokes a support session.
 func (h *Handler) EndImpersonation(c *gin.Context) {
 	sessionID := c.Param("id")
-	result, err := h.service.database.Exec(
+	result, err := h.q(c).Exec(
 		`UPDATE impersonation_sessions SET revoked_at = now() WHERE session_id = $1 AND revoked_at IS NULL`, sessionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -315,7 +321,7 @@ func (h *Handler) EndImpersonation(c *gin.Context) {
 
 // ListImpersonations shows active support sessions.
 func (h *Handler) ListImpersonations(c *gin.Context) {
-	rows, err := h.service.database.Query(
+	rows, err := h.q(c).Query(
 		`SELECT session_id, admin_user_id, target_user_id, target_tenant_id, reason, expires_at, revoked_at, created_at
 		 FROM impersonation_sessions ORDER BY created_at DESC LIMIT 100`)
 	if err != nil {
@@ -372,7 +378,7 @@ func (h *Handler) CreatePlan(c *gin.Context) {
 	raw, _ := json.Marshal(features)
 
 	var planID string
-	err := h.service.database.QueryRow(
+	err := h.q(c).QueryRow(
 		`INSERT INTO plans (plan_code, name, description, price_monthly, price_yearly, max_learners, max_staff, features)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) RETURNING plan_id`,
 		strings.ToUpper(strings.TrimSpace(req.PlanCode)), req.Name, nullableString(req.Description),
@@ -433,7 +439,7 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 	}
 	args = append(args, planID)
 
-	result, err := h.service.database.Exec(
+	result, err := h.q(c).Exec(
 		`UPDATE plans SET `+strings.Join(sets, ", ")+` WHERE plan_id = $`+itoa(len(args)), args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -463,7 +469,7 @@ func (h *Handler) UpsertSubscription(c *gin.Context) {
 		status = "ACTIVE"
 	}
 	var subscriptionID string
-	err := h.service.database.QueryRow(
+	err := h.q(c).QueryRow(
 		`INSERT INTO subscriptions (tenant_id, plan_id, status, auto_renew)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (tenant_id) DO UPDATE SET plan_id = EXCLUDED.plan_id,
@@ -497,7 +503,7 @@ func (h *Handler) CreateExport(c *gin.Context) {
 	raw, _ := json.Marshal(params)
 
 	var exportID string
-	err := h.service.database.QueryRow(
+	err := h.q(c).QueryRow(
 		`INSERT INTO exports (tenant_id, export_type, status, parameters, created_by)
 		 VALUES ($1, $2, 'PENDING', $3::jsonb, $4) RETURNING export_id`,
 		tenantID, strings.ToUpper(strings.TrimSpace(req.ExportType)), string(raw), nullableString(userID)).Scan(&exportID)
@@ -534,7 +540,7 @@ func (h *Handler) CreateCurriculumVersion(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var versionID string
-	err := h.service.database.QueryRow(
+	err := h.q(c).QueryRow(
 		`INSERT INTO curriculum_versions (version_label, description, is_published, effective_from, created_by)
 		 VALUES ($1, $2, false, $3, $4) RETURNING version_id`,
 		strings.TrimSpace(req.VersionLabel), nullableString(req.Description),
@@ -551,7 +557,7 @@ func (h *Handler) CreateCurriculumVersion(c *gin.Context) {
 func (h *Handler) PublishCurriculumVersion(c *gin.Context) {
 	versionID := c.Param("version_id")
 	var unmapped int
-	err := h.service.database.QueryRow(
+	err := h.q(c).QueryRow(
 		`SELECT COUNT(*) FROM learning_areas la
 		 WHERE la.version_id = $1::uuid
 		   AND NOT EXISTS (
@@ -569,7 +575,7 @@ func (h *Handler) PublishCurriculumVersion(c *gin.Context) {
 		validation.Conflict(c, "Every learning area must be mapped before publishing")
 		return
 	}
-	result, err := h.service.database.Exec(
+	result, err := h.q(c).Exec(
 		`UPDATE curriculum_versions SET is_published = true, updated_at = now() WHERE version_id = $1`, versionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -599,7 +605,7 @@ func (h *Handler) CreateWeightingProfile(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var profileID string
-	err := h.service.database.QueryRow(
+	err := h.q(c).QueryRow(
 		`INSERT INTO weighting_profiles (name, description, grade_id, weights, is_default, created_by)
 		 VALUES ($1, $2, $3, $4::jsonb, $5, $6) RETURNING profile_id`,
 		strings.TrimSpace(req.Name), nullableString(req.Description), req.GradeID, string(raw),
@@ -645,7 +651,7 @@ func (h *Handler) UpdateWeightingProfile(c *gin.Context) {
 	}
 	args = append(args, profileID)
 
-	result, err := h.service.database.Exec(
+	result, err := h.q(c).Exec(
 		`UPDATE weighting_profiles SET `+strings.Join(sets, ", ")+` WHERE profile_id = $`+itoa(len(args)), args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -660,7 +666,7 @@ func (h *Handler) UpdateWeightingProfile(c *gin.Context) {
 
 // ListWeightingProfiles returns the platform weighting profiles.
 func (h *Handler) ListWeightingProfiles(c *gin.Context) {
-	rows, err := h.service.database.Query(
+	rows, err := h.q(c).Query(
 		`SELECT profile_id, name, COALESCE(description,''), grade_id, weights, is_default
 		 FROM weighting_profiles ORDER BY grade_id, name`)
 	if err != nil {
@@ -706,7 +712,7 @@ func (h *Handler) CreateKNECTool(c *gin.Context) {
 		return
 	}
 	var toolID string
-	err := h.service.database.QueryRow(
+	err := h.q(c).QueryRow(
 		`INSERT INTO knec_tools (tool_code, name, description, grade_id, assessment_year)
 		 VALUES ($1, $2, $3, $4, $5) RETURNING tool_id`,
 		strings.ToUpper(strings.TrimSpace(req.ToolCode)), req.Name, nullableString(req.Description),
@@ -751,7 +757,7 @@ func (h *Handler) UpdateKNECTool(c *gin.Context) {
 	}
 	args = append(args, toolID)
 
-	result, err := h.service.database.Exec(
+	result, err := h.q(c).Exec(
 		`UPDATE knec_tools SET `+strings.Join(sets, ", ")+` WHERE tool_id = $`+itoa(len(args)), args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
