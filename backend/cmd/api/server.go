@@ -125,13 +125,13 @@ func Run() error {
 	syncHandler := sync.NewHandler(syncService)
 
 	inkindService := inkind.NewService(database)
-	_ = inkind.NewHandler(inkindService)
+	inkindHandler := inkind.NewHandler(inkindService)
 
 	kitchenService := kitchen.NewService(database)
-	_ = kitchen.NewHandler(kitchenService)
+	kitchenHandler := kitchen.NewHandler(kitchenService)
 
 	adminService := admin.NewService(database)
-	_ = admin.NewHandler(adminService)
+	adminHandler := admin.NewHandler(adminService)
 
 	// M-Pesa: the callback writes to a durable inbox; a background worker
 	// allocates the payment. The worker is cancelled during shutdown.
@@ -235,6 +235,25 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	}
 
 	apiV1.GET("/audit/logs", middleware.RequireAuthGin(jwtManager), middleware.RequireRole(middleware.RoleSchoolAdministrators...), auditHandler.GetAuditLog)
+
+	kitchenGroup := apiV1.Group("/kitchen")
+	kitchenGroup.Use(middleware.RequireAuthGin(jwtManager))
+	kitchenGroup.GET("/recipes", kitchenHandler.ListRecipes)
+	kitchenGroup.POST("/recipes", middleware.RequireRole(middleware.RoleSchoolAdministrators...), kitchenHandler.CreateRecipe)
+	kitchenGroup.POST("/requisitions", middleware.RequireRole(middleware.RoleFinanceStaff...), kitchenHandler.CreateRequisition)
+	adminGroup := apiV1.Group("/admin")
+	adminGroup.Use(middleware.RequireAuthGin(jwtManager))
+	adminGroup.GET("/settings", adminHandler.ListInKindSettings)
+	adminGroup.PUT("/settings", middleware.RequireRole(middleware.RoleSchoolAdministrators...), adminHandler.UpsertInKindSetting)
+
+	inkindGroup := apiV1.Group("/inkind")
+	inkindGroup.Use(middleware.RequireAuthGin(jwtManager))
+	inkindGroup.GET("/items", inkindHandler.ListItems)
+	inkindGroup.POST("/items", middleware.RequireRole(middleware.RoleSchoolAdministrators...), inkindHandler.CreateItem)
+	inkindGroup.GET("/rates", inkindHandler.ListRates)
+	inkindGroup.POST("/rates", middleware.RequireRole(middleware.RoleSchoolAdministrators...), inkindHandler.CreateRate)
+	inkindGroup.POST("/intakes", middleware.RequireRole(middleware.RoleFinanceStaff...), inkindHandler.CreateIntake)
+	inkindGroup.GET("/intakes", inkindHandler.ListIntakes)
 
 	// Calendar routes
 	calGroup := apiV1.Group("/calendar")
