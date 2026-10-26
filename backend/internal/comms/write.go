@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -138,6 +139,10 @@ type Audience struct {
 // CreateBroadcast stores a broadcast and expands its audience into
 // recipients. Recipients without consent are excluded and reported back.
 func (h *Handler) CreateBroadcast(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		BroadcastName string   `json:"broadcast_name" binding:"required"`
 		Channel       string   `json:"channel" binding:"required"`
@@ -167,7 +172,7 @@ func (h *Handler) CreateBroadcast(c *gin.Context) {
 	}
 
 	var broadcastID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO broadcasts
 		 (tenant_id, broadcast_name, channel, target_audience, target_grade_ids, subject, body_text, status, scheduled_at, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING broadcast_id`,
@@ -180,15 +185,15 @@ func (h *Handler) CreateBroadcast(c *gin.Context) {
 		return
 	}
 
-	recipients, excluded := h.expandAudience(tenantID, req.Audience)
+	recipients, excluded := h.expandAudience(tx, tenantID, req.Audience)
 	for _, r := range recipients {
-		_, _ = h.service.database.Exec(
+		_, _ = tx.Exec(
 			`INSERT INTO broadcast_recipients (tenant_id, broadcast_id, recipient_type, recipient_id_ref, channel, recipient_address)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
 			tenantID, broadcastID, r.recipientType, r.recipientID, channel, r.address)
 	}
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`UPDATE broadcasts SET total_recipients = $1 WHERE broadcast_id = $2`, len(recipients), broadcastID)
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -200,12 +205,16 @@ func (h *Handler) CreateBroadcast(c *gin.Context) {
 
 // SendBroadcast queues outbound messages for every consented recipient.
 func (h *Handler) SendBroadcast(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	broadcastID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
 	var channel, body, status, subject sql.NullString
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT channel, body_text, status, subject FROM broadcasts
 		 WHERE broadcast_id = $1 AND tenant_id = $2`, broadcastID, tenantID).
 		Scan(&channel, &body, &status, &subject)
@@ -223,7 +232,7 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 	}
 
 	queued := 0
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT recipient_type, recipient_id_ref, recipient_address
 		 FROM broadcast_recipients WHERE broadcast_id = $1`, broadcastID)
 	if err != nil {
@@ -248,7 +257,7 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 	rows.Close()
 
 	for _, r := range recipients {
-		_, err := h.service.database.Exec(
+		_, err := tx.Exec(
 			`INSERT INTO outbound_messages
 			 (tenant_id, template_id, recipient_type, recipient_id, channel, recipient_address, subject, body_text, status, created_by)
 			 VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, 'QUEUED', $8)
@@ -261,7 +270,7 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 		queued++
 	}
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`UPDATE broadcasts SET status = 'SENT', sent_at = now(), sent_count = $1 WHERE broadcast_id = $2`, queued, broadcastID)
 
 	c.JSON(http.StatusOK, gin.H{"broadcast_id": broadcastID, "queued": queued})
@@ -270,6 +279,10 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 // SendMessage queues a one-off message to the guardians of one or more
 // learners.
 func (h *Handler) SendMessage(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		TemplateID  string   `json:"template_id"`
 		BodyText    string   `json:"body_text" binding:"required"`
@@ -305,7 +318,7 @@ func (h *Handler) SendMessage(c *gin.Context) {
 	if len(req.GuardianIDs) > 0 {
 		for _, guardianID := range req.GuardianIDs {
 			var address string
-			err := h.service.database.QueryRow(
+			err := tx.QueryRow(
 				`SELECT phone_number FROM guardians WHERE tenant_id = $1 AND guardian_id = $2`,
 				tenantID, guardianID).Scan(&address)
 			if err != nil {
@@ -322,7 +335,7 @@ func (h *Handler) SendMessage(c *gin.Context) {
 
 	if len(req.LearnerIDs) > 0 {
 		for _, learnerID := range req.LearnerIDs {
-			rows, err := h.service.database.Query(
+			rows, err := tx.Query(
 				`SELECT gd.guardian_id, gd.phone_number
 				 FROM learner_guardians lg
 				 JOIN guardians gd ON gd.guardian_id = lg.guardian_id
@@ -357,11 +370,11 @@ func (h *Handler) SendMessage(c *gin.Context) {
 	queued := 0
 	excluded := 0
 	for _, t := range targets {
-		if !h.hasCommunicationConsent(tenantID, t.recipientType, t.recipientID) {
+		if !h.hasCommunicationConsent(tx, tenantID, t.recipientType, t.recipientID) {
 			excluded++
 			continue
 		}
-		_, err := h.service.database.Exec(
+		_, err := tx.Exec(
 			`INSERT INTO outbound_messages
 			 (tenant_id, template_id, recipient_type, recipient_id, channel, recipient_address, subject, body_text, status, created_by)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'QUEUED', $9)`,
@@ -381,9 +394,13 @@ func (h *Handler) SendMessage(c *gin.Context) {
 
 // RetryMessage re-queues a failed message.
 func (h *Handler) RetryMessage(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	messageID := c.Param("id")
 	tenantID := c.GetString("tenant_id")
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE outbound_messages SET status = 'QUEUED', error_message = NULL, updated_at = now()
 		 WHERE message_id = $1 AND tenant_id = $2 AND status IN ('FAILED', 'PENDING')`, messageID, tenantID)
 	if err != nil {
@@ -399,6 +416,10 @@ func (h *Handler) RetryMessage(c *gin.Context) {
 
 // SetOptOut records (or lifts) an opt-out for a channel.
 func (h *Handler) SetOptOut(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
 	var req struct {
 		UserID  string `json:"user_id" binding:"required"`
 		Channel string `json:"channel" binding:"required"`
@@ -413,7 +434,7 @@ func (h *Handler) SetOptOut(c *gin.Context) {
 	channel := strings.ToUpper(strings.TrimSpace(req.Channel))
 
 	if req.OptOut {
-		_, err := h.service.database.Exec(
+		_, err := tx.Exec(
 			`INSERT INTO opt_outs (tenant_id, user_id, channel, reason, opted_out_at, is_active)
 			 VALUES ($1, $2, $3, $4, now(), true)
 			 ON CONFLICT (tenant_id, user_id, channel)
@@ -427,7 +448,7 @@ func (h *Handler) SetOptOut(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.database.Exec(
+	result, err := tx.Exec(
 		`UPDATE opt_outs SET is_active = false, opted_back_in_at = now()
 		 WHERE tenant_id = $1 AND user_id = $2 AND channel = $3`, tenantID, req.UserID, channel)
 	if err != nil {
@@ -451,7 +472,7 @@ type audienceRecipient struct {
 
 // expandAudience resolves the target audience into recipients, skipping any
 // guardian who has opted out of the channel.
-func (h *Handler) expandAudience(tenantID string, audience Audience) ([]audienceRecipient, int) {
+func (h *Handler) expandAudience(tx *sqlx.Tx, tenantID string, audience Audience) ([]audienceRecipient, int) {
 	recipients := make([]audienceRecipient, 0)
 	excluded := 0
 	seen := map[string]bool{}
@@ -490,7 +511,7 @@ func (h *Handler) expandAudience(tenantID string, audience Audience) ([]audience
 		return recipients, 0
 	}
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		return recipients, 0
 	}
@@ -504,7 +525,7 @@ func (h *Handler) expandAudience(tenantID string, audience Audience) ([]audience
 			continue
 		}
 		seen[guardianID] = true
-		if h.isOptedOut(tenantID, guardianID, "SMS") {
+		if h.isOptedOut(tx, tenantID, guardianID, "SMS") {
 			excluded++
 			continue
 		}
@@ -515,9 +536,9 @@ func (h *Handler) expandAudience(tenantID string, audience Audience) ([]audience
 
 // hasCommunicationConsent implements the consent gate. When the school has
 // configured consent notices, a recipient must hold a live consent record.
-func (h *Handler) hasCommunicationConsent(tenantID, recipientType, recipientID string) bool {
+func (h *Handler) hasCommunicationConsent(tx *sqlx.Tx, tenantID, recipientType, recipientID string) bool {
 	var notices int
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT COUNT(*) FROM consent_notices WHERE is_active = true`).Scan(&notices)
 	if err != nil {
 		return true
@@ -528,7 +549,7 @@ func (h *Handler) hasCommunicationConsent(tenantID, recipientType, recipientID s
 
 	userID := ""
 	if recipientType == "GUARDIAN" {
-		err = h.service.database.QueryRow(
+		err = tx.QueryRow(
 			`SELECT COALESCE(user_id::text, '') FROM guardians WHERE tenant_id = $1 AND guardian_id = $2`,
 			tenantID, recipientID).Scan(&userID)
 		if err != nil || userID == "" {
@@ -539,7 +560,7 @@ func (h *Handler) hasCommunicationConsent(tenantID, recipientType, recipientID s
 	}
 
 	var granted int
-	err = h.service.database.QueryRow(
+	err = tx.QueryRow(
 		`SELECT COUNT(*)
 		 FROM consent_records cr
 		 JOIN consent_notices cn ON cn.notice_id = cr.notice_id
@@ -551,16 +572,16 @@ func (h *Handler) hasCommunicationConsent(tenantID, recipientType, recipientID s
 	return granted > 0
 }
 
-func (h *Handler) isOptedOut(tenantID, guardianID, channel string) bool {
+func (h *Handler) isOptedOut(tx *sqlx.Tx, tenantID, guardianID, channel string) bool {
 	var userID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT COALESCE(user_id::text, '') FROM guardians WHERE tenant_id = $1 AND guardian_id = $2`,
 		tenantID, guardianID).Scan(&userID)
 	if err != nil || userID == "" {
 		return false
 	}
 	var count int
-	err = h.service.database.QueryRow(
+	err = tx.QueryRow(
 		`SELECT COUNT(*) FROM opt_outs WHERE tenant_id = $1 AND user_id = $2 AND channel = $3 AND is_active = true`,
 		tenantID, userID, channel).Scan(&count)
 	return err == nil && count > 0
