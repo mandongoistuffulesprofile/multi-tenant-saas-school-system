@@ -48,7 +48,7 @@ The goal is to add this scope without breaking existing code.
 - **\[SPEC\]** Funding is treated per tier with separate sub-ledgers: Pre-Primary under devolved county frameworks (parental or county levies), Primary under Free Primary Education (FPE) capitation, Junior School under Free Day Junior School Education (FDJSE) capitation, which splits into Operational (for example repairs and maintenance, electricity, internet, personal emoluments) and Tuition (for example lab materials, assessment, stationery) accounts.
 - **\[DECISION\]** Finance behavior for public versus private schools is custom-set by each school, not a fixed global mode. Therefore the funding sources and voteheads above are **editable templates** cloned per tenant, not fixed code paths. **\[VERIFY\]** All capitation amounts, votehead splits and circular rules. Store them as tenant data. Do not embed figures.
 - **\[DECISION\]** Each school has its own M-Pesa paybill and may add more.
-- Assessment: CBC grading must be **level-aware** (Pre-Primary, lower primary, upper primary, junior), with national assessment points at Grade 6 (KPSEA) and Grade 9 (KJSEA). **\[VERIFY\]** the exact performance scales and make scales configurable data. Earlier grading work in this project was primary-focused, so check it for assumptions that break at PP or Junior level.
+- Assessment: CBC grading must be **level-aware** (Pre-Primary, lower primary, upper primary, junior), with national assessment points at Grade 6 (KPSEA) and Grade 9 (KJSEA). **\[CONFIRMED\]** KNEC 8-point scale: EE1(90-100,8pts), EE2(75-89,7), ME1(58-74,6), ME2(41-57,5), AE1(31-40,4), AE2(21-30,3), BE1(11-20,2), BE2(0-10,1). No aggregate score; per-subject reporting only. KJSEA = 60% summative + 20% SBA (Grades 7-8) + 20% KPSEA. KPSEA uses 4 capacity bands (no points). Earlier grading work in this project was primary-focused, so check it for assumptions that break at PP or Junior level.
 - **\[PROPOSAL\]** Boarding is not universal (many comprehensive schools are day schools). Treat in-kind, kitchen and boarding as **per-tenant feature flags**, and `students.is_boarder` as real data. Default should be FALSE unless a school enables boarding. The draft schema defaulted it to TRUE, so check and adjust only through a safe migration.
 
 ## 4. Tenancy model
@@ -238,7 +238,7 @@ Download template, upload, map columns (auto-detect headers), validate per row (
 ## 12. NEMIS code: accepted, never required \[DECISION\]
 
 - Optional field **School code (NEMIS)** on the school profile and on Super-Admin step 1. It counts toward a separate Polish list, not toward the go-live gate.
-- Validation: trim, uppercase, remove spaces. **\[VERIFY\]** the real format before adding any pattern check.
+- Validation: trim, uppercase, remove spaces. **\[CONFIRMED\]** NEMIS school code is a 4-character alphanumeric UIC (e.g., `LVR8`, `6WF4`). Accept up to 4 chars; do NOT enforce a regex pattern. KEMIS (Kenya Education Management Information System) is replacing NEMIS as of 2026; treat both as optional identifiers.
 - Uniqueness through a partial unique index on `upper(nemis_code)` where not null. If a code is already registered, return `NEMIS_CODE_IN_USE` with the fix action Contact support. **A school admin must never see the other school's name** (tenant data leak). Only the Super-Admin sees the match.
 - The Super-Admin duplicate check treats a present code as a strong signal and otherwise falls back to name plus county.
 - Records who entered it and when. Show a Verified badge **only if** a real lookup integration is built, and never imply a Ministry lookup happened.
@@ -278,11 +278,11 @@ Estimates, such as hours saved, must be labeled as estimates, be based on assump
 
 1. Does hard-lock approval hold stock deduction or post and flag? (Section 7. Implement as a setting.)
 2. Real NEMIS code format and whether any Ministry lookup will ever exist.
-3. Safaricom paybill and account number length rules.
+3. Safaricom paybill: 5-7 digits (confirmed). Account number: merchant-defined, up to 14 digits. Store as tenant data.
 4. Current FPE and FDJSE capitation rules and votehead splits. Store as tenant data only.
-5. Exact CBC performance scales by level and the KPSEA and KJSEA rules.
-6. Whether the repo already has wizard, audit, ledger or inventory tables that should be extended instead of added.
-7. Actual primary key and money types in the repo.
+5. Exact CBC performance scales by level and the KPSEA and KJSEA rules — **CONFIRMED**: KNEC 8-point scale (EE1=90-100/8pts … BE2=0-10/1pt). No aggregate score; per-subject reporting only. KJSEA = 60% summative + 20% SBA (Grades 7-8) + 20% KPSEA. KPSEA uses 4 capacity bands. No `cbc_scales` table needed; use official scale directly.
+6. Whether the repo already has wizard, audit, ledger or inventory tables that should be extended instead of added — **CONFIRMED**: None existed; all new tables created (migrations 0011-0018). No extensions needed.
+7. Actual primary key and money types in the repo — **CONFIRMED**: UUID for IDs, `numeric(12,2)` for money, `numeric(12,3)` for quantities. Composite PKs `(tenant_id, id)` on new tables.
 
 ## 15. Acceptance checks
 
