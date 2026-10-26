@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 )
 
@@ -44,8 +45,14 @@ type AssessmentEvent struct {
 }
 
 func (h *Handler) ListAssessmentEvents(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT event_id, tenant_id, term_id, grade_id, learning_area_id,
 			assessment_type, scoring_mode, assessment_window, weighting_profile_id,
 			status, max_score, created_by, created_at, updated_at
@@ -73,10 +80,16 @@ func (h *Handler) ListAssessmentEvents(c *gin.Context) {
 }
 
 func (h *Handler) GetAssessmentEvent(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	eventID := c.Param("event_id")
 	var e AssessmentEvent
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT event_id, tenant_id, term_id, grade_id, learning_area_id,
 			assessment_type, scoring_mode, assessment_window, weighting_profile_id,
 			status, max_score, created_by, created_at, updated_at
@@ -118,6 +131,12 @@ type AssessmentResult struct {
 }
 
 func (h *Handler) ListAssessmentResults(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	eventID := c.Query("event_id")
 	learnerID := c.Query("learner_id")
@@ -142,7 +161,7 @@ func (h *Handler) ListAssessmentResults(c *gin.Context) {
 	}
 	query += " ORDER BY server_ts DESC"
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -164,10 +183,16 @@ func (h *Handler) ListAssessmentResults(c *gin.Context) {
 }
 
 func (h *Handler) GetAssessmentResult(c *gin.Context) {
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	resultID := c.Param("result_id")
 	var r AssessmentResult
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT result_id, tenant_id, event_id, learner_id, sub_strand_id,
 			level_code, points, raw_score, max_score, teacher_id, remarks,
 			client_uuid, version, state, device_id, client_ts, server_ts
@@ -200,7 +225,13 @@ type WeightingProfile struct {
 }
 
 func (h *Handler) ListWeightingProfiles(c *gin.Context) {
-	rows, err := h.service.database.Query(
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	rows, err := tx.Query(
 		`SELECT profile_id, name, description, grade_id, weights, is_default,
 			created_at, updated_at
 		 FROM weighting_profiles ORDER BY name`,
