@@ -54,7 +54,7 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className={`btn-primary ${destructive ? "bg-red-600 hover:bg-red-700 focus:ring-red-600" : ""}`}
+            className={`btn-primary ${destructive ? "bg-slate-900 hover:bg-slate-900 focus:ring-red-600" : ""}`}
           >
             {confirmLabel ?? t("save")}
           </button>

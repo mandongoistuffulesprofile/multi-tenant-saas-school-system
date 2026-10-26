@@ -116,7 +116,7 @@ export default function TenantRegistryPage() {
               <button
                 type="button"
                 onClick={() => handleToggleStatus(pending.tenantId, "ACTIVE")}
-                className="px-4 py-2 text-sm rounded-lg font-semibold bg-red-600 text-white hover:bg-red-700"
+                className="px-4 py-2 text-sm rounded-lg font-semibold bg-slate-900 text-white hover:bg-slate-900"
               >
                 Suspend school
               </button>
