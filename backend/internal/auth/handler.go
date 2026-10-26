@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
@@ -62,6 +63,15 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	// Per-account lockout via Redis.
+	if h.redis != nil {
+		key := "rl:login:fail:" + strings.ToLower(identifier)
+		if n, _ := h.redis.Get(c.Request.Context(), key).Int(); n >= 5 {
+			c.JSON(http.StatusTooManyRequests, gin.H{"code": "ACCOUNT_LOCKED", "message": "Too many failed attempts. Try again later."})
+			return
+		}
+	}
+
 	tenantCode := strings.TrimSpace(req.Subdomain)
 	if tenantCode == "" {
 		tenantCode = strings.TrimSpace(req.TenantCode)
@@ -102,8 +112,19 @@ func (h *Handler) Login(c *gin.Context) {
 
 	if err := h.database.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
 		!VerifyPassword(passwordHash, req.Password) {
+		if h.redis != nil {
+			key := "rl:login:fail:" + strings.ToLower(identifier)
+			n, _ := h.redis.Incr(c.Request.Context(), key).Result()
+			if n == 1 {
+				h.redis.Expire(c.Request.Context(), key, 15*time.Minute)
+			}
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
 		return
+	}
+	// Clear lockout on success.
+	if h.redis != nil {
+		h.redis.Del(c.Request.Context(), "rl:login:fail:"+strings.ToLower(identifier))
 	}
 
 	// Resolve the membership(s) that may mint a session for this user.
