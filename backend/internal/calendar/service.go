@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -36,8 +37,13 @@ type AcademicYear struct {
 }
 
 func (h *Handler) ListAcademicYears(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT year_id, tenant_id, year_label, start_date, end_date, is_current
 		 FROM academic_years WHERE tenant_id = $1 ORDER BY year_label`,
 		tenantID,
@@ -61,6 +67,11 @@ func (h *Handler) ListAcademicYears(c *gin.Context) {
 }
 
 func (h *Handler) CreateAcademicYear(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	type CreateRequest struct {
 		YearLabel string `json:"year_label" binding:"required"`
 		StartDate string `json:"start_date" binding:"required"`
@@ -75,7 +86,7 @@ func (h *Handler) CreateAcademicYear(c *gin.Context) {
 
 	tenantID := c.GetString("tenant_id")
 	var yearID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO academic_years (tenant_id, year_label, start_date, end_date, is_current)
 		 VALUES ($1, $2, $3, $4, $5) RETURNING year_id`,
 		tenantID, req.YearLabel, req.StartDate, req.EndDate, req.IsCurrent,
@@ -102,10 +113,14 @@ type Term struct {
 }
 
 func (h *Handler) ListTerms(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	yearID := c.Query("year_id")
 
-	// year_id is an optional filter; when omitted, list every term for the tenant.
 	query := `SELECT term_id, tenant_id, year_id, term_number, term_label, start_date, end_date,
 			midterm_start, midterm_end, is_current
 		 FROM terms WHERE tenant_id = $1`
@@ -116,7 +131,7 @@ func (h *Handler) ListTerms(c *gin.Context) {
 	}
 	query += ` ORDER BY term_number`
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -126,7 +141,6 @@ func (h *Handler) ListTerms(c *gin.Context) {
 	terms := make([]Term, 0)
 	for rows.Next() {
 		var t Term
-		// midterm_start and midterm_end are nullable.
 		var midtermStart, midtermEnd sql.NullString
 		if err := rows.Scan(&t.TermID, &t.TenantID, &t.YearID, &t.TermNumber, &t.TermLabel,
 			&t.StartDate, &t.EndDate, &midtermStart, &midtermEnd, &t.IsCurrent); err != nil {
@@ -141,6 +155,11 @@ func (h *Handler) ListTerms(c *gin.Context) {
 }
 
 func (h *Handler) CreateTerm(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	type CreateRequest struct {
 		YearID       string `json:"year_id" binding:"required"`
 		TermNumber   int    `json:"term_number" binding:"required"`
@@ -159,7 +178,7 @@ func (h *Handler) CreateTerm(c *gin.Context) {
 
 	tenantID := c.GetString("tenant_id")
 	var termID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO terms (tenant_id, year_id, term_number, term_label, start_date, end_date,
 			midterm_start, midterm_end, is_current)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING term_id`,
@@ -184,8 +203,13 @@ type ExamWindow struct {
 }
 
 func (h *Handler) ListExamWindows(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := h.service.database.Query(
+	rows, err := tx.Query(
 		`SELECT window_id, tenant_id, exam_type, window_label, start_date, end_date
 		 FROM exam_windows WHERE tenant_id = $1 ORDER BY start_date`,
 		tenantID,
@@ -209,6 +233,11 @@ func (h *Handler) ListExamWindows(c *gin.Context) {
 }
 
 func (h *Handler) CreateExamWindow(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	type CreateRequest struct {
 		ExamType    string `json:"exam_type" binding:"required"`
 		WindowLabel string `json:"window_label" binding:"required"`
@@ -223,7 +252,7 @@ func (h *Handler) CreateExamWindow(c *gin.Context) {
 
 	tenantID := c.GetString("tenant_id")
 	var windowID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO exam_windows (tenant_id, exam_type, window_label, start_date, end_date)
 		 VALUES ($1, $2, $3, $4, $5) RETURNING window_id`,
 		tenantID, req.ExamType, req.WindowLabel, req.StartDate, req.EndDate,
