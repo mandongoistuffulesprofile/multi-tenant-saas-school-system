@@ -108,7 +108,7 @@ func RequireAuthGin(jm *auth.JWTManager) gin.HandlerFunc {
 		}
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-		claims, err := jm.ValidateToken(tokenStr)
+		claims, err := jm.ValidateToken(tokenStr, auth.TokenTypeAccess)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: token invalid or expired"})
 			return

@@ -137,7 +137,7 @@ func ParseAccessToken(c *gin.Context, jm *auth.JWTManager) (*auth.Claims, bool, 
 		return nil, false, nil
 	}
 	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-	claims, err := jm.ValidateToken(tokenStr)
+	claims, err := jm.ValidateToken(tokenStr, auth.TokenTypeAccess)
 	if err != nil {
 		return nil, false, err
 	}

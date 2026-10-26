@@ -33,7 +33,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	claims, err := h.jwt.ValidateToken(req.RefreshToken)
+	claims, err := h.jwt.ValidateToken(req.RefreshToken, TokenTypeRefresh)
 	if err != nil || claims.TokenType != TokenTypeRefresh {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_TOKEN", "message": "Invalid refresh token"})
 		return

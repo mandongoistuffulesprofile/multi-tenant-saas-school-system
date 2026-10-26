@@ -115,6 +115,13 @@ func (h *Handler) CreateStaff(c *gin.Context) {
 		return
 	}
 
+	// Allowlist of staff roles a school admin may assign.
+	allowedRoles := map[string]bool{"HEAD": true, "DEPUTY": true, "BURSAR": true, "CLERK": true, "TEACHER": true}
+	if !allowedRoles[req.Role] {
+		validation.BadRequest(c, "Invalid role", nil)
+		return
+	}
+
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("current_user_id")
 

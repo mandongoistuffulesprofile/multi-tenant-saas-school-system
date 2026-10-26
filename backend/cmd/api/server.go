@@ -142,6 +142,7 @@ func Run() error {
 	})
 
 	router := gin.New()
+	router.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 	router.Use(gin.Recovery())
 	router.Use(middleware.RequestIDMiddleware())
 	router.Use(middleware.RequestLogger())

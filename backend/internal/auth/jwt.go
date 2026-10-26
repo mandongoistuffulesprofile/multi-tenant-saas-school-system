@@ -103,7 +103,7 @@ func (jm *JWTManager) GenerateTokenPair(userID, tenantID string, roles []string)
 	}, nil
 }
 
-func (jm *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
+func (jm *JWTManager) ValidateToken(tokenString string, expectedType string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return jm.signingKey, nil
 	},
@@ -119,6 +119,9 @@ func (jm *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid token claims")
+	}
+	if expectedType != "" && claims.TokenType != expectedType {
+		return nil, fmt.Errorf("invalid token type")
 	}
 
 	return claims, nil
