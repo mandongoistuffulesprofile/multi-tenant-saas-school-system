@@ -13,16 +13,15 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
-type Service struct {
-	database *db.DB
-}
+type Service struct{}
 
-func NewService(database *db.DB) *Service {
-	return &Service{database: database}
+func NewService() *Service {
+	return &Service{}
 }
 
 type Handler struct {
@@ -60,11 +59,17 @@ func (h *Handler) Push(c *gin.Context) {
 		return
 	}
 
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
 	var syncID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO sync_log (tenant_id, device_id, sync_type, items_sent, status)
 		 VALUES ($1, $2, $3, $4, 'IN_PROGRESS') RETURNING sync_id`,
 		tenantID, req.DeviceID, defaultString(strings.ToUpper(req.SyncType), "PUSH"), len(req.Items),
@@ -80,7 +85,7 @@ func (h *Handler) Push(c *gin.Context) {
 	results := make([]gin.H, 0, len(req.Items))
 
 	for _, item := range req.Items {
-		result, status, err := h.applyItem(tenantID, userID, item)
+		result, status, err := h.applyItem(tx, tenantID, userID, item)
 		if err != nil {
 			failed++
 			results = append(results, gin.H{
@@ -100,7 +105,7 @@ func (h *Handler) Push(c *gin.Context) {
 		results = append(results, result)
 	}
 
-	_, _ = h.service.database.Exec(
+	_, _ = tx.Exec(
 		`UPDATE sync_log SET items_sent = $1, conflicts = $2, status = $3, completed_at = now()
 		 WHERE sync_id = $4`, applied, conflicts, statusFor(failed), syncID)
 
@@ -113,19 +118,19 @@ func (h *Handler) Push(c *gin.Context) {
 	})
 }
 
-func (h *Handler) applyItem(tenantID, userID string, item SyncItem) (gin.H, string, error) {
+func (h *Handler) applyItem(tx *sqlx.Tx, tenantID, userID string, item SyncItem) (gin.H, string, error) {
 	switch strings.ToUpper(item.EntityType) {
 	case EntityAssessmentResult:
-		return h.applyAssessmentResult(tenantID, userID, item)
+		return h.applyAssessmentResult(tx, tenantID, userID, item)
 	case EntityAttendanceMark:
-		return h.applyAttendanceMark(tenantID, userID, item)
+		return h.applyAttendanceMark(tx, tenantID, userID, item)
 	default:
 		return gin.H{"entity_type": item.EntityType, "status": "FAILED"},
 			"FAILED", &syncError{"unsupported entity type " + item.EntityType}
 	}
 }
 
-func (h *Handler) applyAssessmentResult(tenantID, userID string, item SyncItem) (gin.H, string, error) {
+func (h *Handler) applyAssessmentResult(tx *sqlx.Tx, tenantID, userID string, item SyncItem) (gin.H, string, error) {
 	eventID, _ := item.Payload["event_id"].(string)
 	learnerID, _ := item.Payload["learner_id"].(string)
 	if eventID == "" || learnerID == "" {
@@ -148,7 +153,7 @@ func (h *Handler) applyAssessmentResult(tenantID, userID string, item SyncItem) 
 	// device captured, keep both and raise a conflict instead of overwriting.
 	var serverVersion int
 	var serverValues []byte
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT version, COALESCE(level_code,'') || '|' || COALESCE(remarks,'')
 		 FROM assessment_results
 		 WHERE tenant_id = $1 AND event_id = $2 AND learner_id = $3
@@ -159,7 +164,7 @@ func (h *Handler) applyAssessmentResult(tenantID, userID string, item SyncItem) 
 		return gin.H{}, "FAILED", err
 	}
 	if err == nil && item.ClientVersion > 0 && serverVersion > item.ClientVersion {
-		conflictID, cErr := h.recordConflict(tenantID, "ASSESSMENT_RESULT", eventID+"|"+learnerID+"|"+subStrand,
+		conflictID, cErr := h.recordConflict(tx, tenantID, "ASSESSMENT_RESULT", eventID+"|"+learnerID+"|"+subStrand,
 			item.ClientVersion, serverVersion, item.Payload, string(serverValues))
 		if cErr != nil {
 			return gin.H{}, "FAILED", cErr
@@ -173,7 +178,7 @@ func (h *Handler) applyAssessmentResult(tenantID, userID string, item SyncItem) 
 	}
 
 	var resultID string
-	err = h.service.database.QueryRow(
+	err = tx.QueryRow(
 		`INSERT INTO assessment_results
 		 (tenant_id, event_id, learner_id, sub_strand_id, level_code, points, raw_score, max_score,
 		  remarks, teacher_id, client_uuid, version, state, device_id, client_ts)
@@ -200,7 +205,7 @@ func (h *Handler) applyAssessmentResult(tenantID, userID string, item SyncItem) 
 	}, "APPLIED", nil
 }
 
-func (h *Handler) applyAttendanceMark(tenantID, userID string, item SyncItem) (gin.H, string, error) {
+func (h *Handler) applyAttendanceMark(tx *sqlx.Tx, tenantID, userID string, item SyncItem) (gin.H, string, error) {
 	registerID, _ := item.Payload["register_id"].(string)
 	learnerID, _ := item.Payload["learner_id"].(string)
 	status, _ := item.Payload["status"].(string)
@@ -212,7 +217,7 @@ func (h *Handler) applyAttendanceMark(tenantID, userID string, item SyncItem) (g
 	clientTS, _ := item.Payload["client_ts"].(string)
 
 	var markID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO attendance_marks
 		 (tenant_id, register_id, learner_id, status, marked_by, notes, client_uuid, device_id, client_ts)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -236,6 +241,11 @@ func (h *Handler) applyAttendanceMark(tenantID, userID string, item SyncItem) (g
 
 // Pull returns records changed since a timestamp so a device can catch up.
 func (h *Handler) Pull(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	since := c.Query("since")
 	entityType := strings.ToUpper(c.Query("entity_type"))
@@ -260,7 +270,7 @@ func (h *Handler) Pull(c *gin.Context) {
 			args = append(args, since)
 		}
 		query += " ORDER BY server_ts LIMIT 500"
-		rows, err := h.service.database.Query(query, args...)
+		rows, err := tx.Query(query, args...)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
@@ -305,7 +315,7 @@ func (h *Handler) Pull(c *gin.Context) {
 			args = append(args, since)
 		}
 		query += " ORDER BY updated_at LIMIT 500"
-		rows, err := h.service.database.Query(query, args...)
+		rows, err := tx.Query(query, args...)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
@@ -337,6 +347,11 @@ func (h *Handler) Pull(c *gin.Context) {
 
 // ListConflicts returns unresolved conflicts.
 func (h *Handler) ListConflicts(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
 	tenantID := c.GetString("tenant_id")
 	includeResolved := c.Query("include_resolved") == "true"
 
@@ -349,7 +364,7 @@ func (h *Handler) ListConflicts(c *gin.Context) {
 	}
 	query += " ORDER BY created_at DESC"
 
-	rows, err := h.service.database.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -408,10 +423,16 @@ func (h *Handler) ResolveConflict(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+
 	var entityType, entityID string
 	var clientValues, serverValues []byte
 	var resolved bool
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`SELECT entity_type, entity_id, client_values, server_values, resolved
 		 FROM sync_conflicts WHERE conflict_id = $1 AND tenant_id = $2`,
 		conflictID, tenantID).Scan(&entityType, &entityID, &clientValues, &serverValues, &resolved)
@@ -439,7 +460,7 @@ func (h *Handler) ResolveConflict(c *gin.Context) {
 	}
 	raw, _ := json.Marshal(chosen)
 
-	_, err = h.service.database.Exec(
+	_, err = tx.Exec(
 		`UPDATE sync_conflicts SET resolved = true, resolution_values = $1::jsonb, resolved_by = $2, resolved_at = now()
 		 WHERE conflict_id = $3 AND tenant_id = $4`, string(raw), nullableString(userID), conflictID, tenantID)
 	if err != nil {
@@ -450,12 +471,12 @@ func (h *Handler) ResolveConflict(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"conflict_id": conflictID, "resolution": resolution, "values": chosen})
 }
 
-func (h *Handler) recordConflict(tenantID, entityType, entityID string, clientVersion, serverVersion int, clientValues map[string]any, serverSummary string) (string, error) {
+func (h *Handler) recordConflict(tx *sqlx.Tx, tenantID, entityType, entityID string, clientVersion, serverVersion int, clientValues map[string]any, serverSummary string) (string, error) {
 	clientRaw, _ := json.Marshal(clientValues)
 	serverRaw, _ := json.Marshal(map[string]any{"summary": serverSummary})
 
 	var conflictID string
-	err := h.service.database.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO sync_conflicts (tenant_id, entity_type, entity_id, client_version, server_version, client_values, server_values)
 		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb) RETURNING conflict_id`,
 		tenantID, entityType, entityID, clientVersion, serverVersion, string(clientRaw), string(serverRaw)).Scan(&conflictID)
