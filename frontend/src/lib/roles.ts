@@ -16,13 +16,16 @@ export const Role = {
   Teacher: "TEACHER",
   Parent: "PARENT",
   Guardian: "GUARDIAN",
+  Admin: "ADMIN",
+  Bom: "BOM",
+  SaasAdmin: "SAAS_ADMIN",
 } as const;
 
 /** Can change school-wide settings, manage staff and create learners. */
-export const SCHOOL_ADMIN_ROLES = [Role.SchoolAdmin, Role.Head, Role.Deputy];
+export const SCHOOL_ADMIN_ROLES = [Role.SchoolAdmin, Role.Head, Role.Deputy, Role.Admin];
 
 /** Can manage money: fee structures, invoices, payments, categories. */
-export const FINANCE_ROLES = [Role.SchoolAdmin, Role.Head, Role.Deputy, Role.Bursar];
+export const FINANCE_ROLES = [Role.SchoolAdmin, Role.Head, Role.Deputy, Role.Bursar, Role.Admin];
 
 /** Can view academic data: classes, assessments, attendance and reports. */
 export const ACADEMIC_ROLES = [
@@ -32,7 +35,8 @@ export const ACADEMIC_ROLES = [
   Role.Bursar,
   Role.Clerk,
   Role.Teacher,
+  Role.Admin,
 ];
 
 /** Can view school operations data: staff, compliance, calendar, comms. */
-export const ADMIN_ROLES = [Role.SchoolAdmin, Role.Head, Role.Deputy, Role.Clerk];
+export const ADMIN_ROLES = [Role.SchoolAdmin, Role.Head, Role.Deputy, Role.Clerk, Role.Admin];

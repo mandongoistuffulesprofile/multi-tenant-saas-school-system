@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { StatutoryLearner, exportNEMISBatchCSV } from '../utils/nemisExportEngine';
 import { maskPhoneNumber } from '../utils/kenyaFormatters';
 
@@ -104,6 +105,13 @@ export const StudentsDesk: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            to="/learners"
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <span className="text-base leading-none">＋</span>
+            <span>Sajili Mwanafunzi Mpya (Onboard Learner)</span>
+          </Link>
           <button
             onClick={() => exportNEMISBatchCSV(learners)}
             className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"

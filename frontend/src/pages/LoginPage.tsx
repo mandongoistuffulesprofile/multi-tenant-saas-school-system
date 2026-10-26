@@ -34,6 +34,12 @@ export default function LoginPage() {
       const { token_pair, user_id, tenant_id, roles } = response.data;
       localStorage.setItem("access_token", token_pair.access_token);
       localStorage.setItem("refresh_token", token_pair.refresh_token);
+      localStorage.setItem("user_id", user_id);
+      localStorage.setItem("tenant_id", tenant_id);
+      localStorage.setItem("roles", JSON.stringify(Array.isArray(roles) ? roles : [roles]));
+      // Human-readable school identity for headers/dashboards (never the raw UUID).
+      const schoolCode = response.data.tenant?.subdomain || response.data.tenant?.school_code || tenant_id;
+      localStorage.setItem("school_code", schoolCode);
       setAuth(token_pair.access_token, token_pair.refresh_token, user_id, tenant_id, roles);
 
       const roleList: string[] = Array.isArray(roles) ? roles : [roles];

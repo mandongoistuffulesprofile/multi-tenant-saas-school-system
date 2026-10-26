@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CBCRubricSelector } from '../components/CBCRubricSelector';
 import { CBCLevel, CBC_RUBRIC_CONFIG } from '../utils/kenyaFormatters';
+import CBCRubricAssessment from '../components/CBCRubricAssessment';
 
 interface LearnerAssessment {
   id: string;
@@ -75,6 +76,21 @@ export const CBCAssessment: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Offline-first CBC rubric engine (IndexedDB -> /assessments/cbc/bulk-sync).
+          Mounted here so the feature lives inside the existing routed view. */}
+      <CBCRubricAssessment
+        tenantId={(() => {
+          try { return localStorage.getItem('tenant_id') || 'demo'; } catch { return 'demo'; }
+        })()}
+        subStrand={{ id: `${assessments[0]?.strand ?? 'General'}_${assessments[0]?.substrand ?? 'Competency'}`, name: `${assessments[0]?.strand ?? 'General'} — ${assessments[0]?.substrand ?? 'Living Things'}` }}
+        learners={assessments.map((s) => ({
+          id: s.id,
+          name: s.student_name,
+          admissionNumber: s.upi,
+          initialScoreCode: s.rubric || undefined
+        }))}
+      />
     </div>
   );
 };

@@ -14,11 +14,25 @@ export default function CurriculumPage() {
     api.get("/curriculum/versions").then((res) => {
       const list = res.data || [];
       setVersions(list);
-      if (list.length > 0) {
-        setSelectedVersion(list[0].version_id);
-        loadAreas(list[0].version_id);
-      }
       setLoading(false);
+      // Pick the version that actually owns learning areas so the page never
+      // opens on a misleading empty state (Published CBC 2024 has none).
+      api.get("/curriculum/areas").then((aRes) => {
+        const all: any[] = Array.isArray(aRes.data) ? aRes.data : [];
+        const counts = new Map<string, number>();
+        all.forEach((a) => { if (a.version_id) counts.set(a.version_id, (counts.get(a.version_id) || 0) + 1); });
+        const withMost = [...counts.entries()].sort((x, y) => y[1] - x[1])[0];
+        const firstId = (withMost && list.some((v: any) => v.version_id === withMost[0]))
+          ? withMost[0]
+          : (list[0]?.version_id ?? "");
+        setSelectedVersion(firstId);
+        loadAreas(firstId);
+      }).catch(() => {
+        if (list.length > 0) {
+          setSelectedVersion(list[0].version_id);
+          loadAreas(list[0].version_id);
+        }
+      });
     }).catch(() => setLoading(false));
   }, []);
 

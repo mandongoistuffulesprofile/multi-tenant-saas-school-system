@@ -20,16 +20,22 @@ export default function SubscriptionsPage() {
       api.get("/platform/subscriptions").then(r => Array.isArray(r.data) ? r.data : []).catch(() => []),
       api.get("/platform/plans").then(r => Array.isArray(r.data) ? r.data : []).catch(() => [])
     ]).then(([s, p]) => {
-      if (s.length > 0) setSubscriptions(s);
-      if (p.length > 0) setPlans(p);
+      setSubs(s);
+      setPlans(p);
       setState("content");
     });
+    // Safety net: never wedge in a permanent spinner.
+    const safety = setTimeout(() => setState((s) => (s === "loading" ? "content" : s)), 2500);
+    return () => clearTimeout(safety);
   }, []);
 
 
   if (state === "loading") return <ViewState state="loading" />;
 
-  const mrr = plans.reduce((s, p) => s + p.price_monthly, 0);
+  const mrr = subs.reduce((t, sub) => {
+    const plan = plans.find((p) => p.plan_id === sub.plan_id);
+    return t + (sub.status === "CANCELLED" ? 0 : plan?.price_monthly ?? 0);
+  }, 0);
   return (
     <div className="p-4 space-y-6">
       <h1 className="text-display font-display">{t("saas.subscriptions")}</h1>
@@ -44,7 +50,12 @@ export default function SubscriptionsPage() {
         <DataTable
           data={subs}
           columns={[
-            { key: "tenant_id", header: t("tenant_id") },
+            { key: "school_name", header: "School / Subdomain", render: (row: any) => (
+              <span>
+                <b>{row.school_name || row.tenant_id}</b>
+                {row.subdomain ? <span className="block text-[10px] text-slate-400 font-mono">{row.subdomain}</span> : null}
+              </span>
+            ) },
             { key: "plan_id", header: t("saas.plan") },
             { key: "status", header: t("status"), render: (row: any) => <BadgeVariant row={row} /> },
             { key: "started_at", header: t("saas.started_at") },

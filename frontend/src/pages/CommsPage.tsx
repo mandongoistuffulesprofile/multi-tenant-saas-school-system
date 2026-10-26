@@ -32,7 +32,15 @@ export default function CommsPage() {
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-heading mb-6">Communications</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-heading">Communications</h2>
+        <a
+          href="/comms/compose"
+          className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition"
+        >
+          Compose Message
+        </a>
+      </div>
           {loading ? (
             <Skeleton rows={5} columns={4} />
           ) : (

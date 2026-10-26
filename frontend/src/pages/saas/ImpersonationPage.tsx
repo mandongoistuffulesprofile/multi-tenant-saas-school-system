@@ -17,7 +17,7 @@ export default function ImpersonationPage() {
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
     setProcessing(true);
-    await api.post("/platform/impersonations", { tenant_id: selectedTenant, reason: "Administrative audit" });
+    await api.post("/platform/impersonations", { tenant_id: tenant, reason: reason || "Administrative audit" });
     setProcessing(false);
     setActive(true);
   };

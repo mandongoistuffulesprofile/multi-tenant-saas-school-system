@@ -1,0 +1,49 @@
+# Production systemd unit for the SkulApp API (multi-tenant school SaaS).
+#
+# Install:
+#   1. cp devops/skulapp-api.service /etc/systemd/system/skulapp-api.service
+#   2. Create /etc/skulapp/api.env (NEVER commit real secrets):
+#        NODE_ENV=production
+#        PORT=8080
+#        DATABASE_URL=postgres://user:pass@127.0.0.1:5433/school_saas_production
+#        JWT_SIGNING_KEY=<random 64+ hex chars>          # REQUIRED — server refuses to start without it
+#        ALLOW_DEV_FALLBACK=false                        # default in production: no anonymous dev sessions
+#        LOGIN_RATE_MAX=30                               # logins per minute per source IP
+#   3. systemctl daemon-reload && systemctl enable --now skulapp-api
+#
+# The server self-verifies at boot: it exits(1) if JWT_SIGNING_KEY is missing
+# in production, so a misconfigured deploy can never serve with a source-tree
+# signing secret.
+
+[Unit]
+Description=SkulApp Multi-Tenant School SaaS API (port 8080)
+Wants=postgresql.service redis.service
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+User=skulapp
+Group=skulapp
+WorkingDirectory=/opt/skulapp/backend
+EnvironmentFile=/etc/skulapp/api.env
+ExecStart=/usr/bin/node /opt/skulapp/backend/src/server.js
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=skulapp-api
+
+# Postgres socket resets and slow client attacks must never take the API down.
+LimitNOFILE=65536
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/skulapp
+
+[Install]
+WantedBy=multi-user.target

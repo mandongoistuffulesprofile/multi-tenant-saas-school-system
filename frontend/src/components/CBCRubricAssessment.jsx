@@ -64,19 +64,33 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
     setSyncing(true);
 
     try {
+      // Route through the Vite proxy (/api -> http://localhost:8080).
+      // Never hardcode an absolute origin here: it breaks dev proxying and
+      // CORS in every deployment.
       const pending = await getPendingAssessments(tenantId);
       if (pending.length === 0) {
         setSyncing(false);
         return;
       }
 
-      const res = await fetch('http://localhost:4000/api/v1/assessments/cbc/bulk-sync', {
+      const accessToken = localStorage.getItem('access_token');
+      const res = await fetch('/api/v1/assessments/cbc/bulk-sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Tenant-ID': tenantId
+          'X-Tenant-ID': tenantId,
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
         },
-        body: JSON.stringify({ assessments: pending })
+        body: JSON.stringify({
+          tenant_id: tenantId,
+          assessments: pending.map((p) => ({
+            studentId: p.studentId,
+            subStrandId: p.subStrandId,
+            score: p.score,
+            ratingCode: p.ratingCode,
+            updated_at: p.updatedAt
+          }))
+        })
       });
 
       if (res.ok) {

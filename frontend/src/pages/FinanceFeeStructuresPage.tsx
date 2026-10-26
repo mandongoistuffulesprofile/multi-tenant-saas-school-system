@@ -6,14 +6,15 @@ import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import Dialog from "../components/dialog/Dialog";
 import Button from "../components/atoms/Button";
+import { useToast } from "../components/toast/ToastProvider";
 
 export default function FinanceFeeStructuresPage() {
   const handleCreateStructure = async (payload: any) => {
     try {
       await api.post("/finance/fee-structures", payload);
-      alert("Fee structure registered successfully!");
+      toast("Fee structure registered successfully!", { type: "success" });
     } catch {
-      alert("Failed to save fee structure");
+      toast("Failed to save fee structure", { type: "error" });
     }
   };
 
@@ -28,6 +29,7 @@ export default function FinanceFeeStructuresPage() {
   });
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
+  const { toast } = useToast();
 
   useEffect(() => {
     Promise.all([

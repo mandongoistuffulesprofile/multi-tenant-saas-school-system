@@ -50,9 +50,17 @@ export default function TenantOnboardingPage() {
         <Card className="p-6 max-w-lg mx-auto text-center space-y-3">
           <p className="font-semibold text-lg text-kenyan-green">School Provisioned</p>
           <p className="text-sm text-gray-600">Subdomain: <code className="bg-gray-100 px-2 py-1 rounded">{form.subdomain}</code></p>
+          <p className="text-sm text-gray-600">Plan: <span className="font-medium">{createdTenant?.plan_code || form.plan}</span></p>
           <p className="text-sm text-gray-600">Admin: <span className="font-medium">{form.admin_email}</span></p>
+          {createdTenant?.temp_password && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+              <p className="text-amber-800 font-semibold mb-1">School Admin Temporary Password</p>
+              <code className="bg-white px-3 py-1 rounded border border-amber-300 font-mono text-base select-all">{createdTenant.temp_password}</code>
+              <p className="text-[11px] text-amber-700 mt-2">Share this privately — the school admin must change it at first login.</p>
+            </div>
+          )}
           <Button variant="primary" onClick={() => { setStep(0); setForm({ school_name: "", subdomain: "", county: "", admin_email: "", admin_phone: "", plan: "STANDARD" }); }}>
-            {t("saas.onboard_another", { defaultMessage: "Onboard Another Tenant" })}
+            {t("saas.onboard_another")}
           </Button>
         </Card>
       </div>
@@ -68,7 +76,6 @@ export default function TenantOnboardingPage() {
     { title: t("saas.admin_user", { defaultMessage: "Admin User" }), fields: [
       { label: t("email", { defaultMessage: "Admin Email" }), key: "admin_email" },
       { label: t("phone", { defaultMessage: "Admin Phone" }), key: "admin_phone" },
-      { label: t("saas.plan", { defaultMessage: "Plan" }), key: "plan" },
     ] },
   ];
 
@@ -104,10 +111,24 @@ export default function TenantOnboardingPage() {
             </div>
           )}
           {step === 1 && (
-            <div className="flex justify-between">
-              <Button variant="secondary" type="button" onClick={() => setStep(0)}>← {t("back")}</Button>
-              <Button variant="primary" type="submit" loading={processing}>{t("saas.create_tenant")}</Button>
-            </div>
+            <>
+              <div>
+                <label className="label block mb-1">{t("saas.plan", { defaultMessage: "Plan" })}</label>
+                <select
+                  className="input-field bg-white"
+                  value={form.plan}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, plan: e.target.value })}
+                >
+                  <option value="BASIC">Basic — public schools</option>
+                  <option value="STANDARD">Standard — comprehensive</option>
+                  <option value="ENTERPRISE">Enterprise — large schools & BOM</option>
+                </select>
+              </div>
+              <div className="flex justify-between">
+                <Button variant="secondary" type="button" onClick={() => setStep(0)}>← {t("back")}</Button>
+                <Button variant="primary" type="submit" loading={processing}>{t("saas.create_tenant")}</Button>
+              </div>
+            </>
           )}
         </form>
       </Card>

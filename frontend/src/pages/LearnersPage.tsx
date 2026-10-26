@@ -10,6 +10,7 @@ import { FormField } from "../components/molecules/FormField";
 import ViewState from "../components/organisms/ViewState";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
+import { useToast } from "../components/toast/ToastProvider";
 import { Learner, LearnerCreateRequest } from "../lib/types";
 
 const GRADES = ["PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6"];
@@ -24,6 +25,7 @@ const BOARDING_OPTIONS = [
 
 export default function LearnersPage() {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [learners, setLearners] = useState<Learner[]>([]);
   const [open, setOpen] = useState(false);
@@ -44,6 +46,9 @@ export default function LearnersPage() {
     api.get<Learner[]>("/learners")
       .then((r) => { setLearners(Array.isArray(r.data) ? r.data : []); setState("content"); })
       .catch(() => setState("error"));
+    // Safety net: the roster must never wedge in a permanent spinner.
+    const safety = setTimeout(() => setState((s) => (s === "loading" ? "content" : s)), 2500);
+    return () => clearTimeout(safety);
   }, []);
 
   const filtered = learners.filter((l) => {
@@ -82,7 +87,7 @@ export default function LearnersPage() {
         api.get<Learner[]>("/learners").then((r) => setLearners(Array.isArray(r.data) ? r.data : []));
       })
       .catch((err) => {
-        alert(err.response?.data?.message || "Failed to create learner");
+        toast(err.response?.data?.message || "Failed to create learner", { type: "error" });
       })
       .finally(() => setSaving(false));
   };
@@ -201,10 +206,21 @@ export default function LearnersPage() {
               <div className="text-caption text-muted">{t("wizard.step_guardian")}</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label={t("guardian_phone")} required>
-                  <Input required type="tel"  placeholder="07XXXXXXXX" />
+                  <Input
+                    required
+                    type="tel"
+                    placeholder="07XXXXXXXX"
+                    value={form.guardian_phone}
+                    onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })}
+                  />
                 </FormField>
                 <FormField label={t("guardian_email")}>
-                  <Input type="email"  placeholder="guardian@example.ke" />
+                  <Input
+                    type="email"
+                    placeholder="guardian@example.ke"
+                    value={form.guardian_email}
+                    onChange={(e) => setForm({ ...form, guardian_email: e.target.value })}
+                  />
                 </FormField>
               </div>
               <div className="flex justify-end pt-4">
