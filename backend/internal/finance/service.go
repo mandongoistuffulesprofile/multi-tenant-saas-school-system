@@ -39,8 +39,7 @@ type FeeCategory struct {
 // ListFeeCategories returns the global defaults plus the calling school's own
 // categories. Inactive categories are excluded unless includeInactive is set.
 func (s *Service) ListFeeCategories(ctx context.Context, tenantID string, includeInactive bool) ([]FeeCategory, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	query := `SELECT category_id, code, name, description, is_tuition, is_optional,
 			requires_consent, tenant_id, is_active, created_at, updated_at
 		 FROM fee_categories
@@ -80,8 +79,7 @@ func (s *Service) ListFeeCategories(ctx context.Context, tenantID string, includ
 
 // CreateFeeCategory creates a custom fee category owned by the calling school.
 func (s *Service) CreateFeeCategory(ctx context.Context, tenantID string, req FeeCategoryRequest) (string, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	var categoryID string
 	err := q.QueryRow(
 		`INSERT INTO fee_categories
@@ -100,8 +98,7 @@ func (s *Service) CreateFeeCategory(ctx context.Context, tenantID string, req Fe
 // UpdateFeeCategory updates one of the calling school's custom categories.
 // Global categories are read-only.
 func (s *Service) UpdateFeeCategory(ctx context.Context, tenantID, categoryID string, req FeeCategoryRequest) error {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	result, err := q.Exec(
 		`UPDATE fee_categories
 		 SET code = $1, name = $2, description = $3, is_tuition = $4,
@@ -124,8 +121,7 @@ func (s *Service) UpdateFeeCategory(ctx context.Context, tenantID, categoryID st
 // Categories are never hard-deleted: fee structures, invoice lines and learner
 // fee options may already reference them.
 func (s *Service) DeleteFeeCategory(ctx context.Context, tenantID, categoryID string) error {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	result, err := q.Exec(
 		`UPDATE fee_categories SET is_active = false, updated_at = now()
 		 WHERE category_id = $1 AND tenant_id = $2`,
@@ -171,8 +167,7 @@ type FeeStructure struct {
 }
 
 func (s *Service) ListFeeStructures(ctx context.Context, tenantID string, limit, offset int) ([]FeeStructure, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -213,8 +208,7 @@ func (s *Service) ListFeeStructures(ctx context.Context, tenantID string, limit,
 }
 
 func (s *Service) CreateFeeStructure(ctx context.Context, tenantID string, fs FeeStructure) (*FeeStructure, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO fee_structures (tenant_id, academic_year_id, grade_id, category_id,
 			amount_per_term, amount_per_year, currency, is_mandatory,
@@ -248,8 +242,7 @@ type LearnerFeeOption struct {
 }
 
 func (s *Service) ListLearnerFeeOptions(ctx context.Context, tenantID, learnerID string) ([]LearnerFeeOption, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	rows, err := q.Query(
 		`SELECT option_id, tenant_id, learner_id, category_id, structure_id,
 			opted_in, opted_at, opted_by, created_at, updated_at
@@ -276,8 +269,7 @@ func (s *Service) ListLearnerFeeOptions(ctx context.Context, tenantID, learnerID
 }
 
 func (s *Service) UpsertLearnerFeeOption(ctx context.Context, tenantID string, o LearnerFeeOption) (*LearnerFeeOption, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO learner_fee_options (tenant_id, learner_id, category_id, structure_id,
 			opted_in, opted_at, opted_by)
@@ -320,8 +312,7 @@ type Invoice struct {
 }
 
 func (s *Service) ListInvoices(ctx context.Context, tenantID string, limit, offset int) ([]Invoice, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -359,8 +350,7 @@ func (s *Service) ListInvoices(ctx context.Context, tenantID string, limit, offs
 }
 
 func (s *Service) CreateInvoice(ctx context.Context, tenantID string, inv Invoice) (*Invoice, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO invoices (tenant_id, invoice_number, learner_id, academic_year_id,
 			term_id, status, currency, total_amount, amount_paid, amount_outstanding,
@@ -397,8 +387,7 @@ type InvoiceLine struct {
 }
 
 func (s *Service) ListInvoiceLines(ctx context.Context, tenantID, invoiceID string) ([]InvoiceLine, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	rows, err := q.Query(
 		`SELECT il.line_id, il.tenant_id, il.invoice_id, il.category_id, fc.code,
 			il.description, il.quantity, il.unit_amount, il.line_amount,
@@ -429,8 +418,7 @@ func (s *Service) ListInvoiceLines(ctx context.Context, tenantID, invoiceID stri
 }
 
 func (s *Service) CreateInvoiceLine(ctx context.Context, tenantID string, l InvoiceLine) (*InvoiceLine, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO invoice_lines (tenant_id, invoice_id, category_id, description,
 			quantity, unit_amount, line_amount, academic_year_id, term_id)
@@ -467,8 +455,7 @@ type Payment struct {
 }
 
 func (s *Service) ListPayments(ctx context.Context, tenantID string, limit, offset int) ([]Payment, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -505,8 +492,7 @@ func (s *Service) ListPayments(ctx context.Context, tenantID string, limit, offs
 }
 
 func (s *Service) CreatePayment(ctx context.Context, tenantID string, p Payment) (*Payment, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source,
 			channel_id, amount, currency, status, mpesa_trans_id, recorded_by, idempotency_key)
@@ -536,17 +522,11 @@ type PaymentAllocation struct {
 }
 
 func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc PaymentAllocation) (*PaymentAllocation, error) {
-	tx, err := s.database.BeginTenantTx(tenantID, alloc.AllocatedBy)
-	if err != nil {
-		return nil, err
+	tx := middleware.TxFromContext(ctx)
+	if tx == nil {
+		return nil, errors.New("no tenant transaction")
 	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
-
-	err = tx.QueryRow(
+	err := tx.QueryRow(
 		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING allocation_id, allocated_at`,
@@ -570,9 +550,6 @@ func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc Pa
 		return nil, err
 	}
 
-	if err = tx.Commit(); err != nil {
-		return nil, err
-	}
 	alloc.TenantID = tenantID
 	return &alloc, nil
 }
@@ -595,8 +572,7 @@ type Credit struct {
 
 // ListCredits returns the tenant's credit notes, newest first.
 func (s *Service) ListCredits(ctx context.Context, tenantID string, limit, offset int) ([]Credit, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -634,8 +610,7 @@ func (s *Service) ListCredits(ctx context.Context, tenantID string, limit, offse
 }
 
 func (s *Service) CreateCredit(ctx context.Context, tenantID string, c Credit) (*Credit, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO credits (tenant_id, learner_id, amount, currency, reason,
 			source_payment_id, expires_at, created_by)
@@ -667,8 +642,7 @@ type Adjustment struct {
 
 // ListAdjustments returns the tenant's invoice adjustments, newest first.
 func (s *Service) ListAdjustments(ctx context.Context, tenantID string, limit, offset int) ([]Adjustment, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -704,8 +678,7 @@ func (s *Service) ListAdjustments(ctx context.Context, tenantID string, limit, o
 }
 
 func (s *Service) CreateAdjustment(ctx context.Context, tenantID string, a Adjustment) (*Adjustment, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO adjustments (tenant_id, invoice_id, adjustment_type, amount, reason, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6)
@@ -739,8 +712,7 @@ type Refund struct {
 
 // ListRefunds returns the tenant's refunds, newest first.
 func (s *Service) ListRefunds(ctx context.Context, tenantID string, limit, offset int) ([]Refund, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -780,8 +752,7 @@ func (s *Service) ListRefunds(ctx context.Context, tenantID string, limit, offse
 }
 
 func (s *Service) CreateRefund(ctx context.Context, tenantID string, r Refund) (*Refund, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO refunds (tenant_id, payment_id, amount, currency, reason, status, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -816,8 +787,7 @@ type MPESATransaction struct {
 }
 
 func (s *Service) ListMPESATransactions(ctx context.Context, tenantID string, limit, offset int) ([]MPESATransaction, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -853,8 +823,7 @@ func (s *Service) ListMPESATransactions(ctx context.Context, tenantID string, li
 }
 
 func (s *Service) CreateMPESATransaction(ctx context.Context, tenantID string, t MPESATransaction) (*MPESATransaction, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO mpesa_transactions (tenant_id, channel_id, external_trans_id, shortcode,
 			channel_type, bill_ref, msisdn_masked, amount, currency, status,
@@ -894,8 +863,7 @@ type MPESASTKRequest struct {
 }
 
 func (s *Service) CreateMPESASTKRequest(ctx context.Context, tenantID string, r MPESASTKRequest) (*MPESASTKRequest, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	err := q.QueryRow(
 		`INSERT INTO mpesa_stk_requests (tenant_id, channel_id, checkout_request_id,
 			merchant_request_id, phone_number, amount, currency, account_reference,
@@ -927,8 +895,7 @@ type ReceiptSequence struct {
 }
 
 func (s *Service) GetReceiptSequence(ctx context.Context, tenantID, period string) (*ReceiptSequence, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	var seq ReceiptSequence
 	err := q.QueryRow(
 		`SELECT sequence_id, tenant_id, prefix, last_number, reset_frequency,
@@ -965,8 +932,7 @@ func (s *Service) GetReceiptSequence(ctx context.Context, tenantID, period strin
 }
 
 func (s *Service) IncrementReceiptSequence(ctx context.Context, tenantID, sequenceID string) error {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	_, err := q.Exec(
 		`UPDATE receipt_sequences SET last_number = last_number + 1, updated_at = CURRENT_TIMESTAMP
 		 WHERE sequence_id = $1 AND tenant_id = $2`,
@@ -995,8 +961,7 @@ type CapitationReceipt struct {
 }
 
 func (s *Service) ListCapitationReceipts(ctx context.Context, tenantID string) ([]CapitationReceipt, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	rows, err := q.Query(
 		`SELECT receipt_id, tenant_id, receipt_number, capitation_period, learner_count,
 			amount_per_learner, total_amount, currency, received_at, reference,
@@ -1045,8 +1010,7 @@ type ReconciliationRun struct {
 }
 
 func (s *Service) ListReconciliationRuns(ctx context.Context, tenantID string) ([]ReconciliationRun, error) {
-	var q queryer = s.database
-	if t := middleware.TxFromContext(ctx); t != nil { q = t }
+	q := middleware.TxFromContext(ctx)
 	rows, err := q.Query(
 		`SELECT run_id, tenant_id, run_date, period_start, period_end, total_expected,
 			total_received, total_outstanding, unmatched_transactions, status,
