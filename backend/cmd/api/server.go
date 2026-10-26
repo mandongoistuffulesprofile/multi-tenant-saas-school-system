@@ -94,7 +94,7 @@ func Run() error {
 	assessmentService := assessment.NewService(database)
 	assessmentHandler := assessment.NewHandler(assessmentService)
 
-	knecService := knec.NewService(database)
+	knecService := knec.NewService()
 	knecHandler := knec.NewHandler(knecService)
 
 	reportsService := reports.NewService(database)
