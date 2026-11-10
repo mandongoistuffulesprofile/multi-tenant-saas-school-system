@@ -1,12 +1,20 @@
 // Sync service: replays the IndexedDB write queue when connectivity returns.
-// Optimistic writes go to IndexedDB immediately; the sync worker drains the queue.
+// Optimistic writes go to IndexedDB immediately; the sync worker drains the
+// queue by POSTing a batch to the backend /sync/push endpoint, which applies
+// items idempotently, detects conflicts, and never overwrites one side
+// silently.
 
 import { api } from "./api";
-import { getQueue, removeFromQueue, bumpRetry, isOnline, DEVICE_ID, QueuedOp } from "./offline";
+import { getQueue, removeFromQueue, bumpRetry, isOnline, getDeviceId, QueuedOp } from "./offline";
 import { toast } from "./toast";
 
 const MAX_RETRIES = 5;
 const BACKOFF_BASE_MS = 2000;
+
+const ENTITY_BY_ENDPOINT: Record<string, string> = {
+  "/assessment/results": "ASSESSMENT_RESULT",
+  "/attendance/marks": "ATTENDANCE_MARK",
+};
 
 let syncing = false;
 let listeners: (() => void)[] = [];
@@ -22,38 +30,83 @@ export function isSyncing() { return syncing; }
 export { getQueue };
 export type { QueuedOp };
 
-export async function syncNow(): Promise<{ synced: number; failed: number }> {
-  if (syncing || !isOnline()) return { synced: 0, failed: 0 };
+function syncItemFor(op: QueuedOp) {
+  const entityType = ENTITY_BY_ENDPOINT[op.endpoint] || "ATTENDANCE_MARK";
+  const clientUUID = (op.payload as Record<string, unknown> | undefined)?.id ?? op.id;
+  return {
+    entity_type: entityType,
+    entity_id: (op.payload as Record<string, unknown> | undefined)?.entity_id ?? "",
+    client_uuid: String(clientUUID),
+    client_version: 0,
+    payload: op.payload,
+  };
+}
+
+export async function syncNow(): Promise<{ synced: number; failed: number; conflicts: number }> {
+  if (syncing || !isOnline()) return { synced: 0, failed: 0, conflicts: 0 };
   syncing = true;
   emit();
   let synced = 0;
   let failed = 0;
+  let conflicts = 0;
 
   try {
     const queue = await getQueue();
-    for (const op of queue) {
-      if (op.retries >= MAX_RETRIES) {
-        failed += 1;
-        continue;
-      }
+    const pending = queue.filter((op) => op.retries < MAX_RETRIES);
+    const exhausted = queue.filter((op) => op.retries >= MAX_RETRIES);
+    failed += exhausted.length;
+
+    if (pending.length > 0) {
+      const items = pending.map(syncItemFor);
+      const opByClientUUID = new Map<string, string>();
+      pending.forEach((op) => {
+        opByClientUUID.set(String((op.payload as Record<string, unknown> | undefined)?.id ?? op.id), op.id);
+      });
+
       try {
-        let res;
-        if (op.method === "POST") res = await api.post(op.endpoint, op.payload);
-        else if (op.method === "PUT") res = await api.put(op.endpoint, op.payload);
-        else if (op.method === "PATCH") res = await api.patch(op.endpoint, op.payload);
-        else res = await api.delete(op.endpoint);
-        if (res.status >= 200 && res.status < 300) {
-          await removeFromQueue(op.id);
-          synced += 1;
-        } else {
+        const res = await api.post("/sync/push", {
+          device_id: getDeviceId(),
+          sync_type: "PUSH",
+          items,
+        });
+
+        const results = res.data?.results ?? [];
+        const appliedUUIDs = new Set<string>();
+        const conflictUUIDs = new Set<string>();
+
+        for (const r of results) {
+          const uuid = String(r?.client_uuid);
+          const status = String(r?.status || "").toUpperCase();
+          if (status === "APPLIED") {
+            appliedUUIDs.add(uuid);
+          } else if (status === "CONFLICT") {
+            conflictUUIDs.add(uuid);
+          }
+        }
+
+        // Remove applied items, record conflicts (left in queue for user
+        // resolution), bump retry on failures.
+        for (const op of pending) {
+          const uuid = String((op.payload as Record<string, unknown> | undefined)?.id ?? op.id);
+          if (appliedUUIDs.has(uuid)) {
+            await removeFromQueue(op.id);
+            synced += 1;
+          } else if (conflictUUIDs.has(uuid)) {
+            // Left in queue; surfaced to user via SyncCentrePage.
+            conflicts += 1;
+          } else {
+            await bumpRetry(op.id);
+            failed += 1;
+          }
+        }
+      } catch {
+        // Network error while pushing: bump retry on every pending item and
+        // back off; keep the session alive (no logout).
+        for (const op of pending) {
           await bumpRetry(op.id);
           failed += 1;
         }
-      } catch {
-        await bumpRetry(op.id);
-        failed += 1;
-        // exponential backoff between failures
-        await sleep(Math.min(BACKOFF_BASE_MS * 2 ** op.retries, 30000));
+        await sleep(Math.min(BACKOFF_BASE_MS * 2 ** (pending[0]?.retries || 0), 30000));
       }
     }
   } finally {
@@ -61,8 +114,9 @@ export async function syncNow(): Promise<{ synced: number; failed: number }> {
     emit();
   }
   if (synced > 0) toast(`Synced ${synced} change(s)`, { type: "success", duration: 3000 });
+  if (conflicts > 0) toast(`${conflicts} change(s) need your resolution`, { type: "warning", duration: 4000 });
   if (failed > 0) toast(`${failed} change(s) pending retry`, { type: "warning", duration: 4000 });
-  return { synced, failed };
+  return { synced, failed, conflicts };
 }
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
@@ -88,4 +142,4 @@ export async function queueCount(): Promise<number> {
   return (await getQueue()).length;
 }
 
-export { DEVICE_ID };
+export { getDeviceId };

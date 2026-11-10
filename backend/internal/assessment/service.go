@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
@@ -52,13 +53,30 @@ func (h *Handler) ListAssessmentEvents(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := tx.Query(
-		`SELECT event_id, tenant_id, term_id, grade_id, learning_area_id,
+
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	offset := 0
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	args := []interface{}{tenantID}
+	query := `
+		SELECT event_id, tenant_id, term_id, grade_id, learning_area_id,
 			assessment_type, scoring_mode, assessment_window, weighting_profile_id,
 			status, max_score, created_by, created_at, updated_at
-		 FROM assessment_events WHERE tenant_id = $1 ORDER BY created_at DESC`,
-		tenantID,
-	)
+		 FROM assessment_events WHERE tenant_id = $1 ORDER BY created_at DESC
+		 LIMIT $%d OFFSET $%d`
+	query = fmt.Sprintf(query, len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return

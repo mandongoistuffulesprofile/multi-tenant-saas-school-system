@@ -188,6 +188,11 @@ func Run() error {
 	router.Use(middleware.TenantContextMiddleware(jwtManager, database))
 router.Use(middleware.TenantTxMiddleware(database.DB))
 
+	// Buffer GET response bodies so ETags can be computed and If-None-Match
+	// answered with 304, cutting repeat fetch payloads on metered connections.
+	router.Use(middleware.CaptureBodyMiddleware())
+	router.Use(middleware.CacheControlMiddleware())
+
 	// Broad per-tenant (or per-IP for anonymous) safety valve. Expensive route
 	// groups may add stricter limits later; this prevents one tenant or client
 	// from exhausting the API.

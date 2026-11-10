@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
@@ -51,13 +52,30 @@ func (h *Handler) ListAttendanceRegisters(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := tx.Query(
-		`SELECT register_id, tenant_id, class_group_id, grade_id, stream_id,
+
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	offset := 0
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	args := []interface{}{tenantID}
+	query := `
+		SELECT register_id, tenant_id, class_group_id, grade_id, stream_id,
 			academic_year_id, term_id, register_date, session_type, status,
 			marked_by, marked_at, created_at, updated_at
-		 FROM attendance_registers WHERE tenant_id = $1 ORDER BY register_date DESC`,
-		tenantID,
-	)
+		 FROM attendance_registers WHERE tenant_id = $1 ORDER BY register_date DESC
+		 LIMIT $%d OFFSET $%d`
+	query = fmt.Sprintf(query, len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -100,6 +118,19 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 	registerID := c.Query("register_id")
 	learnerID := c.Query("learner_id")
 
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	offset := 0
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
 	query := `
 		SELECT mark_id, tenant_id, register_id, learner_id, status,
 			marked_by, marked_at, notes
@@ -117,6 +148,9 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 		args = append(args, learnerID)
 		argIndex++
 	}
+
+	query += fmt.Sprintf(" ORDER BY marked_at DESC LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+	args = append(args, limit, offset)
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {

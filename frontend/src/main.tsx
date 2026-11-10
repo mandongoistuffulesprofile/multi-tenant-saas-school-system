@@ -9,9 +9,11 @@ import "./styles/index.css";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/toast/ToastProvider";
 import { installSyncHooks } from "./lib/sync";
+import { registerServiceWorker } from "./serviceWorkerRegistration";
 import { useAuthStore, isTokenValid } from "./lib/authStore";
 
 installSyncHooks();
+registerServiceWorker();
 
 /**
  * On boot, if the stored access token has expired but a refresh token exists,
@@ -46,7 +48,10 @@ async function bootstrapSession() {
       useAuthStore.getState().tenantId || "",
       useAuthStore.getState().roles
     );
-  } catch {
+  } catch (refreshError: any) {
+    // Network error: keep the session for read-only offline use. Only log out
+    // when the server explicitly rejects the refresh token (401/403).
+    if (!refreshError?.response) return;
     // Refresh token is expired/revoked — the session is genuinely over.
     clearAuth();
   }

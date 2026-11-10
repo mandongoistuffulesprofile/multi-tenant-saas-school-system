@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { clearOfflineData } from "./offline";
 
 interface AuthState {
   token: string | null;
@@ -89,6 +90,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       /* ignore */
     }
     set({ token: null, refreshToken: null, userId: null, tenantId: null, roles: [] });
+    // Best-effort: wipe offline data so the next user on a shared device cannot
+    // replay this user's pending writes.
+    void clearOfflineData().catch(() => {
+      /* ignore */
+    });
   },
   setTenant: (tenantId, roles) => {
     try {

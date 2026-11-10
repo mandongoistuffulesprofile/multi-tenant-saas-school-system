@@ -3,7 +3,7 @@
  * Protects against Safaricom / Airtel staffroom internet blackouts.
  */
 
-const CACHE_NAME = 'eduke-saas-v1.0.0';
+const CACHE_NAME = 'shuleyetu-v1.0.0';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

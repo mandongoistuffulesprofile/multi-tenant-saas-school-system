@@ -7,7 +7,7 @@ import Badge from "../../components/atoms/Badge";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
-import { saveAssessmentResult, getAssessmentResults, DEVICE_ID } from "../../lib/offline";
+import { saveAssessmentResult, getAssessmentResults, getDeviceId } from "../../lib/offline";
 import { Learner, AssessmentResult, LevelCode } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
@@ -60,7 +60,7 @@ export default function GradingGridPage() {
             level_code: e.level_code,
             state: "SUBMITTED",
             version: 1,
-            device_id: DEVICE_ID,
+            device_id: getDeviceId(),
             client_ts: new Date().toISOString(),
             teacher_id: roles.includes("TEACHER") ? (useAuthStore.getState().userId || "") : "",
           } as any)
@@ -150,7 +150,7 @@ export default function GradingGridPage() {
       level_code: level,
       state: "DRAFT",
       version: 1,
-      device_id: DEVICE_ID,
+      device_id: getDeviceId(),
       client_ts: new Date().toISOString(),
       teacher_id: roles.includes("TEACHER") ? (useAuthStore.getState().userId || "") : "",
     } as any);

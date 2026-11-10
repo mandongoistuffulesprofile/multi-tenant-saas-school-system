@@ -177,4 +177,18 @@ export function isOnline(): boolean {
   return typeof navigator !== "undefined" ? navigator.onLine : true;
 }
 
-export const DEVICE_ID = "unknown";
+const DEVICE_ID_KEY = "edu_device_id";
+
+export function getDeviceId(): string {
+  if (typeof localStorage === "undefined") return "unknown";
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    try {
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    } catch {
+      /* storage unavailable — fall back to in-memory id */
+    }
+  }
+  return id;
+}

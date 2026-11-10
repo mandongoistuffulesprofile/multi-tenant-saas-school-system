@@ -114,7 +114,13 @@ api.interceptors.response.use(
       const accessToken = await refreshPromise;
       originalRequest.headers.Authorization = `Bearer ${accessToken}`;
       return api(originalRequest);
-    } catch {
+    } catch (refreshError: any) {
+      // Network error while refreshing: keep the session alive for read-only
+      // offline use. Only log out when the server explicitly rejects the
+      // refresh token (401/403).
+      if (!refreshError?.response) {
+        return Promise.reject(error);
+      }
       clearSession();
       if (!window.location.pathname.startsWith("/login")) {
         window.location.href = "/login";

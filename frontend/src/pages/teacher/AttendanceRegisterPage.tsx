@@ -7,7 +7,7 @@ import Badge from "../../components/atoms/Badge";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
-import { saveAttendanceMark, getAttendanceMarks, DEVICE_ID } from "../../lib/offline";
+import { saveAttendanceMark, getAttendanceMarks, getDeviceId } from "../../lib/offline";
 import { AttendanceRegister, AttendanceMark, Learner } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
@@ -80,7 +80,7 @@ export default function AttendanceRegisterPage() {
       learner_id: learnerId,
       status: mark,
       marked_at: new Date().toISOString(),
-      device_id: DEVICE_ID,
+      device_id: getDeviceId(),
     } as any);
   };
 
