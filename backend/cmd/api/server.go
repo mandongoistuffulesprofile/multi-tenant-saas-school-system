@@ -42,6 +42,8 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/kitchen"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/wizard"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sms"
 )
 
 func Run() error {
@@ -73,6 +75,13 @@ func Run() error {
 	authHandler := auth.NewHandler(authService, database, jwtManager, redisClient.Client)
 	auth.InitResetLimiters(redisClient.Client)
 
+	// Email sender: SMTP when credentials are configured, otherwise dev/log-only.
+	email.Init(
+		cfg.SMTPHost, cfg.SMTPPort,
+		cfg.SMTPUser, cfg.SMTPPass,
+		cfg.SMTPFrom, cfg.SMTPFromName,
+	)
+
 	// In development there is no SMS provider, so OTPs are printed to stdout.
 	// This keeps the phone sign-in and password-reset flows usable locally.
 	if cfg.AppEnv == "development" {
@@ -90,7 +99,8 @@ func Run() error {
 	calendarHandler := calendar.NewHandler(calendarService)
 
 	staffService := staff.NewService(database)
-	staffHandler := staff.NewHandler(staffService)
+	smsService := sms.NewSMSService()
+	staffHandler := staff.NewHandler(staffService, smsService)
 
 	learnerService := learner.NewService(database)
 	learnerHandler := learner.NewHandler(learnerService)
@@ -417,6 +427,12 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 		financeGroup.POST("/mpesa/transactions", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateMPESATransaction)
 		financeGroup.POST("/mpesa/stk-requests", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateMPESASTKRequest)
 
+		// Personas: parents/guardians pay their own linked learners' invoices
+		// and poll their own STK request status. Invoice linkage, amount
+		// ceiling and channel resolution are enforced server-side.
+		financeGroup.POST("/parent/mpesa/stk-requests", middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian), financeHandler.CreateParentMPESASTKRequest)
+		financeGroup.GET("/parent/mpesa/stk-requests/:id", middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian), financeHandler.ParentMPESASTKStatus)
+
 		// Receipt sequences
 		financeGroup.GET("/receipt-sequences/:period", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.GetReceiptSequence)
 		financeGroup.POST("/receipt-sequences/:sequence_id/increment", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.IncrementReceiptSequence)
@@ -568,6 +584,16 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 		platformGroup.PATCH("/weighting-profiles/:id", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpdateWeightingProfile)
 		platformGroup.POST("/knec/tools", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateKNECTool)
 		platformGroup.PATCH("/knec/tools/:id", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpdateKNECTool)
+
+		// Super Admin tenant onboarding/setup (platform-only, tenant-targeted)
+		platformGroup.GET("/tenants/:id/setup", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.GetTenantOnboarding)
+		platformGroup.PATCH("/tenants/:id/setup/profile", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.SetupProfile)
+		platformGroup.POST("/tenants/:id/setup/calendar", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.SetupCalendar)
+		platformGroup.POST("/tenants/:id/setup/structure", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.SetupStructure)
+		platformGroup.POST("/tenants/:id/setup/finance", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.SetupFinance)
+		platformGroup.POST("/tenants/:id/setup/seeds", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.SetupSeeds)
+		platformGroup.POST("/tenants/:id/setup/complete", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CompleteSetup)
+		platformGroup.POST("/tenants/:id/setup/handoff", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.MarkHandoff)
 	}
 
 	// Structure routes — grades, streams, class groups and teaching assignments.
@@ -597,6 +623,10 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 		syncGroup.GET("/pull", middleware.RequireRole(middleware.RoleAcademicStaff...), syncHandler.Pull)
 		syncGroup.GET("/conflicts", middleware.RequireRole(middleware.RoleAcademicStaff...), syncHandler.ListConflicts)
 		syncGroup.POST("/conflicts/:id/resolve", middleware.RequireRole(middleware.RoleAcademicStaff...), syncHandler.ResolveConflict)
+		syncGroup.POST("/devices/enroll", middleware.RequireRole(middleware.RoleAcademicStaff...), syncHandler.EnrollDevice)
+		syncGroup.GET("/devices", middleware.RequireRole(middleware.RoleAcademicStaff...), syncHandler.ListDevices)
+		syncGroup.POST("/devices/:id/revoke", middleware.RequireRole(middleware.RoleSchoolAdministrators...), syncHandler.RevokeDevice)
+		syncGroup.GET("/log", middleware.RequireRole(middleware.RoleSchoolAdministrators...), syncHandler.ListSyncLog)
 	}
 
 	// Health check

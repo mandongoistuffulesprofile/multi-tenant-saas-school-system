@@ -18,6 +18,12 @@ type Config struct {
 	OTPExpiryMin  int
 	OTPMaxAttempt int
 	Port          string
+	SMTPHost      string
+	SMTPPort      int
+	SMTPUser      string
+	SMTPPass      string
+	SMTPFrom      string
+	SMTPFromName  string
 }
 
 // Load reads configuration from the process environment. Every value has a
@@ -36,6 +42,12 @@ func Load() (*Config, error) {
 		OTPExpiryMin:  envInt("OTP_EXPIRY_MIN", 5),
 		OTPMaxAttempt: envInt("OTP_MAX_ATTEMPT", 5),
 		Port:          env("PORT", "8080"),
+		SMTPHost:      env("SMTP_HOST", "localhost"),
+		SMTPPort:      envInt("SMTP_PORT", 1025),
+		SMTPUser:      env("SMTP_USER", ""),
+		SMTPPass:      env("SMTP_PASS", ""),
+		SMTPFrom:      env("SMTP_FROM", "no-reply@shuleyetu.local"),
+		SMTPFromName:  env("SMTP_FROM_NAME", "Shule Yetu"),
 	}
 
 	if cfg.DatabaseURL == "" {

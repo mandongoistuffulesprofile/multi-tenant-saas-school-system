@@ -438,12 +438,93 @@ func (h *Handler) InviteAccept(c *gin.Context) {
 		return
 	}
 
-	// No invite mechanism exists yet — refuse the request rather than returning
-	// a fabricated success. This makes the gap visible to clients instead of
-	// silently accepting an invalid token.
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"code":    "NOT_IMPLEMENTED",
-		"message": "Invite acceptance is not yet available",
+	// Hash the presented token (SHA-256, deterministic — matches how the
+	// token was stored at invitation time).
+	tokenHash := HashToken(req.InviteToken)
+
+	// Look up the invite token: must exist, be unexpired, and unused.
+	var inviteID, userID, tenantID string
+	var expiresAt time.Time
+	var usedAt sql.NullTime
+	err := h.database.QueryRow(
+		`SELECT invite_id, user_id::text, tenant_id, expires_at, used_at
+		 FROM invite_tokens
+		 WHERE token_hash = $1`,
+		tokenHash,
+	).Scan(&inviteID, &userID, &tenantID, &expiresAt, &usedAt)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    "INVALID_INVITE",
+			"message": "Invite token is invalid or has already been used",
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "DB_ERROR",
+			"message": "Database error",
+		})
+		return
+	}
+	if usedAt.Valid {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    "INVALID_INVITE",
+			"message": "Invite token has already been used",
+		})
+		return
+	}
+	if time.Now().After(expiresAt) {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    "INVITE_EXPIRED",
+			"message": "Invite token has expired. Request a new invitation.",
+		})
+		return
+	}
+
+	// Validate new password against policy
+	if policyErr := validatePasswordPolicy(req.NewPassword); policyErr != "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "POLICY_VIOLATION",
+			"message": policyErr,
+		})
+		return
+	}
+
+	// Hash the new password and activate the account.
+	passwordHash, err := HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "SERVER_ERROR",
+			"message": "Failed to hash password",
+		})
+		return
+	}
+
+	// Atomic: set password, activate user, mark invite token used.
+	_, err = h.database.Exec(
+		`UPDATE users
+		 SET password_hash = $1, status = 'ACTIVE', updated_at = now()
+		 WHERE user_id = $2`,
+		passwordHash, userID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    "DB_ERROR",
+			"message": "Failed to set password",
+		})
+		return
+	}
+
+	_, _ = h.database.Exec(
+		`UPDATE invite_tokens SET used_at = now() WHERE invite_id = $1`,
+		inviteID,
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    "INVITE_ACCEPTED",
+		"message": "Invite accepted — account activated",
+		"user_id": userID,
+		"tenant_id": tenantID,
 	})
 }
 

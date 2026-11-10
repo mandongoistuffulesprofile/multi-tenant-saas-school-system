@@ -2,10 +2,13 @@ package auth
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -109,8 +112,25 @@ func normalizeEmail(email string) string {
 }
 
 func sendResetEmail(to, token string) error {
-	// TODO: integrate with SES / SMTP
-	return nil
+	resetURL := fmt.Sprintf("%s/auth/reset?token=%s", appBaseURL(), token)
+	body := fmt.Sprintf(
+		`<div style="font-family: sans-serif; max-width: 600px; margin: 24px auto;">
+			<h2 style="color: #b91c1c;">Password Reset Request</h2>
+			<p>You requested a password reset for your Shule Yetu account.</p>
+			<p>Use the link below to set a new password. It expires in 30 minutes.</p>
+			<a href="%s" style="display: inline-block; background: #b91c1c; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 6px;">Reset Password</a>
+			<p style="margin-top: 24px; font-size: 12px; color: #666;">If you did not request this, you can safely ignore this email.</p>
+		</div>`, resetURL,
+	)
+	return email.Default.Send(to, "Shule Yetu — Password Reset", body)
+}
+
+func appBaseURL() string {
+	base := os.Getenv("APP_BASE_URL")
+	if base == "" {
+		base = "http://localhost:5173"
+	}
+	return base
 }
 
 var _ = sql.ErrNoRows

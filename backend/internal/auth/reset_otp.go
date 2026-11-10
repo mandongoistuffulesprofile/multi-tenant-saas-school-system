@@ -2,10 +2,12 @@ package auth
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -156,7 +158,21 @@ func (h *Handler) ResetPasswordWithOTP(c *gin.Context) {
 	)
 
 	go func() {
-		_ = sendPasswordChangedEmail(userID)
+		var userEmail string
+		_ = h.database.QueryRow(
+			`SELECT email FROM users WHERE user_id = $1`,
+			userID,
+		).Scan(&userEmail)
+		if userEmail != "" {
+			body := fmt.Sprintf(
+				`<div style="font-family: sans-serif; max-width: 600px; margin: 24px auto;">
+					<h2 style="color: #166534;">Password Changed</h2>
+					<p>Your Shule Yetu account password has been changed successfully.</p>
+					<p>If you did not make this change, contact your school administrator immediately.</p>
+				</div>`,
+			)
+			_ = email.Default.Send(userEmail, "Shule Yetu — Password Changed", body)
+		}
 	}()
 
 	c.JSON(http.StatusOK, gin.H{

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 	"strings"
 	"time"
 
@@ -102,16 +101,19 @@ func (s *Service) Resolve(ctx context.Context, tenantID, userID, entryID, studen
 
 	// Post the deposit as a COMPLETED M-Pesa payment so the collected money
 	// reaches the learner's account instead of stopping at a flag flip.
-	paymentRef := reference
-	if strings.TrimSpace(paymentRef) == "" {
+	// The bill reference (M-Pesa trans id / paybill reference when captured
+	// by the inbox worker) is reused for traceability, prefixed TANK- when
+	// the deposit came in without a reference.
+	paymentRef := strings.TrimSpace(reference)
+	if paymentRef == "" {
 		paymentRef = "TANK-" + entryID
 	}
 	var paymentID string
 	if err := q.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, currency, status, mpesa_trans_id, received_at, recorded_by)
-		 VALUES ($1, $2, $3, 'MPESA', $4, 'KES', 'COMPLETED', $5, NOW(), NULLIF($6, ''))
+		 VALUES ($1, $2, $3, 'MPESA', $4, 'KES', 'COMPLETED', $2, NOW(), NULLIF($5, ''))
 		 RETURNING payment_id`,
-		tenantID, os.Getenv("MPESA_TANK_REF_PREFIX") + paymentRef, studentID, amount, os.Getenv("MPESA_TRANS_ID"), userID,
+		tenantID, "TANK-"+paymentRef, studentID, amount, userID,
 	).Scan(&paymentID); err != nil {
 		return err
 	}

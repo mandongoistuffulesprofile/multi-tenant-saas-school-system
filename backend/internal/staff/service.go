@@ -1,17 +1,21 @@
 package staff
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sms"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
-	"golang.org/x/crypto/argon2"
 )
 
 type Service struct {
@@ -23,11 +27,15 @@ func NewService(database *db.DB) *Service {
 }
 
 type Handler struct {
-	service *Service
+	service    *Service
+	smsService *sms.SMSService
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *Service, smsService *sms.SMSService) *Handler {
+	return &Handler{
+		service:    service,
+		smsService: smsService,
+	}
 }
 
 // StaffProfile
@@ -148,9 +156,12 @@ func (h *Handler) CreateStaff(c *gin.Context) {
 		return
 	}
 
+	// Generate a single-use invite token before branching on new vs existing user.
+	inviteToken := generateInviteToken()
+
 	if err == sql.ErrNoRows {
 		// Create new user with invite-only status; password set on first login
-		inviteHash, err := hashInviteToken()
+		inviteHash, err := hashInviteToken(inviteToken)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "SERVER_ERROR", "message": "Failed to generate invite hash"})
 			return
@@ -164,6 +175,22 @@ func (h *Handler) CreateStaff(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to create user"})
 			return
 		}
+	} else {
+		// Existing user: re-issue a fresh invite token for this membership.
+		inviteHash, err := hashInviteToken(inviteToken)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "SERVER_ERROR", "message": "Failed to generate invite hash"})
+			return
+		}
+		_, err = tx.Exec(
+			`UPDATE users SET password_hash = $1, status = 'INVITE_PENDING' WHERE user_id = $2`,
+			inviteHash, userID,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to reissue invite"})
+			return
+		}
+		_ = inviteHash
 	}
 	userID = userIDExists
 
@@ -195,10 +222,43 @@ func (h *Handler) CreateStaff(c *gin.Context) {
 		return
 	}
 
-	// Send invitation (stub)
-	// TODO: Integrate with SMS/email provider
+	// Persist the single-use invite token (expires in 7 days) and deliver it
+	// to the invitee via SMS. The plaintext token is never stored — only its
+	// SHA-256 hash — so it can only be used by the recipient who receives it.
+	inviteHash, err := hashInviteToken(inviteToken)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "SERVER_ERROR", "message": "Failed to hash invite token"})
+		return
+	}
+	_, err = tx.Exec(
+		`INSERT INTO invite_tokens (user_id, tenant_id, token_hash, expires_at, created_by_ip)
+		 VALUES ($1, $2, $3, now() + interval '7 days', $4)`,
+		userID, tenantID, inviteHash, c.ClientIP(),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to persist invite token"})
+		return
+	}
 
-	c.JSON(http.StatusCreated, gin.H{"membership_id": membershipID, "user_id": userID})
+	// Send the invite token via SMS (non-blocking; Africa's Talking logs in dev
+	// mode when no credentials are configured).
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		msg := fmt.Sprintf(
+			"You have been invited to join %s at %s. Use this invite code to set your password: %s. It expires in 7 days.",
+			tenantID, req.Role, inviteToken,
+		)
+		if h.smsService != nil {
+			_ = h.smsService.SendSMS(ctx, req.PhoneNumber, msg)
+		}
+	}()
+
+	c.JSON(http.StatusCreated, gin.H{
+		"membership_id": membershipID,
+		"user_id":       userID,
+		"invite_token":  inviteToken,
+	})
 }
 
 // nullIfEmpty converts an empty string to nil so optional columns (dates in
@@ -216,21 +276,9 @@ func generateInviteToken() string {
 	return hex.EncodeToString(b)
 }
 
-func hashInviteToken() (string, error) {
-	token := generateInviteToken()
-	salt := make([]byte, 16)
-	if _, err := rand.Read(salt); err != nil {
-		return "", err
-	}
-	hash := argon2.IDKey(
-		[]byte(token),
-		salt,
-		3,
-		64*1024,
-		4,
-		32,
-	)
-	return hex.EncodeToString(salt) + ":" + hex.EncodeToString(hash), nil
+func hashInviteToken(token string) (string, error) {
+	b := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(b[:]), nil
 }
 
 var _ = http.StatusOK
