@@ -15,6 +15,7 @@ import SaaSLayout from "./components/organisms/SaaSLayout";
 import RequireRole from "./components/RequireRole";
 import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
 
+import KioskPage from "./pages/KioskPage";
 import LoginPage from "./pages/LoginPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -44,6 +45,7 @@ import FinancePaymentsPage from "./pages/FinancePaymentsPage";
 import FinanceMpesaPage from "./pages/FinanceMpesaPage";
 import BoardPackPage from "./pages/BoardPackPage";
 import FinanceReconciliationPage from "./pages/FinanceReconciliationPage";
+import HoldingTankReconciliationPage from "./pages/HoldingTankReconciliationPage";
 import FinanceCreditsPage from "./pages/FinanceCreditsPage";
 import FinanceAdjustmentsPage from "./pages/FinanceAdjustmentsPage";
 import FinanceRefundsPage from "./pages/FinanceRefundsPage";
@@ -71,6 +73,7 @@ import SyncCentrePage from "./pages/teacher/SyncCentrePage";
 import OperationsCentrePage from "./pages/saas/OperationsCentrePage";
 import TenantRegistryPage from "./pages/saas/TenantRegistryPage";
 import TenantOnboardingPage from "./pages/saas/TenantOnboardingPage";
+import TenantSetupPage from "./pages/saas/TenantSetupPage";
 import CurriculumConfiguratorPage from "./pages/saas/CurriculumConfiguratorPage";
 import SubscriptionsPage from "./pages/saas/SubscriptionsPage";
 import IntegrationHealthPage from "./pages/saas/IntegrationHealthPage";
@@ -115,6 +118,10 @@ export default function App() {
         {/* Authenticated */}
         <Route element={<Protected />}>
           <Route path="/select-school" element={<SchoolPickerPage />} />
+          <Route
+            path="/kiosk"
+            element={guard([Role.Clerk], <KioskPage />)}
+          />
 
           <Route element={<Layout />}>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -146,6 +153,7 @@ export default function App() {
             <Route path="/finance/mpesa" element={guard(FINANCE_ROLES, <FinanceMpesaPage />)} />
             <Route path="/finance/board-pack" element={guard(FINANCE_ROLES, <BoardPackPage />)} />
             <Route path="/finance/reconciliation" element={guard(FINANCE_ROLES, <FinanceReconciliationPage />)} />
+            <Route path="/finance/holding-tank" element={guard(FINANCE_ROLES, <HoldingTankReconciliationPage />)} />
             <Route path="/finance/credits" element={guard(FINANCE_ROLES, <FinanceCreditsPage />)} />
             <Route path="/finance/adjustments" element={guard(FINANCE_ROLES, <FinanceAdjustmentsPage />)} />
             <Route path="/finance/refunds" element={guard(FINANCE_ROLES, <FinanceRefundsPage />)} />
@@ -206,6 +214,7 @@ export default function App() {
             <Route path="/saas-admin" element={<SaaSAdminDesk />} />
             <Route path="/platform/tenants" element={<TenantRegistryPage />} />
             <Route path="/platform/onboard" element={<TenantOnboardingPage />} />
+            <Route path="/platform/tenants/:tenantId/setup" element={<TenantSetupPage />} />
             <Route path="/platform/curriculum" element={<CurriculumConfiguratorPage />} />
             <Route path="/platform/subscriptions" element={<SubscriptionsPage />} />
             <Route path="/platform/integrations" element={<IntegrationHealthPage />} />
