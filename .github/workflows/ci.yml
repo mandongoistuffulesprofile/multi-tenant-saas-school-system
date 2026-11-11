@@ -74,13 +74,12 @@ jobs:
           node-version: "20"
       - name: Install
         working-directory: frontend
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Build
         working-directory: frontend
         run: npm run build
-      - name: Type check (non-blocking until the G workstream lands)
+      - name: Type check
         working-directory: frontend
-        continue-on-error: true
         run: npx tsc --noEmit
 
   migrations:

@@ -1,0 +1,15 @@
+.git
+.gitignore
+.kilo
+.vscode
+**/.DS_Store
+**/node_modules
+**/dist
+**/build
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+DEMO_LOGINS.txt
+migrations/seed/
+docs/archive/

@@ -5,7 +5,12 @@ COPY package*.json ./
 # only carry the linux-x64-gnu optional binaries, so a musl image ships without
 # the native rollup module. Install exactly once, then re-add the missing
 # musl binary at the resolved rollup version.
-RUN (npm ci --include=optional --no-audit --no-fund \
+# Registry fetch retries: CI/staging networks are flaky and a single timeout
+# should not fail an image build.
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && (npm ci --include=optional --no-audit --no-fund \
   || (rm -f package-lock.json && npm install --include=optional --no-audit --no-fund)) \
  && ROLLUP_V="$(node -e "console.log(require('rollup/package.json').version)")" \
  && npm install --no-save --no-audit --no-fund "@rollup/rollup-linux-x64-musl@$ROLLUP_V"
