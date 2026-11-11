@@ -1,7 +1,8 @@
-import React, { ReactNode, useState } from "react";
+import React, { ReactNode, useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../lib/authStore";
+import { api } from "../../lib/api";
 import Badge from "../atoms/Badge";
 import Button from "../atoms/Button";
 import { BarChart3, Users, Plus, BookOpen, Shield, ShieldCheck, Layout, Theater, CreditCard, Zap } from "lucide-react";
@@ -31,6 +32,26 @@ export default function SaaSLayout({ children }: SaaSLayoutProps) {
   const { t } = useTranslation();
   const location = useLocation();
   const activeTab = TABS.find((tab) => location.pathname === tab.path || location.pathname.startsWith(tab.path + "/")) || TABS[0];
+  const [pendingHelp, setPendingHelp] = useState(0);
+
+  /* Notification: password-help queue count, visible from every console tab. */
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const response = await api.get("/platform/password-assistance");
+        if (alive) setPendingHelp(Number(response.data?.pending) || 0);
+      } catch {
+        // Best effort; the Operations page still loads the queue.
+      }
+    };
+    load();
+    const timer = setInterval(load, 60000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -69,6 +90,14 @@ export default function SaaSLayout({ children }: SaaSLayoutProps) {
                 >
                   <tab.icon className="w-5 h-5 stroke-[1.5]" />
                   {t(tab.labelKey)}
+                  {tab.path === "/platform/operations" && pendingHelp > 0 && (
+                    <span
+                      className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white"
+                      aria-label={`${pendingHelp} password help requests pending`}
+                    >
+                      {pendingHelp}
+                    </span>
+                  )}
                 </NavLink>
               );
             })}

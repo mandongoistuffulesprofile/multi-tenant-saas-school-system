@@ -206,6 +206,7 @@ export default function Layout({ children }: LayoutProps) {
   const [palette, setPalette] = useState<PaletteState>({ open: false, query: "" });
   const [badges, setBadges] = useState<Record<string, number | string | null>>({});
   const [impSchool, setImpSchool] = useState<string | null>(() => { try { return localStorage.getItem("imp_school"); } catch { return null; } });
+  const [showRecoveryHint, setShowRecoveryHint] = useState(false);
 
   /* Exit an impersonation session: restore the platform-owner tokens. */
   const exitImpersonation = () => {
@@ -264,6 +265,27 @@ export default function Layout({ children }: LayoutProps) {
   const isSaasAdmin = roles.includes("SAAS_ADMIN");
   const navigate = useNavigate();
   const navTo = (p: string) => navigate(p);
+
+  /* Trigger: nudge users who have no recovery questions to set them up, so a
+   * forgotten password never has to wait for platform support. Dismissible for
+   * the session; fetched once per layout mount. */
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("recovery_hint_dismissed") === "1") return;
+    } catch { /* private mode */ }
+    let alive = true;
+    api.get("/me/security-questions")
+      .then((r) => {
+        if (alive && r.data && r.data.configured === false) setShowRecoveryHint(true);
+      })
+      .catch(() => { /* offline or unauthenticated; skip the hint */ });
+    return () => { alive = false; };
+  }, []);
+
+  const dismissRecoveryHint = () => {
+    setShowRecoveryHint(false);
+    try { sessionStorage.setItem("recovery_hint_dismissed", "1"); } catch { /* private mode */ }
+  };
 
   const utilityItems: SideItem[] = [
     ...(roles.includes("PARENT") || roles.includes("GUARDIAN") ? [{ path: "/parent", label: "Parent Portal" }] : []),
@@ -508,6 +530,30 @@ export default function Layout({ children }: LayoutProps) {
         </aside>
 
         <div className="flex-1 p-6">
+          {showRecoveryHint && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+            >
+              <div>
+                <strong>Protect your account.</strong> Add three security questions so you can
+                reset your password yourself instead of waiting for platform support.
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <NavLink to="/profile" className="font-semibold underline" onClick={dismissRecoveryHint}>
+                  Set up now
+                </NavLink>
+                <button
+                  type="button"
+                  onClick={dismissRecoveryHint}
+                  className="text-xs text-amber-800 underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
           {children ?? <Outlet />}
         </div>
       </div>

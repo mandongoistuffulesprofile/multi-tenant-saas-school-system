@@ -22,6 +22,11 @@ const PUBLIC_PATHS = [
   "/auth/otp/verify",
   "/auth/password/reset/request",
   "/auth/password/reset/confirm",
+  "/auth/password/reset/questions",
+  "/auth/password/reset/answers",
+  "/auth/password/reset/assistance",
+  "/auth/password/reset/code",
+  "/auth/recovery/questions",
   "/auth/parent/activate",
   "/auth/invite/accept",
 ];
