@@ -685,6 +685,9 @@ func (h *Handler) completePasswordReset(ctx context.Context, userID, newPassword
 		`UPDATE sessions SET revoked = true WHERE user_id = $1 AND revoked = false`, userID)
 	_, _ = h.database.ExecContext(ctx,
 		`UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID)
+	// A password change invalidates any outstanding one-time support codes.
+	_, _ = h.database.ExecContext(ctx,
+		`UPDATE password_reset_codes SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`, userID)
 	// Also resolve pending help requests immediately (the DB trigger is a
 	// backstop for any other password update path).
 	_, _ = h.database.ExecContext(ctx, `
