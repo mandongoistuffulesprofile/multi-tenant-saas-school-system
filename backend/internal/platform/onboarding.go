@@ -688,7 +688,7 @@ func (h *Handler) MarkHandoff(c *gin.Context) {
 	}
 	actor := c.GetString("user_id")
 	_, err := h.service.database.ExecContext(c.Request.Context(),
-		`UPDATE platform_tenant_onboarding SET status='HANDED_OFF', current_step='HANDED_OFF', handed_off_at=CURRENT_TIMESTAMP, updated_by=NULLIF($2,''), updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1`,
+		`UPDATE platform_tenant_onboarding SET status='HANDED_OFF', current_step='HANDED_OFF', handed_off_at=CURRENT_TIMESTAMP, updated_by=NULLIF($2,'')::uuid, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1`,
 		tenantID, actor)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
