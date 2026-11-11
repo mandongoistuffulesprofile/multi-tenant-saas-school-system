@@ -14,6 +14,28 @@ Multi-tenant school management system: **Go + Gin + PostgreSQL 18 + Redis** API 
 | `docs/` | Fix plan, operations runbook and architecture notes. |
 | `src/` + root `package.json` | Legacy standalone Node auth prototype. Not part of the running system. |
 
+## Quick start (local, one command)
+
+```bash
+./launch_all.sh
+```
+
+- Uses the local PostgreSQL/Redis if they are already running; otherwise starts
+  them with `infrastructure/docker/docker-compose.yml`.
+- Applies migrations and the idempotent demo seed, then creates
+  `admin@demo.test` (`SCHOOL_ADMIN`, school code `demo-school`) and
+  `platform@demo.test` (`SAAS_ADMIN`, school code `platform-ops`) if they do
+  not exist. Generated passwords are printed once.
+- Serves the SPA at <http://127.0.0.1:5173> and the API at
+  <http://127.0.0.1:8080>.
+- Rerun with `RESET_DEMO_PASSWORD=1 ./launch_all.sh` to rotate and reprint the
+  demo passwords; use `SEED=0 ./launch_all.sh` to skip the demo tenant.
+- `python3 dev.py` is a compatibility alias for the same launcher.
+
+The launcher exports its own local `DATABASE_URL`, so a stale `backend/.env`
+cannot silently point the API at a remote database. It never kills whatever is
+already listening on 5432/6379.
+
 ## Quick start (Docker)
 
 ```bash
@@ -33,11 +55,16 @@ PostgreSQL is pinned to **18** because the baseline uses named `NOT NULL` constr
 
 ```bash
 cd backend
-cp .env.example .env       # DATABASE_URL, REDIS_URL, JWT_SIGNING_KEY, ENCRYPTION_KEY
+cp .env.example .env       # local PostgreSQL/Redis defaults
+set -a; . ./.env; set +a   # export the variables; Go does not read .env itself
 go build ./...
 go run ./cmd/migrate -dir ../migrations -seed
 go run ./cmd/api
 ```
+
+Or let `./launch_all.sh` do all of the above (including migrations and demo
+accounts). The script is the recommended path because it also verifies the
+database connection and waits for `/health`.
 
 Demo seed (only when `-seed` is passed) creates the `demo-school` tenant, learner `DEMO-001` and a guardian — no credentials. Create the admin with `go run ./cmd/devuser`, which prints a generated password once.
 

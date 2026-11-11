@@ -10,6 +10,20 @@
 # PostgreSQL:  localhost:5432 (dev-only: school_system / school_admin / dev_secret_password)
 # Redis:       localhost:6379
 
+## Fastest local setup
+
+```bash
+./launch_all.sh
+```
+
+Starts PostgreSQL/Redis (or reuses the local ones), applies migrations and the
+demo seed, creates the accounts below if missing, and prints their generated
+passwords once. Re-run with `RESET_DEMO_PASSWORD=1 ./launch_all.sh` to rotate the
+passwords and print them again.
+
+- School admin: `admin@demo.test`, school code `demo-school`
+- SaaS admin:   `platform@demo.test`, school code `platform-ops`
+
 ## 1. DEMO SCHOOL TENANT
 # The seed creates the tenant, learner and guardian only — no users.
 #   cd backend && go run ./cmd/migrate -dir ../migrations -seed
