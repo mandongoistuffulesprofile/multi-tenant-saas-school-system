@@ -224,7 +224,7 @@ export default function TenantOnboardingPage() {
                 id="school_name"
                 value={form.school_name}
                 onChange={(e) => setForm({ ...form, school_name: e.target.value })}
-                placeholder={t("saas.school_name_placeholder", { defaultMessage: "e.g., St. Mary's Primary School" })}
+                placeholder={t("common.school_name_placeholder", { defaultMessage: "e.g., St. Mary's Primary School" })}
                 required
                 fullWidth
               />
@@ -241,7 +241,7 @@ export default function TenantOnboardingPage() {
                     setSubdomainTouched(true);
                   }}
                   onBlur={() => setSubdomainTouched(true)}
-                  placeholder={t("saas.subdomain_placeholder", { defaultMessage: "school-name" })}
+                  placeholder={t("common.subdomain_placeholder", { defaultMessage: "school-name" })}
                   required
                   fullWidth
                   className="pr-32"
@@ -251,7 +251,7 @@ export default function TenantOnboardingPage() {
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                {t("saas.subdomain_hint", { defaultMessage: "Auto-generated from School Name. Must be unique." })}
+                {t("common.subdomain_hint", { defaultMessage: "Auto-generated from School Name. Must be unique." })}
               </p>
             </div>
 
@@ -267,7 +267,7 @@ export default function TenantOnboardingPage() {
                   }}
                   onFocus={() => handleCountySearch(form.county)}
                   onBlur={() => setTimeout(() => setCountyDropdownOpen(false), 200)}
-                  placeholder={t("saas.county_placeholder", { defaultMessage: "Select or type county" })}
+                  placeholder={t("common.county_placeholder", { defaultMessage: "Select or type county" })}
                   required
                   fullWidth
                 />
@@ -296,17 +296,17 @@ export default function TenantOnboardingPage() {
           </div>
           <div className="border-t border-gray-100 pt-6 space-y-4">
             <div>
-              <label className="label block mb-1" htmlFor="admin_full_name">{t("saas.admin_full_name", { defaultMessage: "Full Name" })}</label>
+              <label className="label block mb-1" htmlFor="admin_full_name">{t("common.admin_full_name", { defaultMessage: "Full Name" })}</label>
               <Input
                 id="admin_full_name"
                 value={form.admin_full_name}
                 onChange={(e) => setForm({ ...form, admin_full_name: e.target.value })}
-                placeholder={t("saas.admin_full_name_placeholder", { defaultMessage: "e.g., Jane Wanjiku" })}
+                placeholder={t("common.admin_full_name_placeholder", { defaultMessage: "e.g., Jane Wanjiku" })}
                 required
                 fullWidth
               />
               <p className="text-xs text-gray-500 mt-1">
-                {t("saas.admin_full_name_hint", { defaultMessage: "Required for audit logs and personalized greetings." })}
+                {t("common.admin_full_name_hint", { defaultMessage: "Required for audit logs and personalized greetings." })}
               </p>
             </div>
 
@@ -340,7 +340,7 @@ export default function TenantOnboardingPage() {
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  {t("saas.admin_phone_hint", { defaultMessage: "Kenyan mobile number. Country code (+254) is added automatically." })}
+                  {t("common.admin_phone_hint", { defaultMessage: "Kenyan mobile number. Country code (+254) is added automatically." })}
                 </p>
               </div>
             </div>
@@ -354,7 +354,7 @@ export default function TenantOnboardingPage() {
           </div>
           <div className="border-t border-gray-100 pt-6">
             <p className="text-sm text-gray-600 mb-4">
-              {t("saas.plan_hint", { defaultMessage: "Choose a plan that fits the school's size and needs. All plans include core features." })}
+              {t("common.plan_hint", { defaultMessage: "Choose a plan that fits the school's size and needs. All plans include core features." })}
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="radiogroup" aria-label="Subscription plans">
               {PLANS.map((plan) => (
@@ -416,7 +416,7 @@ export default function TenantOnboardingPage() {
             {t("common.cancel", { defaultMessage: "Cancel" })}
           </Button>
           <Button variant="primary" type="submit" loading={processing} size="lg">
-            {t("saas.create_and_invite", { defaultMessage: "Create School & Send Invite" })}
+            {t("common.create_and_invite", { defaultMessage: "Create School & Send Invite" })}
           </Button>
         </div>
       </form>
