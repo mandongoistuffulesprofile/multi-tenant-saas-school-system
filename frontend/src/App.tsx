@@ -15,7 +15,6 @@ import SaaSLayout from "./components/organisms/SaaSLayout";
 import RequireRole from "./components/RequireRole";
 import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
 
-import KioskPage from "./pages/KioskPage";
 import LoginPage from "./pages/LoginPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -122,10 +121,6 @@ export default function App() {
         {/* Authenticated */}
         <Route element={<Protected />}>
           <Route path="/select-school" element={<SchoolPickerPage />} />
-          <Route
-            path="/kiosk"
-            element={guard([Role.Clerk], <KioskPage />)}
-          />
 
           <Route element={<Layout />}>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
