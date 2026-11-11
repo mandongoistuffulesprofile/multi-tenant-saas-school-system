@@ -35,8 +35,10 @@ async function bootstrapSession() {
     if (err?.response?.status === 401 || err?.response?.status === 403) {
       clearAuth();
     } else {
-      // Network/offline: allow app to load; server/cookies will be rechecked on next request.
-      setHydrated(true);
+      // Network/offline: fall back to the last known identity so pages and the
+      // sync queue stay reachable. Tokens are never cached; the server
+      // re-authorises on the next successful request.
+      useAuthStore.getState().restoreCachedSession();
     }
   } finally {
     useAuthStore.getState().setHydrated(true);

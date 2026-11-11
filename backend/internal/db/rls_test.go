@@ -146,6 +146,45 @@ func TestTenantRLS(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("tenant A verify: %v", err)
 	}
+
+	// Login must be able to enumerate a user's own memberships before a tenant
+	// has been selected. tenant_memberships is FORCE-RLS, so this depends on the
+	// tenant_memberships_self_select policy (migration 0025).
+	var memberUserID string
+	if err := database.QueryRow(
+		`INSERT INTO users (email, phone_number, password_hash, email_norm)
+		 VALUES ($1::varchar, $2, 'x:x', $1::text) RETURNING user_id::text`,
+		"rls-member-"+itoa(suffix)+"@example.test", "2547"+itoa(suffix%100000000),
+	).Scan(&memberUserID); err != nil {
+		t.Fatalf("create membership user: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.WithTenant(ctx, tenantA, "", func(tx *Tx) error {
+			_, _ = tx.Exec(`DELETE FROM tenant_memberships WHERE user_id = $1`, memberUserID)
+			return nil
+		})
+		_, _ = database.Exec(`DELETE FROM users WHERE user_id = $1`, memberUserID)
+	})
+	if err := database.WithTenant(ctx, tenantA, "", func(tx *Tx) error {
+		_, err := tx.Exec(
+			`INSERT INTO tenant_memberships (user_id, tenant_id, role) VALUES ($1, $2, 'TEACHER')`,
+			memberUserID, tenantA)
+		return err
+	}); err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+
+	var ownMemberships int
+	if err := database.WithTenant(ctx, tenantB, memberUserID, func(tx *Tx) error {
+		return tx.QueryRow(
+			`SELECT count(*) FROM tenant_memberships WHERE user_id = $1`, memberUserID,
+		).Scan(&ownMemberships)
+	}); err != nil {
+		t.Fatalf("self membership read: %v", err)
+	}
+	if ownMemberships != 1 {
+		t.Fatalf("expected 1 own membership, got %d; login would fail", ownMemberships)
+	}
 }
 
 func itoa(v int64) string {

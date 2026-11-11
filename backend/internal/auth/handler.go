@@ -99,16 +99,8 @@ func (h *Handler) Login(c *gin.Context) {
 		passwordHash string
 	)
 
-	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate
+	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate + ` LIMIT 1`
 	args := []any{identifier}
-	if requestedTenant != "" {
-		query = `SELECT u.user_id::text, u.password_hash
-		           FROM users u
-		           JOIN tenant_memberships m ON m.user_id = u.user_id
-		          WHERE m.tenant_id = $2 AND m.status = 'ACTIVE' AND ` + identityPredicate
-		args = append(args, requestedTenant)
-	}
-	query += ` LIMIT 1`
 
 	if err := h.database.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
 		!VerifyPassword(passwordHash, req.Password) {
@@ -132,8 +124,24 @@ func (h *Handler) Login(c *gin.Context) {
 		TenantID string `db:"tenant_id"`
 		Role     string `db:"role"`
 	}
+	// tenant_memberships is FORCE-RLS protected. Read the user's memberships in
+	// a short transaction scoped to that user: the self-select policy allows it
+	// and no other tenant's rows become visible during login.
+	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		`SELECT set_config('app.current_user_id', $1, true)`, userID,
+	); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
+	}
+
 	var memberships []membership
-	if err := h.database.Select(
+	if err := tx.Select(
 		&memberships,
 		`SELECT tenant_id, role FROM tenant_memberships
 		  WHERE user_id = $1 AND status = 'ACTIVE'
@@ -143,6 +151,7 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
 		return
 	}
+	_ = tx.Rollback()
 
 	tenantID := requestedTenant
 	roles := make([]string, 0, 1)
