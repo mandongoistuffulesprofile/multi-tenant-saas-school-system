@@ -2,7 +2,9 @@ package platform
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
+
+
+
+// generateRandomToken returns a hex string of n random bytes. Used for
+// school_payment_channels.channel_token (NOT NULL) when provisioning a new
+// tenant's payment channels.
+func generateRandomToken(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
 
 type OnboardingState struct {
 	TenantID    string          `json:"tenant_id"`
@@ -327,10 +342,10 @@ func (h *Handler) SetupCalendar(c *gin.Context) {
 		if err != nil {
 			return err
 		}
-		for _, t := range req.Terms {
+		for i, t := range req.Terms {
 			if _, err = tx.ExecContext(c.Request.Context(),
-				`INSERT INTO terms (tenant_id, year_id, term_name, start_date, end_date)
-				 VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, tenantID, yearID, t.TermName, t.StartDate, t.EndDate); err != nil {
+				`INSERT INTO terms (tenant_id, year_id, term_number, term_label, start_date, end_date)
+				 VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, tenantID, yearID, i+1, t.TermName, t.StartDate, t.EndDate); err != nil {
 				return err
 			}
 		}
@@ -445,14 +460,26 @@ func (h *Handler) SetupFinance(c *gin.Context) {
 	err := h.withTenantTx(c.Request.Context(), tenantID, actor, func(tx *sql.Tx) error {
 		for _, cat := range req.Categories {
 			if _, err := tx.ExecContext(c.Request.Context(),
-				`INSERT INTO fee_categories (tenant_id, category_name, category_code, description, is_mandatory)
-				 VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
-				tenantID, cat.Name, strings.ToUpper(cat.Code), nullableString(cat.Description), cat.IsMandatory); err != nil {
+				`INSERT INTO fee_categories (tenant_id, code, name, description, is_tuition, is_optional, requires_consent, is_active)
+				 VALUES ($1,$2,$3,$4,false,false,$5,true) ON CONFLICT DO NOTHING`,
+				tenantID, strings.ToUpper(cat.Code), cat.Name, nullableString(cat.Description), cat.IsMandatory); err != nil {
 				return err
 			}
 		}
 		var defaultYear string
 		_ = tx.QueryRowContext(c.Request.Context(), `SELECT year_id FROM academic_years WHERE tenant_id=$1 AND is_current=true ORDER BY created_at DESC LIMIT 1`, tenantID).Scan(&defaultYear)
+		// category_id is a UUID FK. Prefer the first category just inserted by
+		// the caller; fall back to the global TUITION reference category.
+		var defaultCatID string
+		if len(req.Categories) > 0 {
+			if e := tx.QueryRowContext(c.Request.Context(),
+				`SELECT category_id FROM fee_categories WHERE tenant_id=$1 AND code=$2`, tenantID, strings.ToUpper(req.Categories[0].Code)).Scan(&defaultCatID); e != nil {
+				return e
+			}
+		} else if e := tx.QueryRowContext(c.Request.Context(),
+			`SELECT category_id FROM fee_categories WHERE tenant_id IS NULL AND code='TUITION'`).Scan(&defaultCatID); e != nil {
+			return e
+		}
 		for _, fs := range req.Structures {
 			yid := fs.YearID
 			if yid == "" {
@@ -462,9 +489,10 @@ func (h *Handler) SetupFinance(c *gin.Context) {
 				return fmt.Errorf("year_id required for fee structure")
 			}
 			if _, err := tx.ExecContext(c.Request.Context(),
-				`INSERT INTO fee_structures (tenant_id, year_id, grade_id, amount, term)
-				 VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
-				tenantID, yid, fs.GradeID, fs.Amount, nullableString(fs.Term)); err != nil {
+				`INSERT INTO fee_structures (tenant_id, academic_year_id, grade_id, category_id,
+				 amount_per_term, amount_per_year, currency, is_mandatory, payment_frequency, due_day)
+				 VALUES ($1,$2,$3,$4,$5,$6,'KES',true,'PER_TERM',5) ON CONFLICT DO NOTHING`,
+				tenantID, yid, fs.GradeID, defaultCatID, fs.Amount, fs.Amount); err != nil {
 				return err
 			}
 		}
@@ -474,10 +502,11 @@ func (h *Handler) SetupFinance(c *gin.Context) {
 				env = "PRODUCTION"
 			}
 			cats, _ := json.Marshal(ch.RoutedFeeCategories)
+			tok, _ := generateRandomToken(16)
 			if _, err := tx.ExecContext(c.Request.Context(),
-				`INSERT INTO school_payment_channels (tenant_id, channel_type, shortcode_or_account, label, environment, is_default, status, reference_format, routed_fee_categories)
-				 VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE','ACCOUNT_NUMBER',$7) ON CONFLICT DO NOTHING`,
-				tenantID, ch.ChannelType, ch.ShortcodeOrAccount, ch.Label, env, ch.IsDefault, string(cats)); err != nil {
+				`INSERT INTO school_payment_channels (tenant_id, channel_type, shortcode_or_account, label, environment, is_default, status, reference_format, routed_fee_categories, channel_token, c2b_registered)
+				 VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE','ACCOUNT_NUMBER',$7,$8,false) ON CONFLICT DO NOTHING`,
+				tenantID, ch.ChannelType, ch.ShortcodeOrAccount, ch.Label, env, ch.IsDefault, string(cats), tok); err != nil {
 				return err
 			}
 		}

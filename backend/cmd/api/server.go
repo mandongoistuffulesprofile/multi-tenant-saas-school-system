@@ -469,16 +469,18 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	obGroup.POST("/opening-stock", middleware.RequireRole(middleware.RoleSchoolAdministrators...), openingBalanceHandler.PostOpeningStock)
 
 	holdingGroup := apiV1.Group("/holding-tank")
-	holdingGroup.Use(middleware.TenantTxMiddleware(database.DB))
-	holdingGroup.GET("", holdingtankHandler.ListHoldingTank)
+	holdingGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.TenantTxMiddleware(database.DB))
+	holdingGroup.GET("", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ListHoldingTank)
 	holdingGroup.POST("/:id/resolve", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ResolveHoldingTank)
 
 	tokenGroup := apiV1.Group("/delegated-tokens")
-	tokenGroup.Use(middleware.TenantTxMiddleware(database.DB))
-	tokenGroup.GET("", holdingtankHandler.ListTokens)
+	tokenGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.TenantTxMiddleware(database.DB))
+	tokenGroup.GET("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.ListTokens)
 	tokenGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.CreateToken)
 	tokenGroup.POST("/:id/revoke", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.RevokeToken)
-	apiV1.GET("/delegated-tokens/validate", holdingtankHandler.ValidateToken)
+	// Token validation is called from kiosk/parent devices that hold a token
+	// but no session; require auth so it can't be used as an open validator.
+	apiV1.GET("/delegated-tokens/validate", middleware.RequireAuthGin(jwtManager), holdingtankHandler.ValidateToken)
 
 	// Calendar routes
 	calGroup := apiV1.Group("/calendar")
