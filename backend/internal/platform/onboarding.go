@@ -335,7 +335,8 @@ func (h *Handler) SetupCalendar(c *gin.Context) {
 		err := tx.QueryRowContext(c.Request.Context(),
 			`INSERT INTO academic_years (tenant_id, year_label, start_date, end_date, is_current)
 			 VALUES ($1,$2,$3,$4,$5)
-			 ON CONFLICT DO NOTHING RETURNING year_id`, tenantID, req.YearLabel, req.StartDate, req.EndDate, req.SetCurrent).Scan(&yearID)
+			 ON CONFLICT (tenant_id, year_label) DO UPDATE SET is_current = EXCLUDED.is_current, start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date
+			 RETURNING year_id`, tenantID, req.YearLabel, req.StartDate, req.EndDate, req.SetCurrent).Scan(&yearID)
 		if err == sql.ErrNoRows {
 			err = tx.QueryRowContext(c.Request.Context(), `SELECT year_id FROM academic_years WHERE tenant_id=$1 AND year_label=$2`, tenantID, req.YearLabel).Scan(&yearID)
 		}

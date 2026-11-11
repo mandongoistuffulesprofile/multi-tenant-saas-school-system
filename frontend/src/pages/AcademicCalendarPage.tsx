@@ -7,13 +7,21 @@ import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
 
 export default function AcademicCalendarPage() {
-  const handleAddTerm = async (yearId: string, name: string, starts: string, ends: string) => {
+  // POST /calendar/terms expects { year_id, term_number, term_label, start_date,
+  // end_date, midterm_start?, midterm_end?, is_current? } — the API contract.
+  const handleAddTerm = async (yearId: string, label: string, starts: string, ends: string) => {
     setAdding(true);
     try {
-      await api.post("/calendar/terms", { academic_year_id: yearId || undefined, term_name: name });
+      await api.post("/calendar/terms", {
+        year_id: yearId || undefined,
+        term_number: (terms.length || 0) + 1,
+        term_label: label,
+        start_date: starts || undefined,
+        end_date: ends || undefined,
+      });
       toast("Term added to calendar!", { type: "success" });
       setTermModal(false);
-      setTermForm({ year_id: "", term_name: "" });
+      setTermForm({ year_id: "", term_label: "" });
       api.get("/calendar/terms").then((r) => setTerms(Array.isArray(r.data) ? r.data : []));
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to add term", { type: "error" });
@@ -23,7 +31,7 @@ export default function AcademicCalendarPage() {
   };
 
   const [termModal, setTermModal] = useState(false);
-  const [termForm, setTermForm] = useState({ year_id: "", term_name: "" });
+  const [termForm, setTermForm] = useState({ year_id: "", term_label: "" });
   const [adding, setAdding] = useState(false);
 
   const [years, setYears] = useState<any[]>([]);
@@ -96,7 +104,7 @@ export default function AcademicCalendarPage() {
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setTermModal(false)}>
               <div style={{ background: "#fff", borderRadius: 8, padding: "1.5rem", width: "22rem", maxWidth: "90vw" }} onClick={(e) => e.stopPropagation()}>
                 <h3 className="text-heading" style={{ marginBottom: "1rem" }}>Add Term</h3>
-                <form onSubmit={(e) => { e.preventDefault(); handleAddTerm(termForm.year_id, termForm.term_name, "", ""); }}>
+                <form onSubmit={(e) => { e.preventDefault(); handleAddTerm(termForm.year_id, termForm.term_label, "", ""); }}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
                     <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Academic Year</span>
                     <select
@@ -116,8 +124,8 @@ export default function AcademicCalendarPage() {
                       type="text"
                       required
                       placeholder="e.g. Term 2"
-                      value={termForm.term_name}
-                      onChange={(e) => setTermForm({ ...termForm, term_name: e.target.value })}
+                      value={termForm.term_label}
+                      onChange={(e) => setTermForm({ ...termForm, term_label: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     />
                   </label>
