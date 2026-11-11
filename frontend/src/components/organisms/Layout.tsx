@@ -45,6 +45,7 @@ import {
   ACADEMIC_ROLES,
   formatRoles,
 } from "../../lib/roles";
+import TopBar from "../organisms/TopBar";
 
 interface LayoutProps {
   children?: ReactNode;
@@ -356,8 +357,8 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       )}
 
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
-        {impSchool && (
+      <TopBar
+        banner={impSchool && (
           <div className="w-full bg-slate-900 text-white text-xs px-4 py-2 flex items-center justify-between no-print">
             <span className="font-bold tracking-wide">
               🎭 AUDIT SESSION: viewing <b>{impSchool}</b> as school admin — every action is attributed and logged (Platform Audit)
@@ -370,8 +371,8 @@ export default function Layout({ children }: LayoutProps) {
             </button>
           </div>
         )}
-        <div className="flex items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-3">
+        left={
+          <>
             <button
               type="button"
               className="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100"
@@ -381,16 +382,18 @@ export default function Layout({ children }: LayoutProps) {
               ≡
             </button>
             <span className="font-display font-bold text-kenyan-red text-lg">SkulApp</span>
-          </div>
-
-          <div className="hidden md:flex items-center gap-4">
-            <span className="text-sm text-gray-600">{t("tenant_id")}:</span>
-            <span className="text-sm font-medium text-gray-900 font-mono">{(() => {
-              try { return localStorage.getItem("school_code") || (isSaasAdmin ? "Platform" : "School"); }
-              catch { return isSaasAdmin ? "Platform" : "School"; }
-            })()}</span>
-          </div>
-
+          </>
+        }
+        center={
+            <span className="text-sm text-gray-600">
+              {t("tenant_id")}:
+              <span className="font-medium text-gray-900 font-mono ml-1">{(() => {
+                try { return localStorage.getItem("school_code") || (isSaasAdmin ? "Platform" : "School"); }
+                catch { return isSaasAdmin ? "Platform" : "School"; }
+              })()}</span>
+            </span>
+          }
+        right={
           <div className="flex items-center gap-3">
             <div className="hidden md:flex flex-col items-end">
               <span className="text-sm font-medium text-gray-900">{t("role")}</span>
@@ -411,8 +414,8 @@ export default function Layout({ children }: LayoutProps) {
               </Button>
             </div>
           </div>
-        </div>
-      </header>
+        }
+      />
 
       <div className="flex">
         <aside

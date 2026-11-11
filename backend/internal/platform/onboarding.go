@@ -59,7 +59,7 @@ type ReadinessResult struct {
 func (h *Handler) ensureOnboarding(ctx context.Context, tenantID, actor string) error {
 	_, err := h.service.database.ExecContext(ctx,
 		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, created_by, updated_by)
-		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,''), NULLIF($2,''))
+		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,'')::uuid, NULLIF($2,'')::uuid)
 		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID, actor)
 	return err
 }
@@ -96,13 +96,13 @@ func (h *Handler) updateOnboarding(ctx context.Context, tenantID, status, step, 
 	draftJSON, _ := json.Marshal(patchDraft)
 	_, err := h.service.database.ExecContext(ctx,
 		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, steps, draft, updated_by)
-		 VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, NULLIF($6,''))
+		 VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, NULLIF($6,'')::uuid)
 		 ON CONFLICT (tenant_id) DO UPDATE SET
 		   status = EXCLUDED.status,
 		   current_step = EXCLUDED.current_step,
 		   steps = COALESCE(platform_tenant_onboarding.steps,'{}'::jsonb) || EXCLUDED.steps,
 		   draft = COALESCE(platform_tenant_onboarding.draft,'{}'::jsonb) || EXCLUDED.draft,
-		   updated_by = NULLIF($6,''),
+		   updated_by = NULLIF($6,'')::uuid,
 		   updated_at = CURRENT_TIMESTAMP`, tenantID, status, step, string(stepsJSON), string(draftJSON), actor)
 	return err
 }
@@ -671,7 +671,7 @@ func (h *Handler) CompleteSetup(c *gin.Context) {
 	}
 	readyBytes, _ := json.Marshal(res)
 	_, err = h.service.database.ExecContext(c.Request.Context(),
-		`UPDATE platform_tenant_onboarding SET status='READY_FOR_HANDOFF', current_step='HANDOFF', readiness=$2::jsonb, updated_by=NULLIF($3,''), updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1`,
+		`UPDATE platform_tenant_onboarding SET status='READY_FOR_HANDOFF', current_step='HANDOFF', readiness=$2::jsonb, updated_by=NULLIF($3,'')::uuid, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1`,
 		tenantID, string(readyBytes), actor)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})

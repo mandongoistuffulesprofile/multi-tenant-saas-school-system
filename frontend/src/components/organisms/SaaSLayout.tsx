@@ -1,11 +1,10 @@
 import React, { ReactNode, useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useAuthStore } from "../../lib/authStore";
 import { api } from "../../lib/api";
 import Badge from "../atoms/Badge";
-import Button from "../atoms/Button";
 import { BarChart3, Users, Plus, BookOpen, Shield, ShieldCheck, Layout, Theater, CreditCard, Zap } from "lucide-react";
+import TopBar from "../organisms/TopBar";
 
 interface Tab {
   path: string;
@@ -55,21 +54,25 @@ export default function SaaSLayout({ children }: SaaSLayoutProps) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="sticky top-0 z-20 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="font-display font-bold text-kenyan-red text-lg">SkulApp Console</span>
-          <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">saas root</span>
-        </div>
-        <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
-          <Badge variant="default" className="text-xs">{t("online", { defaultMessage: "Online" })}</Badge>
-          <button
-            onClick={() => { localStorage.clear(); window.location.href = "/login"; }}
-            className="ml-3 text-xs text-gray-500 hover:text-kenyan-red font-medium transition"
-          >
-            {t("sign_out", { defaultMessage: "Sign Out" })}
-          </button>
-        </div>
-      </header>
+      <TopBar
+        left={
+          <>
+            <span className="font-display font-bold text-kenyan-red text-lg">SkulApp Console</span>
+            <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">saas root</span>
+          </>
+        }
+        right={
+          <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
+            <Badge variant="default" className="text-xs">{t("online", { defaultMessage: "Online" })}</Badge>
+            <button
+              onClick={() => { localStorage.clear(); window.location.href = "/login"; }}
+              className="ml-3 text-xs text-gray-500 hover:text-kenyan-red font-medium transition"
+            >
+              {t("sign_out", { defaultMessage: "Sign Out" })}
+            </button>
+          </div>
+        }
+      />
 
       <div className="flex flex-1">
         <aside className="hidden md:flex w-64 flex-col border-r border-gray-200 bg-white">
