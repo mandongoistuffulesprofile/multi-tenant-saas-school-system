@@ -1,29 +1,23 @@
 {
-  "name": "SkulApp - Teacher PWA",
-  "short_name": "SkulApp Teacher",
-  "description": "Kenyan primary school teacher PWA for grading, attendance, and offline sync",
-  "start_url": "/teacher/classes",
+  "name": "Shule Yetu — Teacher PWA",
+  "short_name": "ShuleYetu",
+  "description": "Kenyan primary school teacher PWA for CBC grading, attendance, and offline sync",
+  "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#FFFFFF",
   "theme_color": "#CE1126",
-  "id": "/teacher/",
-  "icons": [
-    {
-      "src": "/vite.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
-  ],
-  "categories": ["education", "productivity"],
   "lang": "en",
   "dir": "ltr",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
   "shortcuts": [
-    { "name": "My Classes", "url": "/teacher/classes", "icons": [{ "src": "/vite.svg", "sizes": "any" }] },
-    { "name": "Grading", "url": "/teacher/grading", "icons": [{ "src": "/vite.svg", "sizes": "any" }] },
-    { "name": "Attendance", "url": "/teacher/attendance", "icons": [{ "src": "/vite.svg", "sizes": "any" }] },
-    { "name": "Sync Centre", "url": "/teacher/sync", "icons": [{ "src": "/vite.svg", "sizes": "any" }] }
+    { "name": "My Classes", "url": "/teacher/classes", "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }] },
+    { "name": "Grading", "url": "/teacher/grading", "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }] },
+    { "name": "Attendance", "url": "/teacher/attendance", "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }] },
+    { "name": "Sync Centre", "url": "/teacher/sync", "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }] }
   ],
   "related_applications": [],
   "prefer_related_applications": false

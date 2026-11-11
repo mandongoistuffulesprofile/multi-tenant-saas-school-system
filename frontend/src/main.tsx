@@ -8,12 +8,15 @@ import i18n from "./i18n";
 import "./styles/index.css";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/toast/ToastProvider";
-import { installSyncHooks } from "./lib/sync";
+import { installSyncHooks, registerBackgroundSync } from "./lib/sync";
 import { registerServiceWorker } from "./serviceWorkerRegistration";
 import { useAuthStore } from "./lib/authStore";
 
 installSyncHooks();
 registerServiceWorker();
+// After the SW is ready, ask the browser to flush the outbox when the
+// network comes back — even if the user killed the tab.
+registerBackgroundSync();
 
 /**
  * Bootstrap session from HttpOnly cookies by calling /me.

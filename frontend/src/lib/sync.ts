@@ -124,18 +124,48 @@ export async function syncNow(): Promise<{ synced: number; failed: number; confl
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
+/**
+ * Register a Background Sync tag so the browser fires our outbox drain when
+ * connectivity returns — even if the user killed the tab. Best-effort: the
+ * call is a no-op when the browser doesn't support it (Safari).
+ */
+export function registerBackgroundSync(): void {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready
+    .then((reg) => {
+      // @ts-expect-error — sync is Chrome/Android-first; feature-detect.
+      if (typeof reg.sync !== 'undefined' && typeof reg.sync.register === 'function') {
+        // @ts-expect-error
+        reg.sync.register('sync-outbox').catch(() => { /* unsupported */ });
+      }
+    })
+    .catch(() => { /* SW not ready */ });
+}
+
+/**
+ * Install the in-page hooks: online/visibility flush + SW message relay.
+ * Returns a disposer.
+ */
 export function installSyncHooks(): () => void {
   const handleOnline = () => { syncNow(); };
   const handleVisibility = () => {
     if (!document.hidden && isOnline()) syncNow();
   };
+  const handleMessage = (event: MessageEvent) => {
+    if (event.data?.type === 'TRIGGER_OUTBOX_DRAIN' && isOnline()) {
+      syncNow();
+    }
+  };
   if (typeof window !== "undefined") {
     window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", () => emit());
     document.addEventListener("visibilitychange", handleVisibility);
+    navigator.serviceWorker?.addEventListener?.("message", handleMessage);
   }
   return () => {
     if (typeof window !== "undefined") {
       window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", () => emit());
       document.removeEventListener("visibilitychange", handleVisibility);
     }
   };

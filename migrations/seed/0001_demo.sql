@@ -7,6 +7,9 @@
 --     go run ./cmd/devuser
 -- Change or delete this tenant before production.
 
+-- RLS-aware tables require app.current_tenant_id to be set before writes.
+SELECT set_config('app.current_tenant_id', 'demo-school', true);
+
 INSERT INTO schools (tenant_id, school_name, subdomain, school_type, funding_mode, status, license_tier)
 VALUES ('demo-school', 'Demo Primary School', 'demo', 'PRIMARY', 'PRIVATE', 'ACTIVE', 'STANDARD')
 ON CONFLICT (tenant_id) DO NOTHING;
