@@ -46,6 +46,7 @@ import {
   formatRoles,
 } from "../../lib/roles";
 import TopBar from "../organisms/TopBar";
+import Breadcrumb, { useBreadcrumbs } from "../organisms/Breadcrumb";
 
 interface LayoutProps {
   children?: ReactNode;
@@ -416,6 +417,8 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         }
       />
+
+      <Breadcrumb items={useBreadcrumbs()} />
 
       <div className="flex">
         <aside
