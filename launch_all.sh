@@ -4,11 +4,12 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend"
 
-# Ensure Postgres role/db exist (requires sudo once)
+# Ensure Postgres role/db exist (requires an interactive sudo session once).
 if ! PGPASSWORD=dev_secret_password psql "postgres://school_admin:dev_secret_password@localhost:5432/school_system" -c "SELECT 1" >/dev/null 2>&1; then
-  echo "Creating Postgres role/db (requires sudo)..."
-  echo '[REDACTED]' | sudo -S -u postgres psql -c "CREATE USER school_admin WITH PASSWORD 'dev_secret_password';" 2>/dev/null || true
-  echo '[REDACTED]' | sudo -S -u postgres psql -c "CREATE DATABASE school_system OWNER school_admin;" 2>/dev/null || true
+  echo "Postgres role/db missing. Create them as a superuser, then re-run:" >&2
+  echo "  sudo -u postgres psql -c \"CREATE USER school_admin WITH PASSWORD 'dev_secret_password';\"" >&2
+  echo "  sudo -u postgres psql -c \"CREATE DATABASE school_system OWNER school_admin;\"" >&2
+  exit 1
 fi
 
 # Backend

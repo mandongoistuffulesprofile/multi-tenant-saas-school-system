@@ -67,6 +67,17 @@ func run(db *sql.DB, dir string, seed, dryRun bool, baseline string) error {
 		return fmt.Errorf("acquire migration lock: %w", err)
 	}
 
+	// The baseline was dumped from a provisioned database and references
+	// extensions.uuid_generate_v4(). Bootstrap the schema/extension so a fresh
+	// production database can be migrated without a manual pre-step. Both
+	// statements are idempotent and the official postgres images ship contrib.
+	if _, err := db.Exec(`
+		CREATE SCHEMA IF NOT EXISTS extensions;
+		CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
+	`); err != nil {
+		return fmt.Errorf("bootstrap extensions schema: %w", err)
+	}
+
 	if baseline != "" {
 		if dryRun {
 			return fmt.Errorf("-baseline cannot be combined with -dry-run")

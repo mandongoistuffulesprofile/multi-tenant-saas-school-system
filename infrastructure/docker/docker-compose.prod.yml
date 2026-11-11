@@ -14,7 +14,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-skulapp}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PostgreSQL 18 images create the cluster in a subdirectory of
+      # /var/lib/postgresql; mounting .../data blocks startup. pg_upgrade a
+      # pre-18 volume before switching (see docker-library/postgres#37).
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-skulapp_app} -d ${POSTGRES_DB:-skulapp}"]
       interval: 5s
