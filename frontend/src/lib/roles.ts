@@ -38,3 +38,27 @@ export const ACADEMIC_ROLES = [
 
 /** Can view school operations data: staff, compliance, calendar, comms. */
 export const ADMIN_ROLES = [Role.SchoolAdmin, Role.Head, Role.Deputy, Role.Clerk];
+
+/**
+ * Human-readable labels for the raw role codes shown in the top bar.
+ * Mirrors the backend role vocabulary; a code with no entry falls back to
+ * the code itself rather than leaking "school_admin" to a School Head.
+ */
+export const ROLE_LABELS: Record<string, string> = {
+  SCHOOL_ADMIN: "School Administrator",
+  HEAD: "Head Teacher",
+  DEPUTY: "Deputy Head",
+  BURSAR: "Bursar",
+  CLERK: "Clerk",
+  TEACHER: "Teacher",
+  PARENT: "Parent",
+  GUARDIAN: "Guardian",
+  SAAS_ADMIN: "Platform Administrator",
+  SUPER_ADMIN: "Super Administrator",
+};
+
+export function formatRoles(roles: string[]): string {
+  return roles
+    .map((r) => ROLE_LABELS[r] || r.replace(/_/g, " ").toLowerCase())
+    .join(", ");
+}

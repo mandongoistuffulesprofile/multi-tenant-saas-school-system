@@ -87,6 +87,16 @@ export const translations = {
       holder_name: "Holder name",
       tag_uid: "Tag UID",
       event_type: "Event type",
+      // Sidebar labels that bypass t() in Layout.tsx
+      mpesa_ledger: "M-Pesa Ledger",
+      board_pack: "Board Pack",
+      reconciliation: "Reconciliation",
+      // Audit trail — human-readable column headers (no raw snake_case)
+      audit_what_happened: "What happened",
+      audit_record: "Record",
+      audit_source_ip: "Source IP",
+      audit_school: "School",
+      audit_details: "View details",
       timestamp: "Timestamp",
       verified: "Verified",
       learner: "Learner",
@@ -548,6 +558,16 @@ export const translations = {
       verified: "Imethibitishwa",
       learner: "Mwanafunzi",
       mark: "Maa",
+      // Sidebar labels that bypass t() in Layout.tsx
+      mpesa_ledger: "M-Pesa Ledger",
+      board_pack: "Board Pack",
+      reconciliation: "Sawarisha",
+      // Audit trail — human-readable column headers
+      audit_what_happened: "Kitu kilichotokea",
+      audit_record: "Rekodi",
+      audit_source_ip: "Anwani ya IP",
+      audit_school: "Shule",
+      audit_details: "Angalia maelezo",
       level: "Kiwango",
       total_learners: "Jumla ya Wanafunzi",
       queue: "Kikundi",

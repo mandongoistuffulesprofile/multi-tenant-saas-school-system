@@ -43,6 +43,7 @@ import {
   FINANCE_ROLES,
   ADMIN_ROLES,
   ACADEMIC_ROLES,
+  formatRoles,
 } from "../../lib/roles";
 
 interface LayoutProps {
@@ -71,9 +72,9 @@ const SECTION_GROUPS: { id: string; label: string; items: SideItem[] }[] = [
       { path: "/finance/payments", label: "payments" },
       { path: "/finance/fee-categories", label: "fee_categories" },
       { path: "/finance/fee-structures", label: "fee_structures" },
-      { path: "/finance/mpesa", label: "M-Pesa Ledger" },
-      { path: "/finance/reconciliation", label: "Reconciliation" },
-      { path: "/finance/board-pack", label: "Board Pack" },
+      { path: "/finance/mpesa", label: "mpesa_ledger" },
+      { path: "/finance/reconciliation", label: "reconciliation" },
+      { path: "/finance/board-pack", label: "board_pack" },
     ],
   },
   {
@@ -143,9 +144,9 @@ function sectionForPath(path: string): string | null {
 
 const LABEL_KEYS = new Set([
   "learners", "grades_streams", "teaching_allocation", "staff", "invoices", "payments",
-  "fee_categories", "fee_structures", "calendar", "curriculum", "assessment", "reports",
-  "attendance", "comms", "compliance", "knec", "school", "integrations", "platform",
-  "dashboard", "profile",
+  "fee_categories", "fee_structures", "mpesa_ledger", "reconciliation", "board_pack",
+  "calendar", "curriculum", "assessment", "reports", "attendance", "comms", "compliance",
+  "knec", "school", "integrations", "platform", "dashboard", "profile",
 ]);
 
 function isKey(label: string) {
@@ -347,7 +348,6 @@ export default function Layout({ children }: LayoutProps) {
                     className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-50 flex justify-between"
                   >
                     <span className="font-medium">{t(n.keys.split(" ")[0]) !== n.keys.split(" ")[0] ? t(n.keys.split(" ")[0]) : n.keys.split(" ")[0].replace(/\b\w/g, (c) => c.toUpperCase())}</span>
-                    <span className="font-mono text-[10px] text-gray-400">{n.path}</span>
                   </button>
                 ));
               })()}
@@ -394,7 +394,7 @@ export default function Layout({ children }: LayoutProps) {
           <div className="flex items-center gap-3">
             <div className="hidden md:flex flex-col items-end">
               <span className="text-sm font-medium text-gray-900">{t("role")}</span>
-              <span className="text-xs text-gray-500 capitalize">{roles.join(", ").toLowerCase()}</span>
+              <span className="text-xs text-gray-500 capitalize">{formatRoles(roles)}</span>
             </div>
             <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
               <button

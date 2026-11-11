@@ -6,6 +6,7 @@ import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 import { AccessLog } from "../../lib/types";
 import Input from "../../components/atoms/Input";
+import { formatAuditNarrative } from "../../lib/auditNarrative";
 
 export default function PlatformAuditPage() {
   const { t } = useTranslation();
@@ -15,8 +16,6 @@ export default function PlatformAuditPage() {
 
   useEffect(() => {
     let alive = true;
-    // Real audit trail: server-written audit_log rows (logins, impersonation,
-    // writes, consent changes, report runs…).
     api
       .get("/platform/audit")
       .then((r) => {
@@ -25,14 +24,11 @@ export default function PlatformAuditPage() {
         setState("content");
       })
       .catch(() => alive && setState("error"));
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
   const filtered = logs.filter((l) =>
-    (l.action || "").toLowerCase().includes(search.toLowerCase()) ||
-    (l.resource_type || "").toLowerCase().includes(search.toLowerCase()) ||
+    formatAuditNarrative(l as any).toLowerCase().includes(search.toLowerCase()) ||
     (l.tenant_id || "").toString().toLowerCase().includes(search.toLowerCase())
   );
 
@@ -44,17 +40,22 @@ export default function PlatformAuditPage() {
     <div className="p-4 space-y-4">
       <h1 className="text-display font-display">{t("saas.audit")}</h1>
       <Card className="p-4">
-        <Input placeholder={'Search audit log'} value={search} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)} className="max-w-sm" />
+        <Input placeholder={t("saas.search_audit")} value={search} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)} className="max-w-sm" />
         <DataTable
           data={filtered}
           columns={[
-            { key: "accessed_at", header: t("timestamp"), render: (row: any) => String(row.accessed_at || "").replace("T", " ").slice(0, 19) },
-            { key: "action", header: t("action") },
-            { key: "resource_type", header: t("saas.resource_type") },
-            { key: "resource_id", header: t("saas.resource_id") },
-            { key: "tenant_code", header: t("tenant_id"), render: (row: any) => row.tenant_code || row.tenant_id || "—" },
-            { key: "ip_address", header: t("saas.ip_address") },
+            { key: "accessed_at", header: t("common.timestamp"), render: (row: any) => String(row.accessed_at || "").replace("T", " ").slice(0, 19) },
+            { key: "narrative", header: t("common.audit_what_happened"), render: (row: any) => formatAuditNarrative(row) },
+            { key: "tenant_id", header: t("common.audit_school"), render: (row: any) => row.tenant_code || row.tenant_id || "—" },
+            { key: "ip_address", header: t("common.audit_source_ip") },
           ]}
+          expandable={(row: any) => (
+            <div className="text-xs space-y-1 font-mono">
+              <div><b>{t("common.audit_record")}:</b> {row.resource_type} / {row.resource_id}</div>
+              <div><b>{t("common.audit_source_ip")}:</b> {row.ip_address}</div>
+              {row.user_agent && <div><b>User agent:</b> {row.user_agent}</div>}
+            </div>
+          )}
           emptyMessage={'No audit logs'}
           keyField="log_id"
         />

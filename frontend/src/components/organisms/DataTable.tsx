@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { FileText } from "lucide-react";
 import { InstitutionalEmptyState } from "../ui/InstitutionalEmptyState";
 
@@ -19,6 +20,8 @@ interface DataTableProps<T extends Record<string, any>> {
   loading?: boolean;
   skeletonRows?: number;
   className?: string;
+  /** Optional per-row expanded content (e.g. raw audit detail behind a narrative). */
+  expandable?: (row: T) => React.ReactNode;
 }
 
 function TableSkeleton({ columns }: { columns: number }) {
@@ -46,7 +49,9 @@ export default function DataTable<T extends Record<string, any>>({
   loading = false,
   skeletonRows = 3,
   className = "",
+  expandable,
 }: DataTableProps<T>) {
+  const { t } = useTranslation();
   const [sortKey, setSortKey] = React.useState<string | null>(null);
   const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc");
 
@@ -114,34 +119,49 @@ export default function DataTable<T extends Record<string, any>>({
             {sorted.map((row) => {
               const k = String((row as Record<string, unknown>)[keyField] ?? JSON.stringify(row));
               return (
-                <tr
-                  key={k}
-                  className={`hover:bg-gray-50 transition-colors ${
-                    onRowClick ? "cursor-pointer" : ""
-                  }`}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  role={onRowClick ? "button" : undefined}
-                  tabIndex={onRowClick ? 0 : undefined}
-                  onKeyDown={
-                    onRowClick
-                      ? (e: React.KeyboardEvent) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onRowClick(row);
+                <React.Fragment key={k}>
+                  <tr
+                    key={k}
+                    className={`hover:bg-gray-50 transition-colors ${
+                      onRowClick ? "cursor-pointer" : ""
+                    }`}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    role={onRowClick ? "button" : undefined}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    onKeyDown={
+                      onRowClick
+                        ? (e: React.KeyboardEvent) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onRowClick(row);
+                            }
                           }
-                        }
-                      : undefined
-                  }
-                >
-                  {columns.map((col) => (
-                    <td
-                      key={String(col.key)}
-                      className={`px-6 py-4 text-sm text-gray-900 whitespace-nowrap ${col.className ?? ""}`}
-                    >
-                      {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "—")}
-                    </td>
-                  ))}
-                </tr>
+                        : undefined
+                    }
+                  >
+                    {columns.map((col) => (
+                      <td
+                        key={String(col.key)}
+                        className={`px-6 py-4 text-sm text-gray-900 whitespace-nowrap ${col.className ?? ""}`}
+                      >
+                        {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "—")}
+                      </td>
+                    ))}
+                  </tr>
+                  {expandable && (
+                    <tr key={k + "-expanded"} className="bg-gray-50/50">
+                      <td colSpan={columns.length} className="px-6 py-3 text-sm text-gray-700 border-t border-gray-100">
+                        <details className="group">
+                          <summary className="cursor-pointer list-none flex items-center gap-2 text-xs font-medium text-gray-500 group-open:text-gray-900">
+                            <span className="transition-transform group-open:rotate-900">›</span>
+                            {t("common.audit_details")}
+                          </summary>
+                          <div className="mt-2 ml-4">{expandable(row)}</div>
+                        </details>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>
