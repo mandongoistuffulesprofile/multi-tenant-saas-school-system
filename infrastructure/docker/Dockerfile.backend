@@ -1,13 +1,20 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 COPY backend/go.mod backend/go.sum* ./
-RUN go mod download || true
+RUN go mod download
 COPY backend/ ./backend/
-RUN CGO_ENABLED=0 GOOS=linux go build -o /server ./backend/cmd/api/main.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -buildvcs=false \
+    -o /out/api ./backend/cmd/api/main.go
 
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /server .
+# Static binary (CGO_ENABLED=0) — no need for Alpine. distroless/static ships
+# CA certs (M-Pesa callbacks) and tzdata (Africa/Nairobi) that `scratch` would
+# omit. Non-root by default, minimal attack surface.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=builder /out/api /api
 EXPOSE 8080
-CMD ["./server"]
+ENTRYPOINT ["/api"]

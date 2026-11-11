@@ -32,3 +32,6 @@ logs/
 
 backend/api
 backend/cmd/api/api
+
+# Build analysis artifacts
+stats.html

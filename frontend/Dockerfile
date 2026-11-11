@@ -17,7 +17,10 @@ RUN npm config set fetch-retries 5 \
 COPY . .
 RUN npm run build
 
+# nginx-mod-http-brotli serves the precompressed .br/.gz variants Vite emits,
+# skipping per-request CPU on every response.
 FROM nginx:1.27-alpine
+RUN apk --no-cache add nginx-mod-http-brotli
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
