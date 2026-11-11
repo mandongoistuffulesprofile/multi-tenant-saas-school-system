@@ -11,6 +11,8 @@ This is the evidence-backed status, not a feature wish list.
 | Frontend `npx tsc --noEmit` | Pass |
 | Frontend `npm run build` | Pass (lockfile committed; `npm ci` reproducible) |
 | SPA auth | HttpOnly cookies (`withCredentials`), CSRF double-submit header on unsafe methods, single-flight refresh; no token persisted to localStorage |
+| Offline-first auth | Non-sensitive identity/roles cached (never tokens) so an offline reload still renders the app and can flush the sync queue; explicit 401/403 clears it |
+| Credential lifecycle | No passwords in seeds or docs; `cmd/devuser`/`cmd/setpassword` generate 24-char unambiguous passwords (argon2id, unique per-user salt) and print them once; login lockout + tenant membership resolution tested under FORCE RLS; email reset token is hashed, one-shot, policy-checked, and revokes sessions/refresh tokens |
 | Docker images | `skulapp-api:latest` and `skulapp-web:latest` build from the committed Dockerfiles |
 | Compose stack (`infrastructure/docker/docker-compose.prod.yml`) on a fresh PostgreSQL 18 volume | 24 migrations applied, 127 tables, 107 policies |
 | `GET /health` / `GET /health/ready` inside the stack | `{"status":"healthy"}` / `{"status":"ready"}` |
@@ -24,6 +26,7 @@ This is the evidence-backed status, not a feature wish list.
 
 - Postgres 18 requires the data volume at `/var/lib/postgresql` (not `.../data`); the prod compose file now uses the correct path.
 - The baseline dump references `extensions.uuid_generate_v4()`. `cmd/migrate` now bootstraps `CREATE SCHEMA IF NOT EXISTS extensions` and `uuid-ossp` before applying migrations, so a brand-new database migrates unattended.
+- FORCE RLS hid `tenant_memberships` during login, so every sign-in failed on an RLS-enforced database. Migration `0025_tenant_membership_self_access.sql` adds a self-select policy; login now reads memberships in a transaction scoped by `app.current_user_id`, and `TestTenantRLS` covers it.
 
 ## Before the first paying tenant
 

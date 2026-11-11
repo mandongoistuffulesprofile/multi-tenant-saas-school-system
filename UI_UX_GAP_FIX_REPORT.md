@@ -134,7 +134,7 @@ Writes emit `audit_log` rows; validation errors use `{ message, field_errors: [{
 - `/teaching-allocation` — curriculum areas (LA-ENG/KIS/MAT/SCI/SCR/AGR), save → DB row + toast. ✅
 - Sidebar — full menu incl. the 5 new entries. ✅
 
-**Platform admin (platform.admin@skulapp.test / [REDACTED])**
+**Platform admin (platform.admin@skulapp.test — password generated locally, never committed)**
 - `/platform/audit` — real trail incl. the **UI-created invoice CREATE row** minutes old, CONSENT_TOGGLE, IP + school code. ✅
 - `/platform/integrations` — derived rows: M-Pesa STK Push / C2B Callback healthy, callback lag 999ms, queue depth 1 (the PENDING STK request). ✅
 - `/platform/tenants` — tenant registry; Suspend on "Alliance High School" → confirm dialog naming the school with consequences copy → toast "Tenant suspended", row flipped to Activate; **re-activated** (demo tenant restored to ACTIVE). ✅

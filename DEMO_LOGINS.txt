@@ -1,64 +1,51 @@
-# SkulApp / Shule Yetu — Demo Logins (Development Only)
-# Generated for local testing. Never use in production.
+# SkulApp / Shule Yetu — Local Development Accounts
+#
+# No passwords are stored in this repository. Every account is created or
+# rotated by a command that generates a random password and prints it once;
+# store the output in your password manager. Never commit credentials.
 
-## Backend API: http://localhost:8080
-## Frontend SPA: http://localhost:5173
-## PostgreSQL: localhost:5432 (school_system / school_admin / dev_secret_password)
-## Redis: localhost:6379
+## Services
+# Backend API: http://localhost:8080
+# Frontend SPA: http://localhost:5173
+# PostgreSQL:  localhost:5432 (dev-only: school_system / school_admin / dev_secret_password)
+# Redis:       localhost:6379
 
-# ============================================================
-# 1. DEMO SCHOOL TENANT (seeded via migrations/seed/0001_demo.sql)
-#    Run: cd backend && go run ./cmd/migrate -dir ../migrations -seed
-# ============================================================
-Tenant: demo-school
-Email:    admin@demo.test
-Password: [REDACTED]
-Role:     SCHOOL_ADMIN
-Learner:  DEMO-001 (Amina Wanjiku)
-Guardian: Grace Wanjiku (254700000003)
+## 1. DEMO SCHOOL TENANT
+# The seed creates the tenant, learner and guardian only — no users.
+#   cd backend && go run ./cmd/migrate -dir ../migrations -seed
+#
+# Create the school admin (prints a generated password once):
+#   cd backend && DATABASE_URL=postgres://school_admin:dev_secret_password@localhost:5432/school_system?sslmode=disable \
+#     DEV_EMAIL=admin@demo.test DEV_PHONE=254700000001 \
+#     DEV_ROLE=SCHOOL_ADMIN DEV_TENANT=demo-school \
+#     go run ./cmd/devuser
+#
+# Tenant:   demo-school
+# Email:    admin@demo.test
+# Role:     SCHOOL_ADMIN
+# Learner:  DEMO-001 (Amina Wanjiku)
+# Guardian: Grace Wanjiku (254700000003)
 
-# ============================================================
-# 2. DEV TEACHER (via backend/cmd/devuser)
-#    Run: cd backend && DATABASE_URL=... DEV_EMAIL=teacher@skulapp.test \
-#           DEV_PHONE=254700000002 DEV_ROLE=TEACHER DEV_TENANT=dev-school-001 \
-#           DEV_PASSWORD='[REDACTED]' go run ./cmd/devuser
-# ============================================================
-Tenant: dev-school-001
-Email:    teacher@skulapp.test
-Password: [REDACTED]
-Phone:    254700000002
-Role:     TEACHER
+## 2. DEV TEACHER
+#   cd backend && DATABASE_URL=postgres://school_admin:dev_secret_password@localhost:5432/school_system?sslmode=disable \
+#     DEV_EMAIL=teacher@skulapp.test DEV_PHONE=254700000002 \
+#     DEV_ROLE=TEACHER DEV_TENANT=dev-school-001 \
+#     go run ./cmd/devuser
+#
+# Tenant: dev-school-001
+# Email:  teacher@skulapp.test
+# Phone:  254700000002
+# Role:   TEACHER
 
-# ============================================================
-# 3. DEV ADMIN (via backend/cmd/setpassword)
-#    Run: cd backend && DEV_PASSWORD='[REDACTED]' go run ./cmd/setpassword
-#    (Updates password_hash for user_id 121519ba-27b6-484c-8820-522dabbe5f8f)
-# ============================================================
-Email:    dev.admin@skulapp.test
-Password: [REDACTED]
-Role:     admin
+## 3. ROTATE OR RESET ANY EXISTING ACCOUNT
+# Generates a new password and prints it once (or pass NEW_PASSWORD to choose):
+#   cd backend && DATABASE_URL=... go run ./cmd/setpassword -email user@example.com
+#
+# First platform/SaaS administrator: create the tenant and user with
+# cmd/devuser using DEV_ROLE=SUPER_ADMIN (or SAAS_ADMIN) and the platform
+# tenant, then sign in with the generated password.
 
-# ============================================================
-# 4. SMOKE SCHOOL ADMIN (referenced in audit docs)
-#    Tenant: smoke-school
-# ============================================================
-Email:    smoke@skulapp.test
-Password: [REDACTED]
-Tenant:   smoke-school
-Role:     school admin
-
-# ============================================================
-# 5. SAAS / PLATFORM ADMIN (referenced in audit docs)
-#    Tenant: platform-ops
-# ============================================================
-Email:    saas@skulapp.test
-Password: [REDACTED]
-Tenant:   platform-ops
-Role:     SaaS admin
-
-# ============================================================
-# 6. PLATFORM ADMIN (referenced in UI_UX_GAP_FIX_REPORT.md)
-# ============================================================
-Email:    platform.admin@skulapp.test
-Password: [REDACTED]
-Role:     System Administrator / admin
+## 4. BEFORE PRODUCTION
+# - Demo/seed data is only applied with the -seed flag and is refused when
+#   APP_ENV=production.
+# - Delete demo tenants and accounts, and rotate every dev password.

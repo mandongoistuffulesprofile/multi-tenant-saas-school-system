@@ -374,7 +374,7 @@ No byte measurements. Observations: Google Fonts external load on every page; no
 
 **Feature flags always off:** None found hardcoded to off.
 
-**Hard-coded demo data:** `DEMO_LOGINS.txt` documents seeded demo credentials; `migrations/seed/0001_demo.sql` creates `demo-school` with `admin@demo.test` / `[REDACTED]`.
+**Hard-coded demo data:** `migrations/seed/0001_demo.sql` creates the `demo-school` tenant with a learner and guardian only. No user or password is seeded; `cmd/devuser` generates a password once at setup.
 
 **Error paths that silently swallow failures:**
 - `RecordGateEvents` (`attendance/write.go:540-542` — `continue` on error, no error reporting).

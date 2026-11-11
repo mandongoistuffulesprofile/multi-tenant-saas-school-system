@@ -101,7 +101,7 @@ func (h *Handler) ResetPasswordWithOTP(c *gin.Context) {
 
 	// Validate the new password against policy before consuming the code, so a
 	// policy rejection does not burn the user's one-shot code.
-	if policyErr := validatePasswordPolicy(req.NewPassword); policyErr != "" {
+	if policyErr := ValidatePasswordPolicy(req.NewPassword); policyErr != "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "POLICY_VIOLATION",
 			"message": policyErr,

@@ -18,7 +18,9 @@ import (
 //
 //	DATABASE_URL=postgres://... DEV_EMAIL=teacher@skulapp.test \
 //	  DEV_PHONE=254700000002 DEV_ROLE=TEACHER DEV_TENANT=dev-school-001 \
-//	  DEV_PASSWORD='[REDACTED]' go run ./cmd/devuser
+//	  go run ./cmd/devuser
+//
+// A random password is generated and printed once unless DEV_PASSWORD is set.
 func main() {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
@@ -30,7 +32,22 @@ func main() {
 	phone := env("DEV_PHONE", "254700000002")
 	role := env("DEV_ROLE", "TEACHER")
 	tenantID := env("DEV_TENANT", "dev-school-001")
-	password := env("DEV_PASSWORD", "[REDACTED]")
+
+	password := os.Getenv("DEV_PASSWORD")
+	generatedPassword := ""
+	if password == "" {
+		pw, err := auth.GeneratePassword(24)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "generate password: %v\n", err)
+			os.Exit(1)
+		}
+		password = pw
+		generatedPassword = pw
+	}
+	if msg := auth.ValidatePasswordPolicy(password); msg != "" {
+		fmt.Fprintf(os.Stderr, "password: %s\n", msg)
+		os.Exit(1)
+	}
 
 	hash, err := auth.HashPassword(password)
 	if err != nil {
@@ -51,6 +68,15 @@ func main() {
 		os.Exit(1)
 	}
 	defer tx.Rollback()
+
+	// Tenant tables are FORCE-RLS protected. Scope this bootstrap transaction to
+	// the tenant it is creating; otherwise the school insert is rejected.
+	if _, err := tx.Exec(
+		`SELECT set_config('app.current_tenant_id', $1, true)`, tenantID,
+	); err != nil {
+		fmt.Fprintf(os.Stderr, "set tenant context: %v\n", err)
+		os.Exit(1)
+	}
 
 	// The school is the tenant root; memberships and every domain row point at
 	// schools.tenant_id.
@@ -104,6 +130,9 @@ func main() {
 	}
 
 	fmt.Printf("Dev user ready: %s (%s) role=%s tenant=%s\n", email, phone, role, tenantID)
+	if generatedPassword != "" {
+		fmt.Printf("Generated password (shown once): %s\n", generatedPassword)
+	}
 }
 
 func env(key, fallback string) string {

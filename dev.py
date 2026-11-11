@@ -303,8 +303,8 @@ def main():
     log("READY", "All services online.", CLR_GREEN)
     log("URLS", "Frontend: http://localhost:5173", CLR_GREEN)
     log("URLS", "API health: http://localhost:8080/healthz", CLR_GREEN)
-    log("CREDS", "Demo login: admin@demo.test / [REDACTED]  (tenant: demo-school)", CLR_GREEN)
-    log("CREDS", "See DEMO_LOGINS.txt for all credentials.", CLR_GREEN)
+    log("CREDS", "Accounts: create with backend/cmd/devuser (a generated password is printed once).", CLR_GREEN)
+    log("CREDS", "See DEMO_LOGINS.txt for setup commands.", CLR_GREEN)
 
     # 12. Health loop — restart on child exit
     while True:

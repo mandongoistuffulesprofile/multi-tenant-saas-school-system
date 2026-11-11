@@ -39,7 +39,7 @@ go run ./cmd/migrate -dir ../migrations -seed
 go run ./cmd/api
 ```
 
-Demo seed (only when `-seed` is passed): `admin@demo.test` / `[REDACTED]`, tenant `demo-school`, learner `DEMO-001`.
+Demo seed (only when `-seed` is passed) creates the `demo-school` tenant, learner `DEMO-001` and a guardian — no credentials. Create the admin with `go run ./cmd/devuser`, which prints a generated password once.
 
 Run the checks before committing:
 

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"time"
 
 	"golang.org/x/crypto/argon2"
@@ -26,6 +27,26 @@ func HashPassword(password string) (string, error) {
 		32,      // key length
 	)
 	return hex.EncodeToString(salt) + ":" + hex.EncodeToString(hash), nil
+}
+
+// GeneratePassword returns a cryptographically random password from an
+// unambiguous alphanumeric alphabet. Use it for first-run/bootstrap
+// credentials: show the value once, never persist it in the repository.
+func GeneratePassword(length int) (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+	if length < 12 {
+		length = 12
+	}
+	out := make([]byte, length)
+	max := big.NewInt(int64(len(alphabet)))
+	for i := range out {
+		n, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			return "", fmt.Errorf("generate password: %w", err)
+		}
+		out[i] = alphabet[n.Int64()]
+	}
+	return string(out), nil
 }
 
 // VerifyPassword compares a password against a stored argon2id hash

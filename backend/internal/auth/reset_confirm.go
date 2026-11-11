@@ -81,7 +81,7 @@ func (h *Handler) ConfirmPasswordReset(c *gin.Context) {
 	}
 
 	// Validate new password against policy
-	policyErr := validatePasswordPolicy(req.NewPassword)
+	policyErr := ValidatePasswordPolicy(req.NewPassword)
 	if policyErr != "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "POLICY_VIOLATION",
@@ -155,7 +155,9 @@ func (h *Handler) ConfirmPasswordReset(c *gin.Context) {
 	})
 }
 
-func validatePasswordPolicy(password string) string {
+// ValidatePasswordPolicy returns an empty string when the password meets the
+// minimum requirements, or a human-readable violation message.
+func ValidatePasswordPolicy(password string) string {
 	if len(password) < 12 {
 		return "Password must be at least 12 characters"
 	}

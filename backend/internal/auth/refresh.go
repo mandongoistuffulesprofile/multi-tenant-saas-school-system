@@ -365,10 +365,10 @@ func (h *Handler) ParentActivate(c *gin.Context) {
 	phone := h.service.NormalisePhone(req.Phone)
 
 	var (
-		claimCodeID  string
-		guardianID   sql.NullString
-		expiresAt    time.Time
-		usedAt       sql.NullTime
+		claimCodeID string
+		guardianID  sql.NullString
+		expiresAt   time.Time
+		usedAt      sql.NullTime
 	)
 	// Verify claim code: must exist, be unexpired, unused. Accept hashed or
 	// legacy plaintext storage for compatibility.
@@ -524,7 +524,7 @@ func (h *Handler) InviteAccept(c *gin.Context) {
 	}
 
 	// Validate new password against policy
-	if policyErr := validatePasswordPolicy(req.NewPassword); policyErr != "" {
+	if policyErr := ValidatePasswordPolicy(req.NewPassword); policyErr != "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    "POLICY_VIOLATION",
 			"message": policyErr,
@@ -563,9 +563,9 @@ func (h *Handler) InviteAccept(c *gin.Context) {
 	)
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    "INVITE_ACCEPTED",
-		"message": "Invite accepted — account activated",
-		"user_id": userID,
+		"code":      "INVITE_ACCEPTED",
+		"message":   "Invite accepted — account activated",
+		"user_id":   userID,
 		"tenant_id": tenantID,
 	})
 }

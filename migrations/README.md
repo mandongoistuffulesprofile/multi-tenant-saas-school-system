@@ -25,7 +25,7 @@ go run ./cmd/migrate -dir ../migrations -baseline 0001_baseline.sql
 | `0007_audit_request_id.sql` | Audit request correlation and tenant/time index. |
 | `0008_payment_channel_unique.sql` | One active paybill/till belongs to one school. |
 
-`migrations/seed/0001_demo.sql` is applied only with `-seed`. It creates the `demo-school` tenant, `admin@demo.test` / `[REDACTED]`, a learner and a guardian.
+`migrations/seed/0001_demo.sql` is applied only with `-seed`. It creates the `demo-school` tenant, a learner and a guardian. No users or passwords are seeded; create the admin with `cmd/devuser`, which prints a generated password once.
 
 `migrations/optional/` holds opt-in hardening (for example `0005_force_rls.sql`) that is not picked up by the default run.
 
