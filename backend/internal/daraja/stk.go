@@ -76,8 +76,23 @@ type STKCallbackBody struct {
 	} `json:"Body"`
 }
 
-// GetOAuthToken requests an OAuth access token from Safaricom Daraja
+// tokenCache holds a cached OAuth token with its expiry time so we don't
+// hammer /oauth/v1/generate on every STK push. Safaricom tokens last ~1h;
+// we refresh 5 minutes early to avoid edge-of-window failures.
+type tokenCache struct {
+	token     string
+	expiresAt time.Time
+}
+
+var oauthCache tokenCache
+
+// GetOAuthToken requests an OAuth access token from Safaricom Daraja.
+// Results are cached in memory and reused until 5 minutes before expiry.
 func GetOAuthToken(consumerKey, consumerSecret string, isSandbox bool) (string, error) {
+	if oauthCache.token != "" && time.Now().Add(5*time.Minute).Before(oauthCache.expiresAt) {
+		return oauthCache.token, nil
+	}
+
 	baseURL := "https://api.safaricom.co.ke"
 	if isSandbox {
 		baseURL = "https://sandbox.safaricom.co.ke"
@@ -105,7 +120,18 @@ func GetOAuthToken(consumerKey, consumerSecret string, isSandbox bool) (string, 
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return "", err
 	}
+
+	// Cache the token. Safaricom returns expires_in as seconds (3599).
+	if secs, err := strconv.Atoi(strings.TrimSpace(tokenResp.ExpiresIn)); err == nil && secs > 0 {
+		oauthCache.token = tokenResp.AccessToken
+		oauthCache.expiresAt = time.Now().Add(time.Duration(secs) * time.Second)
+	}
 	return tokenResp.AccessToken, nil
+}
+
+// ResetOAuthCache clears the cached token (useful for tests / env switches).
+func ResetOAuthCache() {
+	oauthCache = tokenCache{}
 }
 
 // InitiateSTKPush triggers Lipa Na M-Pesa Online STK Push on parent's handset
