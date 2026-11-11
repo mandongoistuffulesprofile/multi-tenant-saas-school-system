@@ -394,6 +394,12 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 		authGroup.POST("/password/reset/request", authHandler.RequestPasswordReset)
 		authGroup.POST("/password/reset/confirm", authHandler.ConfirmPasswordReset)
 		authGroup.POST("/password/reset", authHandler.ResetPasswordWithOTP)
+		// Free recovery path: security questions and platform-admin support codes.
+		authGroup.GET("/recovery/questions", authHandler.ListRecoveryQuestionCatalog)
+		authGroup.POST("/password/reset/questions", authHandler.RecoveryQuestions)
+		authGroup.POST("/password/reset/answers", authHandler.ResetWithAnswers)
+		authGroup.POST("/password/reset/assistance", authHandler.RequestPasswordAssistance)
+		authGroup.POST("/password/reset/code", authHandler.ResetWithSupportCode)
 		authGroup.POST("/refresh", authHandler.Refresh)
 		authGroup.POST("/logout", authHandler.Logout)
 		authGroup.POST("/tenant/switch", authHandler.TenantSwitch)
@@ -407,6 +413,8 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	{
 		meGroup.GET("", authHandler.GetMe)
 		meGroup.PATCH("", authHandler.UpdateMe)
+		meGroup.GET("/security-questions", authHandler.GetMySecurityQuestions)
+		meGroup.PUT("/security-questions", authHandler.SetMySecurityQuestions)
 		meGroup.GET("/linked-learners", authHandler.GetLinkedLearners)
 		meGroup.GET("/memberships", authHandler.GetMyMemberships)
 	}
@@ -732,6 +740,11 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 
 		// Write side — tenant registry, billing, reference data and exports
 		platformGroup.GET("/tenants", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListTenants)
+		// Password help queue: platform administrators are the last resort when
+		// a user cannot answer their recovery questions.
+		platformGroup.GET("/password-assistance", middleware.RequireRole(middleware.RolePlatformAdministrators...), authHandler.ListPasswordAssistance)
+		platformGroup.POST("/password-assistance/:id/code", middleware.RequireRole(middleware.RolePlatformAdministrators...), authHandler.IssueResetCodeForRequest)
+		platformGroup.POST("/password-reset-codes", middleware.RequireRole(middleware.RolePlatformAdministrators...), authHandler.IssueResetCodeByEmail)
 		platformGroup.POST("/tenants", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateTenant)
 		platformGroup.PATCH("/tenants/:id", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpdateTenant)
 		platformGroup.PUT("/tenants/:id/status", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.SetTenantStatus)
