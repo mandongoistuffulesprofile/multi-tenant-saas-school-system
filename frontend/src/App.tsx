@@ -17,6 +17,7 @@ import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
 
 import LoginPage from "./pages/LoginPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import SchoolPickerPage from "./pages/SchoolPickerPage";
 import SchoolProfilePage from "./pages/SchoolProfilePage";
@@ -115,6 +116,7 @@ export default function App() {
         {/* Public */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/auth/reset" element={<ResetPasswordPage />} />
         <Route path="/parent/activate" element={<ParentActivatePage />} />
         <Route path="/parent/forgot" element={<ParentForgotPage />} />
 
