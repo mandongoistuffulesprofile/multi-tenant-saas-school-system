@@ -10,50 +10,36 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/toast/ToastProvider";
 import { installSyncHooks } from "./lib/sync";
 import { registerServiceWorker } from "./serviceWorkerRegistration";
-import { useAuthStore, isTokenValid } from "./lib/authStore";
+import { useAuthStore } from "./lib/authStore";
 
 installSyncHooks();
 registerServiceWorker();
 
 /**
- * On boot, if the stored access token has expired but a refresh token exists,
- * silently exchange it for a fresh access token. Runs exactly once and uses a
- * bare axios call so it can never re-enter the response interceptor.
+ * Bootstrap session from HttpOnly cookies by calling /me.
+ * Cookies are sent automatically; on 401 the API interceptor will attempt a
+ * cookie-based refresh and retry. We never persist tokens in JS storage.
  */
 async function bootstrapSession() {
-  const { token, refreshToken, setAuth, clearAuth } = useAuthStore.getState();
-
-  if (isTokenValid(token)) return; // still good
-
-  if (!refreshToken) {
-    if (token) clearAuth();
-    return;
-  }
-
+  const { setAuth, clearAuth, setHydrated } = useAuthStore.getState();
   const API_BASE = (import.meta as any).env.VITE_API_BASE || "/api/v1";
   try {
-    const { data } = await axios.post(
-      `${API_BASE}/auth/refresh`,
-      { refresh_token: refreshToken },
-      { headers: { "Content-Type": "application/json" } }
-    );
-    const pair = data?.token_pair ?? data;
-    if (!pair?.access_token) throw new Error("Invalid refresh response");
-
-    // The refresh response does not carry identity, so keep the stored values.
-    setAuth(
-      pair.access_token,
-      pair.refresh_token || refreshToken,
-      useAuthStore.getState().userId || "",
-      useAuthStore.getState().tenantId || "",
-      useAuthStore.getState().roles
-    );
-  } catch (refreshError: any) {
-    // Network error: keep the session for read-only offline use. Only log out
-    // when the server explicitly rejects the refresh token (401/403).
-    if (!refreshError?.response) return;
-    // Refresh token is expired/revoked — the session is genuinely over.
-    clearAuth();
+    const { data } = await axios.get(`${API_BASE}/me`, {
+      withCredentials: true,
+      headers: { "Content-Type": "application/json" },
+    });
+    const roles = Array.isArray(data?.roles) ? data.roles : [];
+    setAuth("", "", data?.user_id || "", data?.tenant_id || "", roles);
+  } catch (err: any) {
+    // 401/403 or other auth failure: no active session.
+    if (err?.response?.status === 401 || err?.response?.status === 403) {
+      clearAuth();
+    } else {
+      // Network/offline: allow app to load; server/cookies will be rechecked on next request.
+      setHydrated(true);
+    }
+  } finally {
+    useAuthStore.getState().setHydrated(true);
   }
 }
 
@@ -61,8 +47,6 @@ bootstrapSession().finally(() => {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
       <I18nextProvider i18n={i18n}>
-        {/* Opt into the v7 behaviours now so the console stays free of
-            deprecation warnings in development. */}
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <ToastProvider>
             <ErrorBoundary>

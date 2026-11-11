@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
@@ -134,6 +136,7 @@ type ReportCard struct {
 	TenantID           string  `json:"tenant_id"`
 	RunID              string  `json:"run_id"`
 	LearnerID          string  `json:"learner_id"`
+	LearnerName        string  `json:"learner_name,omitempty"`
 	CardNumber         string  `json:"card_number"`
 	AcademicYearID     string  `json:"academic_year_id"`
 	TermID             string  `json:"term_id,omitempty"`
@@ -154,6 +157,31 @@ type ReportCard struct {
 	UpdatedAt          string  `json:"updated_at"`
 }
 
+// linkedLearnerIDs returns the set of learner_ids linked to a guardian user.
+func (h *Handler) linkedLearnerIDs(tx *sqlx.Tx, userID string) (map[string]bool, error) {
+	rows, err := tx.Query(
+		`SELECT lg.learner_id
+		 FROM guardians gd
+		 JOIN learner_guardians lg ON lg.guardian_id = gd.guardian_id
+		 WHERE gd.user_id = $1`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	linked := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		linked[id] = true
+	}
+	return linked, rows.Err()
+}
+
 func (h *Handler) ListReportCards(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
@@ -164,26 +192,72 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 	runID := c.Query("run_id")
 	learnerID := c.Query("learner_id")
 
+	// Parent and guardian principals may only ever read report cards of the
+	// learners linked to them via learner_guardians, even when no learner_id
+	// filter is supplied. The school-wide list is staff-only surface.
+	roles, _ := c.Get(middleware.ContextRoles)
+	isParent := false
+	if roleList, ok := roles.([]string); ok {
+		for _, r := range roleList {
+			if r == middleware.RoleParent || r == middleware.RoleGuardian {
+				isParent = true
+			}
+		}
+	}
+
 	query := `
-		SELECT card_id, tenant_id, run_id, learner_id, card_number, academic_year_id,
-			term_id, grade_id, overall_grade, total_score, max_score, percentage,
-			position, comment, head_teacher_comment, status, pdf_ref, published_at,
-			published_by, created_by, created_at, updated_at
-		 FROM report_cards WHERE tenant_id = $1`
+		SELECT rc.card_id, rc.tenant_id, rc.run_id, rc.learner_id,
+			TRIM(COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'')) AS learner_name,
+			rc.card_number, rc.academic_year_id,
+			rc.term_id, rc.grade_id, rc.overall_grade, rc.total_score, rc.max_score, rc.percentage,
+			rc.position, rc.comment, rc.head_teacher_comment, rc.status, rc.pdf_ref, rc.published_at,
+			rc.published_by, rc.created_by, rc.created_at, rc.updated_at
+		 FROM report_cards rc
+		 LEFT JOIN learners l ON l.learner_id = rc.learner_id AND l.tenant_id = rc.tenant_id
+		 WHERE rc.tenant_id = $1`
 	args := []interface{}{tenantID}
 	argIndex := 2
 
+	if isParent {
+		linked, err := h.linkedLearnerIDs(tx, c.GetString("user_id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load linked learners"})
+			return
+		}
+		if learnerID != "" {
+			if !linked[learnerID] {
+				c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Learner is not linked to this guardian"})
+				return
+			}
+			query += fmt.Sprintf(" AND rc.learner_id = $%d", argIndex)
+			args = append(args, learnerID)
+			argIndex++
+		} else {
+			ids := make([]string, 0, len(linked))
+			for id := range linked {
+				ids = append(ids, id)
+			}
+			if len(ids) == 0 {
+				c.JSON(http.StatusOK, []ReportCard{})
+				return
+			}
+			query += fmt.Sprintf(" AND rc.learner_id = ANY($%d)", argIndex)
+			args = append(args, pq.Array(ids))
+			argIndex++
+		}
+	}
+
 	if runID != "" {
-		query += fmt.Sprintf(" AND run_id = $%d", argIndex)
+		query += fmt.Sprintf(" AND rc.run_id = $%d", argIndex)
 		args = append(args, runID)
 		argIndex++
 	}
-	if learnerID != "" {
-		query += fmt.Sprintf(" AND learner_id = $%d", argIndex)
+	if !isParent && learnerID != "" {
+		query += fmt.Sprintf(" AND rc.learner_id = $%d", argIndex)
 		args = append(args, learnerID)
 		argIndex++
 	}
-	query += " ORDER BY created_at DESC"
+	query += " ORDER BY rc.created_at DESC"
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
@@ -195,7 +269,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 	var cards []ReportCard
 	for rows.Next() {
 		var card ReportCard
-		if err := rows.Scan(&card.CardID, &card.TenantID, &card.RunID, &card.LearnerID,
+		if err := rows.Scan(&card.CardID, &card.TenantID, &card.RunID, &card.LearnerID, &card.LearnerName,
 			&card.CardNumber, &card.AcademicYearID, &card.TermID, &card.GradeID,
 			&card.OverallGrade, &card.TotalScore, &card.MaxScore, &card.Percentage,
 			&card.Position, &card.Comment, &card.HeadTeacherComment, &card.Status,
@@ -209,6 +283,26 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 	c.JSON(http.StatusOK, cards)
 }
 
+func (h *Handler) logReportAudit(c *gin.Context, action, targetType, targetID string, meta map[string]any) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	ip := c.ClientIP()
+	ua := c.GetHeader("User-Agent")
+	_, _ = tx.Exec(
+		`INSERT INTO audit_events (tenant_id, actor_user_id, action, target_type, target_id, request_ip, user_agent, after_state, severity)
+		 VALUES ($1, NULLIF($2,'')::uuid, $3, $4, $5, $6, $7, $8::jsonb, 'INFO')`,
+		tenantID, userID, action, targetType, targetID, ip, ua, func() string {
+			b, err := json.Marshal(meta)
+			if err != nil { return "{}" }
+			return string(b)
+		}(),
+	)
+}
+
 func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 	tenantID := ginCtx.GetString("tenant_id")
 	cardID := ginCtx.Param("card_id")
@@ -219,13 +313,17 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 		return
 	}
 	err := tx.QueryRow(
-		`SELECT card_id, tenant_id, run_id, learner_id, card_number, academic_year_id,
-			term_id, grade_id, overall_grade, total_score, max_score, percentage,
-			position, comment, head_teacher_comment, status, pdf_ref, published_at,
-			published_by, created_by, created_at, updated_at
-		 FROM report_cards WHERE tenant_id = $1 AND card_id = $2`,
+		`SELECT rc.card_id, rc.tenant_id, rc.run_id, rc.learner_id,
+			TRIM(COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'')) AS learner_name,
+			rc.card_number, rc.academic_year_id,
+			rc.term_id, rc.grade_id, rc.overall_grade, rc.total_score, rc.max_score, rc.percentage,
+			rc.position, rc.comment, rc.head_teacher_comment, rc.status, rc.pdf_ref, rc.published_at,
+			rc.published_by, rc.created_by, rc.created_at, rc.updated_at
+		 FROM report_cards rc
+		 LEFT JOIN learners l ON l.learner_id = rc.learner_id AND l.tenant_id = rc.tenant_id
+		 WHERE rc.tenant_id = $1 AND rc.card_id = $2`,
 		tenantID, cardID,
-	).Scan(&card.CardID, &card.TenantID, &card.RunID, &card.LearnerID,
+	).Scan(&card.CardID, &card.TenantID, &card.RunID, &card.LearnerID, &card.LearnerName,
 		&card.CardNumber, &card.AcademicYearID, &card.TermID, &card.GradeID,
 		&card.OverallGrade, &card.TotalScore, &card.MaxScore, &card.Percentage,
 		&card.Position, &card.Comment, &card.HeadTeacherComment, &card.Status,
@@ -238,6 +336,33 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 		}
 		ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
+	}
+
+	// Parents/guardians may only view report cards for linked learners.
+	roles, _ := ginCtx.Get(middleware.ContextRoles)
+	isParent := false
+	if roleList, ok := roles.([]string); ok {
+		for _, r := range roleList {
+			if r == middleware.RoleParent || r == middleware.RoleGuardian {
+				isParent = true
+				break
+			}
+		}
+	}
+	if isParent {
+		linked, linkErr := h.linkedLearnerIDs(tx, ginCtx.GetString("user_id"))
+		if linkErr != nil {
+			ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load linked learners"})
+			return
+		}
+		if !linked[card.LearnerID] {
+			ginCtx.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
+			return
+		}
+	}
+
+	if isParent {
+		h.logReportAudit(ginCtx, "REPORT_CARD_VIEW", "report_card", card.CardID, map[string]any{"learner_id": card.LearnerID})
 	}
 	ginCtx.JSON(http.StatusOK, card)
 }
@@ -262,6 +387,40 @@ func (h *Handler) ListReportCardComments(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 	cardID := c.Param("card_id")
+
+	// Parents/guardians may only read comments for cards of linked learners.
+	roles, _ := c.Get(middleware.ContextRoles)
+	isParent := false
+	if roleList, ok := roles.([]string); ok {
+		for _, r := range roleList {
+			if r == middleware.RoleParent || r == middleware.RoleGuardian {
+				isParent = true
+				break
+			}
+		}
+	}
+	if isParent {
+		var learnerID string
+		err := tx.QueryRow(`SELECT learner_id FROM report_cards WHERE tenant_id = $1 AND card_id = $2`, tenantID, cardID).Scan(&learnerID)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		linked, linkErr := h.linkedLearnerIDs(tx, c.GetString("user_id"))
+		if linkErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load linked learners"})
+			return
+		}
+		if !linked[learnerID] {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
+			return
+		}
+	}
+
 	rows, err := tx.Query(
 		`SELECT comment_id, tenant_id, card_id, learning_area_id, comment_text,
 			teacher_id, created_at, updated_at

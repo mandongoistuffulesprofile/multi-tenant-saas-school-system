@@ -68,6 +68,7 @@ COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UU
 -- Name: current_tenant_id(); Type: FUNCTION; Schema: public; Owner: -
 --
 
+DROP FUNCTION IF EXISTS public.current_tenant_id();
 CREATE FUNCTION public.current_tenant_id() RETURNS character varying
     LANGUAGE plpgsql IMMUTABLE
     AS $$
@@ -119,8 +120,8 @@ SET default_table_access_method = heap;
 -- Name: academic_years; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.academic_years (
-    year_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.academic_years (
+    year_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     year_label character varying(20) NOT NULL,
     start_date date NOT NULL,
@@ -134,8 +135,8 @@ CREATE TABLE public.academic_years (
 -- Name: access_logs; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.access_logs (
-    log_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.access_logs (
+    log_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     user_id uuid,
     action character varying(50) NOT NULL,
@@ -151,8 +152,8 @@ CREATE TABLE public.access_logs (
 -- Name: adjustments; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.adjustments (
-    adjustment_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.adjustments (
+    adjustment_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     invoice_id uuid NOT NULL,
     adjustment_type character varying(20) NOT NULL,
@@ -168,8 +169,8 @@ CREATE TABLE public.adjustments (
 -- Name: assessment_events; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.assessment_events (
-    event_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.assessment_events (
+    event_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     term_id uuid NOT NULL,
     grade_id character varying(20) NOT NULL,
@@ -190,8 +191,8 @@ CREATE TABLE public.assessment_events (
 -- Name: assessment_result_history; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.assessment_result_history (
-    history_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.assessment_result_history (
+    history_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     result_id uuid NOT NULL,
     event_id uuid NOT NULL,
@@ -212,8 +213,8 @@ CREATE TABLE public.assessment_result_history (
 -- Name: assessment_results; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.assessment_results (
-    result_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.assessment_results (
+    result_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     event_id uuid NOT NULL,
     learner_id uuid NOT NULL,
@@ -237,8 +238,8 @@ CREATE TABLE public.assessment_results (
 -- Name: attendance_marks; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.attendance_marks (
-    mark_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.attendance_marks (
+    mark_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     register_id uuid NOT NULL,
     learner_id uuid NOT NULL,
@@ -257,8 +258,8 @@ CREATE TABLE public.attendance_marks (
 -- Name: attendance_registers; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.attendance_registers (
-    register_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.attendance_registers (
+    register_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     class_group_id uuid NOT NULL,
     grade_id character varying(20) NOT NULL,
@@ -279,8 +280,8 @@ CREATE TABLE public.attendance_registers (
 -- Name: audit_events; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.audit_events (
-    audit_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.audit_events (
+    audit_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     user_id uuid,
     action character varying(50) NOT NULL,
@@ -300,8 +301,8 @@ PARTITION BY RANGE (created_at);
 -- Name: audit_events_y2026m10; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.audit_events_y2026m10 (
-    audit_id uuid DEFAULT public.uuid_generate_v4() CONSTRAINT audit_events_audit_id_not_null NOT NULL,
+CREATE TABLE IF NOT EXISTS public.audit_events_y2026m10 (
+    audit_id uuid DEFAULT extensions.uuid_generate_v4() CONSTRAINT audit_events_audit_id_not_null NOT NULL,
     tenant_id character varying(50) CONSTRAINT audit_events_tenant_id_not_null NOT NULL,
     user_id uuid,
     action character varying(50) CONSTRAINT audit_events_action_not_null NOT NULL,
@@ -320,7 +321,7 @@ CREATE TABLE public.audit_events_y2026m10 (
 -- Name: audit_log; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.audit_log (
+CREATE TABLE IF NOT EXISTS public.audit_log (
     id bigint NOT NULL,
     user_id uuid,
     event text NOT NULL,
@@ -355,8 +356,8 @@ ALTER SEQUENCE public.audit_log_id_seq OWNED BY public.audit_log.id;
 -- Name: breach_register; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.breach_register (
-    breach_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.breach_register (
+    breach_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     breach_title character varying(200) NOT NULL,
     description text NOT NULL,
@@ -377,8 +378,8 @@ CREATE TABLE public.breach_register (
 -- Name: broadcast_recipients; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.broadcast_recipients (
-    recipient_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.broadcast_recipients (
+    recipient_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     broadcast_id uuid NOT NULL,
     recipient_type character varying(20) NOT NULL,
     recipient_id_ref uuid NOT NULL,
@@ -395,8 +396,8 @@ CREATE TABLE public.broadcast_recipients (
 -- Name: broadcasts; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.broadcasts (
-    broadcast_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.broadcasts (
+    broadcast_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     broadcast_name character varying(150) NOT NULL,
     channel character varying(20) NOT NULL,
@@ -421,8 +422,8 @@ CREATE TABLE public.broadcasts (
 -- Name: capitation_receipts; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.capitation_receipts (
-    receipt_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.capitation_receipts (
+    receipt_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     receipt_number character varying(50) NOT NULL,
     capitation_period character varying(20) NOT NULL,
@@ -445,8 +446,8 @@ CREATE TABLE public.capitation_receipts (
 -- Name: class_groups; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.class_groups (
-    class_group_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.class_groups (
+    class_group_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     year_id uuid NOT NULL,
     grade_id character varying(20) NOT NULL,
@@ -460,8 +461,8 @@ CREATE TABLE public.class_groups (
 -- Name: competency_ratings; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.competency_ratings (
-    rating_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.competency_ratings (
+    rating_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     result_id uuid NOT NULL,
     competency_code character varying(20) NOT NULL,
@@ -476,8 +477,8 @@ CREATE TABLE public.competency_ratings (
 -- Name: consent_notices; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.consent_notices (
-    notice_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.consent_notices (
+    notice_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     notice_code character varying(50) NOT NULL,
     title character varying(150) NOT NULL,
     content_text text NOT NULL,
@@ -495,8 +496,8 @@ CREATE TABLE public.consent_notices (
 -- Name: consent_records; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.consent_records (
-    consent_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.consent_records (
+    consent_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     user_id uuid NOT NULL,
     notice_id uuid NOT NULL,
@@ -515,8 +516,8 @@ CREATE TABLE public.consent_records (
 -- Name: credits; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.credits (
-    credit_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.credits (
+    credit_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     learner_id uuid NOT NULL,
     amount numeric(12,2) DEFAULT 0 NOT NULL,
@@ -534,8 +535,8 @@ CREATE TABLE public.credits (
 -- Name: curriculum_versions; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.curriculum_versions (
-    version_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.curriculum_versions (
+    version_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     version_label character varying(50) NOT NULL,
     description text,
     is_published boolean DEFAULT false,
@@ -551,8 +552,8 @@ CREATE TABLE public.curriculum_versions (
 -- Name: delivery_receipts; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.delivery_receipts (
-    receipt_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.delivery_receipts (
+    receipt_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     message_id uuid NOT NULL,
     channel character varying(20) NOT NULL,
@@ -567,8 +568,8 @@ CREATE TABLE public.delivery_receipts (
 -- Name: devices; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.devices (
-    device_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.devices (
+    device_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     user_id uuid NOT NULL,
     tenant_id character varying(50),
     fingerprint character varying(255) NOT NULL,
@@ -583,8 +584,8 @@ CREATE TABLE public.devices (
 -- Name: dpia_records; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.dpia_records (
-    dpia_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.dpia_records (
+    dpia_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     processing_activity character varying(200) NOT NULL,
     description text NOT NULL,
@@ -603,8 +604,8 @@ CREATE TABLE public.dpia_records (
 -- Name: dsr_requests; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.dsr_requests (
-    request_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.dsr_requests (
+    request_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     user_id uuid NOT NULL,
     request_type character varying(30) NOT NULL,
@@ -623,7 +624,7 @@ CREATE TABLE public.dsr_requests (
 -- Name: email_log; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.email_log (
+CREATE TABLE IF NOT EXISTS public.email_log (
     id bigint NOT NULL,
     user_id uuid,
     email_norm text,
@@ -657,8 +658,8 @@ ALTER SEQUENCE public.email_log_id_seq OWNED BY public.email_log.id;
 -- Name: enrolments; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.enrolments (
-    enrolment_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.enrolments (
+    enrolment_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     learner_id uuid NOT NULL,
     class_group_id uuid NOT NULL,
@@ -674,8 +675,8 @@ CREATE TABLE public.enrolments (
 -- Name: evidence_files; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.evidence_files (
-    evidence_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.evidence_files (
+    evidence_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     result_id uuid NOT NULL,
     file_ref character varying(255) NOT NULL,
@@ -691,8 +692,8 @@ CREATE TABLE public.evidence_files (
 -- Name: exam_windows; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.exam_windows (
-    window_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.exam_windows (
+    window_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     exam_type character varying(30) NOT NULL,
     window_label character varying(100) NOT NULL,
@@ -706,8 +707,8 @@ CREATE TABLE public.exam_windows (
 -- Name: exports; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.exports (
-    export_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.exports (
+    export_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     export_type character varying(30) NOT NULL,
     status character varying(20) DEFAULT 'PENDING'::character varying NOT NULL,
@@ -728,8 +729,8 @@ CREATE TABLE public.exports (
 -- Name: fee_categories; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.fee_categories (
-    category_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.fee_categories (
+    category_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     code character varying(30) NOT NULL,
     name character varying(100) NOT NULL,
     description text,
@@ -747,8 +748,8 @@ CREATE TABLE public.fee_categories (
 -- Name: fee_structures; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.fee_structures (
-    structure_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.fee_structures (
+    structure_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     academic_year_id uuid NOT NULL,
     grade_id character varying(20) NOT NULL,
@@ -769,8 +770,8 @@ CREATE TABLE public.fee_structures (
 -- Name: gate_devices; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.gate_devices (
-    device_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.gate_devices (
+    device_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     device_name character varying(100) NOT NULL,
     device_type character varying(30) DEFAULT 'KIOSK'::character varying NOT NULL,
@@ -790,8 +791,8 @@ CREATE TABLE public.gate_devices (
 -- Name: gate_events; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.gate_events (
-    event_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.gate_events (
+    event_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     device_id uuid NOT NULL,
     tag_id uuid,
@@ -811,7 +812,7 @@ CREATE TABLE public.gate_events (
 -- Name: grades; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.grades (
+CREATE TABLE IF NOT EXISTS public.grades (
     grade_id character varying(20) NOT NULL,
     grade_label character varying(50) NOT NULL,
     level_band character varying(20) NOT NULL,
@@ -823,8 +824,8 @@ CREATE TABLE public.grades (
 -- Name: guardian_claim_codes; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.guardian_claim_codes (
-    claim_code_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.guardian_claim_codes (
+    claim_code_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     learner_id uuid,
     guardian_id uuid,
     code_hash character varying(255) NOT NULL,
@@ -838,8 +839,8 @@ CREATE TABLE public.guardian_claim_codes (
 -- Name: guardians; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.guardians (
-    guardian_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.guardians (
+    guardian_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     first_name character varying(100) NOT NULL,
     last_name character varying(100) NOT NULL,
@@ -858,8 +859,8 @@ CREATE TABLE public.guardians (
 -- Name: impersonation_sessions; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.impersonation_sessions (
-    session_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.impersonation_sessions (
+    session_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     admin_user_id uuid NOT NULL,
     target_user_id uuid NOT NULL,
     target_tenant_id character varying(50) NOT NULL,
@@ -874,8 +875,8 @@ CREATE TABLE public.impersonation_sessions (
 -- Name: import_batches; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.import_batches (
-    batch_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.import_batches (
+    batch_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     import_type character varying(30) NOT NULL,
     file_name character varying(255) NOT NULL,
@@ -894,8 +895,8 @@ CREATE TABLE public.import_batches (
 -- Name: import_rows; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.import_rows (
-    row_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.import_rows (
+    row_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     batch_id uuid NOT NULL,
     row_number integer NOT NULL,
     raw_data jsonb NOT NULL,
@@ -909,8 +910,8 @@ CREATE TABLE public.import_rows (
 -- Name: invoice_lines; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.invoice_lines (
-    line_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.invoice_lines (
+    line_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     invoice_id uuid NOT NULL,
     category_id uuid NOT NULL,
@@ -929,8 +930,8 @@ CREATE TABLE public.invoice_lines (
 -- Name: invoices; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.invoices (
-    invoice_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.invoices (
+    invoice_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     invoice_number character varying(50) NOT NULL,
     learner_id uuid NOT NULL,
@@ -956,8 +957,8 @@ CREATE TABLE public.invoices (
 -- Name: knec_export_batches; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.knec_export_batches (
-    batch_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.knec_export_batches (
+    batch_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     tool_id uuid NOT NULL,
     batch_reference character varying(100) NOT NULL,
@@ -975,8 +976,8 @@ CREATE TABLE public.knec_export_batches (
 -- Name: knec_submission_status; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.knec_submission_status (
-    submission_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.knec_submission_status (
+    submission_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     tool_id uuid NOT NULL,
     academic_year_id uuid NOT NULL,
@@ -997,8 +998,8 @@ CREATE TABLE public.knec_submission_status (
 -- Name: knec_tools; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.knec_tools (
-    tool_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.knec_tools (
+    tool_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tool_code character varying(50) NOT NULL,
     name character varying(150) NOT NULL,
     description text,
@@ -1014,8 +1015,8 @@ CREATE TABLE public.knec_tools (
 -- Name: learner_fee_options; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.learner_fee_options (
-    option_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.learner_fee_options (
+    option_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     learner_id uuid NOT NULL,
     category_id uuid NOT NULL,
@@ -1032,8 +1033,8 @@ CREATE TABLE public.learner_fee_options (
 -- Name: learner_guardians; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.learner_guardians (
-    link_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.learner_guardians (
+    link_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     learner_id uuid NOT NULL,
     guardian_id uuid NOT NULL,
     relationship character varying(50) NOT NULL,
@@ -1049,8 +1050,8 @@ CREATE TABLE public.learner_guardians (
 -- Name: learner_remarks; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.learner_remarks (
-    remark_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.learner_remarks (
+    remark_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     event_id uuid NOT NULL,
     learner_id uuid NOT NULL,
@@ -1066,8 +1067,8 @@ CREATE TABLE public.learner_remarks (
 -- Name: learner_status_history; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.learner_status_history (
-    history_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.learner_status_history (
+    history_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     learner_id uuid NOT NULL,
     tenant_id character varying(50) NOT NULL,
     previous_status character varying(30),
@@ -1082,8 +1083,8 @@ CREATE TABLE public.learner_status_history (
 -- Name: learners; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.learners (
-    learner_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.learners (
+    learner_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     admission_number character varying(50) NOT NULL,
     upi_nemis_number character varying(50),
@@ -1108,8 +1109,8 @@ CREATE TABLE public.learners (
 -- Name: learning_areas; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.learning_areas (
-    area_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.learning_areas (
+    area_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     version_id uuid NOT NULL,
     code character varying(20) NOT NULL,
     name character varying(100) NOT NULL,
@@ -1125,7 +1126,7 @@ CREATE TABLE public.learning_areas (
 -- Name: login_attempts; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.login_attempts (
+CREATE TABLE IF NOT EXISTS public.login_attempts (
     attempt_id bigint NOT NULL,
     user_id uuid,
     email_norm text,
@@ -1159,8 +1160,8 @@ ALTER SEQUENCE public.login_attempts_attempt_id_seq OWNED BY public.login_attemp
 -- Name: message_templates; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.message_templates (
-    template_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.message_templates (
+    template_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50),
     template_name character varying(150) NOT NULL,
     channel character varying(20) NOT NULL,
@@ -1179,7 +1180,7 @@ CREATE TABLE public.message_templates (
 -- Name: migration_runs; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.migration_runs (
+CREATE TABLE IF NOT EXISTS public.migration_runs (
     migration_id character varying(50) NOT NULL,
     applied_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     success boolean DEFAULT true,
@@ -1191,8 +1192,8 @@ CREATE TABLE public.migration_runs (
 -- Name: mpesa_stk_requests; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.mpesa_stk_requests (
-    stk_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.mpesa_stk_requests (
+    stk_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     channel_id uuid NOT NULL,
     checkout_request_id character varying(100) NOT NULL,
@@ -1216,8 +1217,8 @@ CREATE TABLE public.mpesa_stk_requests (
 -- Name: mpesa_transactions; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.mpesa_transactions (
-    trans_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.mpesa_transactions (
+    trans_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     channel_id uuid NOT NULL,
     external_trans_id character varying(100) NOT NULL,
@@ -1240,8 +1241,8 @@ CREATE TABLE public.mpesa_transactions (
 -- Name: node_mappings; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.node_mappings (
-    mapping_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.node_mappings (
+    mapping_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     sub_strand_id uuid NOT NULL,
     grade_id character varying(20) NOT NULL,
     academic_year_id uuid NOT NULL,
@@ -1253,8 +1254,8 @@ CREATE TABLE public.node_mappings (
 -- Name: opt_outs; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.opt_outs (
-    opt_out_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.opt_outs (
+    opt_out_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     user_id uuid NOT NULL,
     channel character varying(20) NOT NULL,
@@ -1269,8 +1270,8 @@ CREATE TABLE public.opt_outs (
 -- Name: otp_challenges; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.otp_challenges (
-    challenge_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.otp_challenges (
+    challenge_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     phone_number character varying(20) NOT NULL,
     code_hash character varying(255) NOT NULL,
     purpose character varying(30) NOT NULL,
@@ -1285,8 +1286,8 @@ CREATE TABLE public.otp_challenges (
 -- Name: outbound_messages; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.outbound_messages (
-    message_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.outbound_messages (
+    message_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     template_id uuid,
     recipient_type character varying(20) NOT NULL,
@@ -1312,12 +1313,12 @@ CREATE TABLE public.outbound_messages (
 -- Name: outbox; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.outbox (
-    outbox_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.outbox (
+    outbox_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     aggregate_type character varying(50) NOT NULL,
     aggregate_id uuid NOT NULL,
     event_type character varying(50) NOT NULL,
-    event_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    event_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     payload jsonb NOT NULL,
     tenant_id character varying(50) NOT NULL,
     status character varying(20) DEFAULT 'PENDING'::character varying,
@@ -1331,8 +1332,8 @@ CREATE TABLE public.outbox (
 -- Name: password_reset_tokens; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.password_reset_tokens (
-    reset_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.password_reset_tokens (
+    reset_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     user_id uuid NOT NULL,
     token_hash character varying(255) NOT NULL,
     token_prefix character varying(8) NOT NULL,
@@ -1351,8 +1352,8 @@ CREATE TABLE public.password_reset_tokens (
 -- Name: payment_allocations; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.payment_allocations (
-    allocation_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.payment_allocations (
+    allocation_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     payment_id uuid NOT NULL,
     invoice_id uuid NOT NULL,
@@ -1367,8 +1368,8 @@ CREATE TABLE public.payment_allocations (
 -- Name: payments; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.payments (
-    payment_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.payments (
+    payment_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     payment_reference character varying(100) NOT NULL,
     learner_id uuid NOT NULL,
@@ -1390,8 +1391,8 @@ CREATE TABLE public.payments (
 -- Name: plans; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.plans (
-    plan_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.plans (
+    plan_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     plan_code character varying(30) NOT NULL,
     name character varying(100) NOT NULL,
     description text,
@@ -1411,8 +1412,8 @@ CREATE TABLE public.plans (
 -- Name: platform_invoices; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.platform_invoices (
-    invoice_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.platform_invoices (
+    invoice_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     invoice_number character varying(50) NOT NULL,
     amount numeric(12,2) DEFAULT 0 NOT NULL,
@@ -1431,8 +1432,8 @@ CREATE TABLE public.platform_invoices (
 -- Name: receipt_sequences; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.receipt_sequences (
-    sequence_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.receipt_sequences (
+    sequence_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     prefix character varying(20) DEFAULT 'RCP'::character varying NOT NULL,
     last_number integer DEFAULT 0 NOT NULL,
@@ -1447,8 +1448,8 @@ CREATE TABLE public.receipt_sequences (
 -- Name: reconciliation_runs; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.reconciliation_runs (
-    run_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.reconciliation_runs (
+    run_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     run_date date NOT NULL,
     period_start date NOT NULL,
@@ -1470,8 +1471,8 @@ CREATE TABLE public.reconciliation_runs (
 -- Name: refresh_tokens; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.refresh_tokens (
-    token_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.refresh_tokens (
+    token_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     user_id uuid NOT NULL,
     token_hash character varying(255) NOT NULL,
     expires_at timestamp with time zone NOT NULL,
@@ -1485,8 +1486,8 @@ CREATE TABLE public.refresh_tokens (
 -- Name: refunds; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.refunds (
-    refund_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.refunds (
+    refund_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     payment_id uuid NOT NULL,
     amount numeric(12,2) DEFAULT 0 NOT NULL,
@@ -1506,8 +1507,8 @@ CREATE TABLE public.refunds (
 -- Name: report_card_comments; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.report_card_comments (
-    comment_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.report_card_comments (
+    comment_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     card_id uuid NOT NULL,
     learning_area_id uuid NOT NULL,
@@ -1522,8 +1523,8 @@ CREATE TABLE public.report_card_comments (
 -- Name: report_cards; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.report_cards (
-    card_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.report_cards (
+    card_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     run_id uuid NOT NULL,
     learner_id uuid NOT NULL,
@@ -1552,8 +1553,8 @@ CREATE TABLE public.report_cards (
 -- Name: report_runs; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.report_runs (
-    run_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.report_runs (
+    run_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     template_id uuid NOT NULL,
     academic_year_id uuid NOT NULL,
@@ -1574,8 +1575,8 @@ CREATE TABLE public.report_runs (
 -- Name: report_templates; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.report_templates (
-    template_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.report_templates (
+    template_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50),
     template_name character varying(150) NOT NULL,
     template_type character varying(30) NOT NULL,
@@ -1593,7 +1594,7 @@ CREATE TABLE public.report_templates (
 -- Name: reset_challenges; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.reset_challenges (
+CREATE TABLE IF NOT EXISTS public.reset_challenges (
     challenge_id bigint NOT NULL,
     user_id uuid NOT NULL,
     token_hash text NOT NULL,
@@ -1631,8 +1632,8 @@ ALTER SEQUENCE public.reset_challenges_challenge_id_seq OWNED BY public.reset_ch
 -- Name: retention_policies; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.retention_policies (
-    policy_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.retention_policies (
+    policy_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     resource_type character varying(50) NOT NULL,
     retention_days integer NOT NULL,
@@ -1648,8 +1649,8 @@ CREATE TABLE public.retention_policies (
 -- Name: rfid_tags; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.rfid_tags (
-    tag_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.rfid_tags (
+    tag_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     tag_uid character varying(50) NOT NULL,
     holder_type character varying(20) NOT NULL,
@@ -1666,8 +1667,8 @@ CREATE TABLE public.rfid_tags (
 -- Name: school_finance_settings; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.school_finance_settings (
-    setting_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.school_finance_settings (
+    setting_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     tuition_invoicing boolean DEFAULT false,
     optional_services boolean DEFAULT false,
@@ -1686,8 +1687,8 @@ CREATE TABLE public.school_finance_settings (
 -- Name: school_payment_channels; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.school_payment_channels (
-    channel_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.school_payment_channels (
+    channel_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     channel_type character varying(20) NOT NULL,
     shortcode_or_account character varying(50) NOT NULL,
@@ -1710,8 +1711,8 @@ CREATE TABLE public.school_payment_channels (
 -- Name: school_settings; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.school_settings (
-    setting_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.school_settings (
+    setting_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     setting_key character varying(100) NOT NULL,
     setting_value jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -1725,7 +1726,7 @@ CREATE TABLE public.school_settings (
 -- Name: schools; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.schools (
+CREATE TABLE IF NOT EXISTS public.schools (
     tenant_id character varying(50) NOT NULL,
     school_name character varying(150) NOT NULL,
     subdomain character varying(100) NOT NULL,
@@ -1752,7 +1753,7 @@ CREATE TABLE public.schools (
 -- Name: security_questions; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.security_questions (
+CREATE TABLE IF NOT EXISTS public.security_questions (
     question_id integer NOT NULL,
     question_text text NOT NULL,
     display_order integer DEFAULT 0 NOT NULL
@@ -1783,8 +1784,8 @@ ALTER SEQUENCE public.security_questions_question_id_seq OWNED BY public.securit
 -- Name: sessions; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.sessions (
-    session_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.sessions (
+    session_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     user_id uuid NOT NULL,
     session_token text NOT NULL,
     user_agent text,
@@ -1799,8 +1800,8 @@ CREATE TABLE public.sessions (
 -- Name: staff_profiles; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.staff_profiles (
-    profile_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.staff_profiles (
+    profile_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     membership_id uuid NOT NULL,
     tsc_number character varying(50),
     national_id character varying(50),
@@ -1815,8 +1816,8 @@ CREATE TABLE public.staff_profiles (
 -- Name: strands; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.strands (
-    strand_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.strands (
+    strand_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     area_id uuid NOT NULL,
     code character varying(20) NOT NULL,
     name character varying(100) NOT NULL,
@@ -1831,8 +1832,8 @@ CREATE TABLE public.strands (
 -- Name: streams; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.streams (
-    stream_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.streams (
+    stream_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     stream_name character varying(50) NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
@@ -1843,8 +1844,8 @@ CREATE TABLE public.streams (
 -- Name: sub_strands; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.sub_strands (
-    sub_strand_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.sub_strands (
+    sub_strand_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     strand_id uuid NOT NULL,
     code character varying(20) NOT NULL,
     name character varying(100) NOT NULL,
@@ -1859,8 +1860,8 @@ CREATE TABLE public.sub_strands (
 -- Name: subscriptions; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.subscriptions (
-    subscription_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.subscriptions (
+    subscription_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     plan_id uuid NOT NULL,
     status character varying(20) DEFAULT 'ACTIVE'::character varying NOT NULL,
@@ -1878,8 +1879,8 @@ CREATE TABLE public.subscriptions (
 -- Name: sync_conflicts; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.sync_conflicts (
-    conflict_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.sync_conflicts (
+    conflict_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     entity_type character varying(50) NOT NULL,
     entity_id uuid NOT NULL,
@@ -1899,8 +1900,8 @@ CREATE TABLE public.sync_conflicts (
 -- Name: sync_log; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.sync_log (
-    sync_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.sync_log (
+    sync_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     device_id uuid NOT NULL,
     sync_type character varying(20) NOT NULL,
@@ -1918,8 +1919,8 @@ CREATE TABLE public.sync_log (
 -- Name: teaching_assignments; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.teaching_assignments (
-    assignment_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.teaching_assignments (
+    assignment_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     staff_membership_id uuid NOT NULL,
     class_group_id uuid NOT NULL,
@@ -1933,8 +1934,8 @@ CREATE TABLE public.teaching_assignments (
 -- Name: tenant_curriculum_pins; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.tenant_curriculum_pins (
-    pin_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.tenant_curriculum_pins (
+    pin_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     version_id uuid NOT NULL,
     pinned_by uuid,
@@ -1946,8 +1947,8 @@ CREATE TABLE public.tenant_curriculum_pins (
 -- Name: tenant_memberships; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.tenant_memberships (
-    membership_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.tenant_memberships (
+    membership_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     user_id uuid NOT NULL,
     tenant_id character varying(50) NOT NULL,
     role character varying(30) NOT NULL,
@@ -1960,8 +1961,8 @@ CREATE TABLE public.tenant_memberships (
 -- Name: tenant_usage; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.tenant_usage (
-    usage_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.tenant_usage (
+    usage_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     period_month character varying(7) NOT NULL,
     active_learners integer DEFAULT 0,
@@ -1981,8 +1982,8 @@ CREATE TABLE public.tenant_usage (
 -- Name: terms; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.terms (
-    term_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.terms (
+    term_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     year_id uuid NOT NULL,
     term_number integer NOT NULL,
@@ -2000,8 +2001,8 @@ CREATE TABLE public.terms (
 -- Name: transfers; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.transfers (
-    transfer_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.transfers (
+    transfer_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     learner_id uuid NOT NULL,
     transfer_type character varying(20) NOT NULL,
@@ -2018,7 +2019,7 @@ CREATE TABLE public.transfers (
 -- Name: user_security_answers; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.user_security_answers (
+CREATE TABLE IF NOT EXISTS public.user_security_answers (
     answer_id bigint NOT NULL,
     user_id uuid NOT NULL,
     question_id integer NOT NULL,
@@ -2051,8 +2052,8 @@ ALTER SEQUENCE public.user_security_answers_answer_id_seq OWNED BY public.user_s
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.users (
-    user_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.users (
+    user_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     email character varying(100),
     phone_number character varying(20) NOT NULL,
     password_hash character varying(255) NOT NULL,
@@ -2072,8 +2073,8 @@ CREATE TABLE public.users (
 -- Name: weighting_profiles; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.weighting_profiles (
-    profile_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+CREATE TABLE IF NOT EXISTS public.weighting_profiles (
+    profile_id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     name character varying(100) NOT NULL,
     description text,
     grade_id character varying(20) NOT NULL,

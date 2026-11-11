@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuthStore } from "../lib/authStore";
 import { toast } from "../lib/toast";
+import RoleCard from "../components/atoms/RoleCard";
 
 interface Membership {
   tenant_id: string;
@@ -76,17 +77,15 @@ export default function SchoolPickerPage() {
         <h2 className="text-xl font-bold text-kenyan-red mb-6">{t("tenant_id")}</h2>
         <div className="space-y-3">
           {schools.map((school) => (
-            <button
+            <RoleCard
               key={school.tenant_id}
-              onClick={() => handleSelect(school.tenant_id, school.school_name)}
+              schoolName={school.school_name}
+              subdomain={school.subdomain}
+              role={school.role}
+              status={school.status}
               disabled={switching !== null}
-              className="w-full p-4 border border-gray-300 rounded-xl text-left hover:bg-gray-50 transition-colors disabled:opacity-60"
-            >
-              <div className="font-medium">{school.school_name}</div>
-              <div className="text-sm text-gray-500">
-                {school.subdomain} · {school.role}
-              </div>
-            </button>
+              onClick={() => handleSelect(school.tenant_id, school.school_name)}
+            />
           ))}
         </div>
         {schools.length === 0 && (

@@ -4,7 +4,7 @@
 
 CREATE TABLE public.meal_recipes (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     name character varying(100) NOT NULL,
     meal_type character varying(20) NOT NULL CHECK (meal_type IN ('BREAKFAST','LUNCH','SUPPER','TEA_SNACK')),
     description text,
@@ -17,7 +17,7 @@ CREATE TABLE public.meal_recipes (
 
 CREATE TABLE public.recipe_items (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     recipe_id uuid NOT NULL,
     inventory_item_id uuid NOT NULL,
     qty_per_100 numeric(12,3) NOT NULL CHECK (qty_per_100 > 0),
@@ -30,7 +30,7 @@ CREATE TABLE public.recipe_items (
 
 CREATE TABLE public.daily_store_requisitions (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     slip_number character varying(50) NOT NULL,
     requisition_date date NOT NULL DEFAULT CURRENT_DATE,
     meal_type character varying(20) NOT NULL CHECK (meal_type IN ('BREAKFAST','LUNCH','SUPPER','TEA_SNACK')),
@@ -50,7 +50,7 @@ CREATE TABLE public.daily_store_requisitions (
 
 CREATE TABLE public.store_requisition_items (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     requisition_id uuid NOT NULL,
     inventory_item_id uuid NOT NULL,
     expected_qty numeric(12,3) NOT NULL DEFAULT 0,

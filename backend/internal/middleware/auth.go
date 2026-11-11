@@ -1,13 +1,9 @@
 package middleware
 
 import (
-	"context"
-	"database/sql"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 )
 
@@ -26,91 +22,13 @@ const (
 	ContextRole      = "role"
 )
 
-// TenantResolver resolves tenant ID from subdomain (e.g. school1.domain.com) or X-Tenant-ID header
-func TenantResolver(db *sql.DB) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var tenantID uuid.UUID
-
-			// 1. Check custom header (useful for mobile apps & API testing)
-			headerTenant := r.Header.Get("X-Tenant-ID")
-			if headerTenant != "" {
-				parsed, err := uuid.Parse(headerTenant)
-				if err == nil {
-					tenantID = parsed
-				}
-			}
-
-			// 2. Fallback to subdomain resolution
-			if tenantID == uuid.Nil {
-				host := r.Host
-				parts := strings.Split(host, ".")
-				if len(parts) >= 2 {
-					subdomain := strings.ToLower(parts[0])
-					_ = db.QueryRowContext(r.Context(), "SELECT id FROM tenants WHERE subdomain = $1", subdomain).Scan(&tenantID)
-				}
-			}
-
-			ctx := context.WithValue(r.Context(), TenantIDKey, tenantID)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
-// RequireAuth validates JWT and verifies that the tenant in token matches request tenant
-func RequireAuth(authService *auth.AuthService) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-				http.Error(w, `{"error":"unauthorized: missing or invalid token"}`, http.StatusUnauthorized)
-				return
-			}
-
-			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-			claims, err := authService.ParseToken(tokenStr)
-			if err != nil {
-				http.Error(w, `{"error":"unauthorized: token invalid or expired"}`, http.StatusUnauthorized)
-				return
-			}
-
-			// Ensure tenant isolation boundary: Token tenant MUST match request tenant if resolved
-			reqTenant, _ := r.Context().Value(TenantIDKey).(uuid.UUID)
-			if reqTenant != uuid.Nil {
-				claimsTenantID, _ := uuid.Parse(claims.TenantID)
-				if claimsTenantID != reqTenant {
-					http.Error(w, `{"error":"forbidden: cross-tenant access denied"}`, http.StatusForbidden)
-					return
-				}
-			}
-
-			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
-			ctx = context.WithValue(ctx, TenantIDKey, claims.TenantID)
-			role := ""
-			if len(claims.Roles) > 0 {
-				role = claims.Roles[0]
-			}
-			ctx = context.WithValue(ctx, UserRoleKey, role)
-
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
-// RequireAuthGin is the Gin counterpart of RequireAuth. It validates the JWT
-// and sets user/tenant/role claims into the Gin context.
+// RequireAuthGin validates the access token from Authorization Bearer header
+// or HttpOnly access_token cookie and sets user/tenant/role claims in context.
 func RequireAuthGin(jm *auth.JWTManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		claims, _, err := ParseAccessToken(c, jm)
+		if err != nil || claims == nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: missing or invalid token"})
-			return
-		}
-
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-		claims, err := jm.ValidateToken(tokenStr, auth.TokenTypeAccess)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: token invalid or expired"})
 			return
 		}
 
@@ -139,3 +57,5 @@ func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+

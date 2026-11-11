@@ -1,6 +1,20 @@
 -- Additive: custom attributes, delegated entry tokens, mpesa holding tank, export audit logs
-ALTER TABLE students ADD COLUMN IF NOT EXISTS custom_attributes JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS custom_attributes JSONB DEFAULT '{}'::jsonb;
+-- Compatible with canonical schema (learners, not students).
+DO $$
+BEGIN
+  IF to_regclass('public.students') IS NOT NULL THEN
+    ALTER TABLE students ADD COLUMN IF NOT EXISTS custom_attributes JSONB DEFAULT '{}'::jsonb;
+  ELSIF to_regclass('public.learners') IS NOT NULL THEN
+    ALTER TABLE learners ADD COLUMN IF NOT EXISTS custom_attributes JSONB DEFAULT '{}'::jsonb;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('public.inventory_items') IS NOT NULL THEN
+    ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS custom_attributes JSONB DEFAULT '{}'::jsonb;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS delegated_entry_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

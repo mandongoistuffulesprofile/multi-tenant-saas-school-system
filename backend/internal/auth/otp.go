@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -65,7 +66,8 @@ func SetDevSMSSender() {
 }
 
 type OTPRequestRequest struct {
-	Phone string `json:"phone" binding:"required"`
+	Phone   string `json:"phone" binding:"required"`
+	Purpose string `json:"purpose"`
 }
 
 type OTPVerifyRequest struct {
@@ -105,13 +107,17 @@ func (h *Handler) RequestOTP(c *gin.Context) {
 		return
 	}
 
+	purpose := strings.TrimSpace(req.Purpose)
+	if purpose == "" {
+		purpose = "password_reset"
+	}
 	expiresAt := time.Now().Add(5 * time.Minute)
 
 	// Store OTP challenge
 	_, err = h.database.Exec(
 		`INSERT INTO otp_challenges (phone_number, code_hash, purpose, expires_at) 
 		 VALUES ($1, $2, $3, $4)`,
-		phone, otpHash, "password_reset", expiresAt,
+		phone, otpHash, purpose, expiresAt,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to store OTP"})

@@ -9,22 +9,35 @@ import { useToast } from "../components/toast/ToastProvider";
 export default function FinanceInvoicesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [learners, setLearners] = useState<{ id: string; label: string }[]>([]);
-  const [invoiceForm, setInvoiceForm] = useState({ learner_id: "", term_id: "", amount: "", description: "Term Tuition" });
+  const invoiceFormInit = () => ({ learner_id: "", term_id: "", amount: "", due_date: "" });
+  const [invoiceForm, setInvoiceForm] = useState<{ learner_id: string; term_id: string; amount: string; due_date: string }>(invoiceFormInit);
   const [creating, setCreating] = useState(false);
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
+    const amount = parseFloat(invoiceForm.amount);
+    if (!invoiceForm.learner_id || !Number.isFinite(amount) || amount <= 0) {
+      toast("Select a learner and enter an amount greater than zero", { type: "error" });
+      setCreating(false);
+      return;
+    }
     try {
+      // invoice_number and academic_year_id are defaulted server-side when
+      // omitted (finance service auto-generates INV-<year>-<id> and resolves
+      // the current academic year).
       await api.post("/finance/invoices", {
         learner_id: invoiceForm.learner_id,
-        term_id: invoiceForm.term_id,
-        amount: parseFloat(invoiceForm.amount) || 0,
-        description: invoiceForm.description,
+        term_id: invoiceForm.term_id || undefined,
+        total_amount: amount,
+        amount_outstanding: amount,
+        amount_paid: 0,
+        status: "OUTSTANDING",
+        due_date: invoiceForm.due_date || undefined,
       });
       toast("Invoice generated successfully!", { type: "success" });
       setModalOpen(false);
-      // Refresh list
+      setInvoiceForm(invoiceFormInit());
       api.get("/finance/invoices").then((r) => setInvoices(Array.isArray(r.data) ? r.data : []));
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to create invoice", { type: "error" });
@@ -56,7 +69,7 @@ export default function FinanceInvoicesPage() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto">
           <h2 className="text-heading mb-6">Invoices</h2>
           {loading ? (
@@ -110,11 +123,11 @@ export default function FinanceInvoicesPage() {
                     />
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Description</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Due Date (optional)</span>
                     <input
-                      type="text"
-                      value={invoiceForm.description}
-                      onChange={(e) => setInvoiceForm({ ...invoiceForm, description: e.target.value })}
+                      type="date"
+                      value={invoiceForm.due_date}
+                      onChange={(e) => setInvoiceForm({ ...invoiceForm, due_date: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     />
                   </label>

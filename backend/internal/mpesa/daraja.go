@@ -25,15 +25,33 @@ import (
 )
 
 // C2BCallbackPayload is the Safaricom C2B confirmation body.
+// TransAmount may be sent as a JSON number or string; accept both.
 type C2BCallbackPayload struct {
-	TransactionType   string  `json:"TransactionType"`
-	TransID           string  `json:"TransID"`
-	TransTime         string  `json:"TransTime"`
-	TransAmount       float64 `json:"TransAmount,string"`
-	BusinessShortCode string  `json:"BusinessShortCode"`
-	BillRefNumber     string  `json:"BillRefNumber"`
-	MSISDN            string  `json:"MSISDN"`
-	FirstName         string  `json:"FirstName"`
+	TransactionType   string          `json:"TransactionType"`
+	TransID           string          `json:"TransID"`
+	TransTime         string          `json:"TransTime"`
+	TransAmount       json.RawMessage `json:"TransAmount"`
+	BusinessShortCode string          `json:"BusinessShortCode"`
+	BillRefNumber     string          `json:"BillRefNumber"`
+	MSISDN            string          `json:"MSISDN"`
+	FirstName         string          `json:"FirstName"`
+}
+
+func parseAmount(raw json.RawMessage) (string, error) {
+	s := strings.TrimSpace(string(raw))
+	s = strings.Trim(s, "\"")
+	if s == "" || s == "null" {
+		return "", fmt.Errorf("missing amount")
+	}
+	// Validate numeric format; keep as string for numeric(12,2) precision.
+	var f float64
+	if err := json.Unmarshal([]byte(s), &f); err != nil {
+		return "", err
+	}
+	if f <= 0 {
+		return "", fmt.Errorf("amount must be positive")
+	}
+	return s, nil
 }
 
 // queryer is the write surface for persisting a callback. It is satisfied by
@@ -51,15 +69,15 @@ func NewService(database *db.DB) *Service {
 	return &Service{database: database}
 }
 
-func (s *Service) insertRawInbox(ctx context.Context, q queryer, tenantID string, payload C2BCallbackPayload) error {
+func (s *Service) insertRawInbox(ctx context.Context, q queryer, tenantID, amount string, payload C2BCallbackPayload) error {
 	raw, _ := json.Marshal(payload)
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO mpesa_raw_inbox
 			(tenant_id, trans_id, sender_phone, sender_name, amount, account_reference, raw_payload)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6::numeric, $7)
 		ON CONFLICT (tenant_id, trans_id) DO NOTHING`,
 		tenantID, payload.TransID, payload.MSISDN, payload.FirstName,
-		payload.TransAmount, payload.BillRefNumber, raw)
+		amount, payload.BillRefNumber, raw)
 	return err
 }
 
@@ -82,7 +100,8 @@ func (s *Service) HandleC2B(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"ResultCode": 1, "ResultDesc": "Invalid payload"})
 		return
 	}
-	if payload.TransID == "" || payload.BusinessShortCode == "" || payload.TransAmount <= 0 {
+	amount, err := parseAmount(payload.TransAmount)
+	if err != nil || payload.TransID == "" || payload.BusinessShortCode == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"ResultCode": 1, "ResultDesc": "Missing TransID, BusinessShortCode or amount"})
 		return
 	}
@@ -94,7 +113,7 @@ func (s *Service) HandleC2B(c *gin.Context) {
 	// path falls through to the cross-tenant fallback below: resolve the
 	// tenant from the shortcode and write in a dedicated tenant-scoped tx.
 	if tx := middleware.TxFromGin(c); tx != nil && c.GetString(middleware.ContextTenantID) != "" {
-		if err := s.insertRawInbox(ctx, tx, c.GetString(middleware.ContextTenantID), payload); err != nil {
+		if err := s.insertRawInbox(ctx, tx, c.GetString(middleware.ContextTenantID), amount, payload); err != nil {
 			// Do NOT acknowledge: a 5xx makes Safaricom retry.
 			log.Printf("mpesa: persist failed for trans %s: %v", payload.TransID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"ResultCode": 1, "ResultDesc": "Temporary failure"})
@@ -116,7 +135,7 @@ func (s *Service) HandleC2B(c *gin.Context) {
 	}
 
 	err = s.database.WithTenant(ctx, tenantID, "", func(tx *db.Tx) error {
-		return s.insertRawInbox(ctx, tx, tenantID, payload)
+		return s.insertRawInbox(ctx, tx, tenantID, amount, payload)
 	})
 	if err != nil {
 		// Do NOT acknowledge: a 5xx makes Safaricom retry.
@@ -128,13 +147,25 @@ func (s *Service) HandleC2B(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ResultCode": 0, "ResultDesc": "Accepted"})
 }
 
+// authorised requires at least one of MPESA_WEBHOOK_TOKEN or
+// MPESA_ALLOWED_IPS to be configured. If neither is set, every callback is
+// rejected: Daraja callbacks have no cryptographic signature, so an empty
+// configuration must fail closed rather than silently accept fake callbacks.
 func (s *Service) authorised(c *gin.Context) bool {
-	if want := strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN")); want != "" {
+	want := strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN"))
+	allow := strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS"))
+
+	if want == "" && allow == "" {
+		return false
+	}
+
+	if want != "" {
 		if c.GetHeader("X-Webhook-Token") != want {
 			return false
 		}
 	}
-	if allow := strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS")); allow != "" {
+
+	if allow != "" {
 		client := c.ClientIP()
 		for _, ip := range strings.Split(allow, ",") {
 			if strings.TrimSpace(ip) == client {
@@ -143,6 +174,7 @@ func (s *Service) authorised(c *gin.Context) bool {
 		}
 		return false
 	}
+
 	return true
 }
 
@@ -173,7 +205,7 @@ func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 	}
 
 	rows, err := tx.QueryContext(ctx, `
-		SELECT inbox_id, tenant_id, trans_id, amount, COALESCE(account_reference,'')
+		SELECT inbox_id, tenant_id, trans_id, amount::text, COALESCE(account_reference,'')
 		FROM mpesa_raw_inbox
 		WHERE processing_status = 'PENDING' AND next_attempt_at <= now()
 		ORDER BY received_at
@@ -187,7 +219,7 @@ func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 		id       string
 		tenantID string
 		transID  string
-		amount   float64
+		amount   string
 		ref      string
 	}
 	var items []item
@@ -235,7 +267,11 @@ func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 	return processed, nil
 }
 
-func (s *Service) allocate(ctx context.Context, tx *sqlx.Tx, tenantID, transID, billRef string, amount float64) (string, error) {
+func (s *Service) allocate(ctx context.Context, tx *sqlx.Tx, tenantID, transID, billRef, amount string) (string, error) {
+	if billRef == "" {
+		return "MANUAL_REVIEW", fmt.Errorf("no account reference")
+	}
+
 	var learnerID string
 	err := tx.QueryRowContext(ctx,
 		`SELECT learner_id FROM learners WHERE tenant_id = $1 AND upper(admission_number) = upper($2)`,
@@ -251,7 +287,7 @@ func (s *Service) allocate(ctx context.Context, tx *sqlx.Tx, tenantID, transID, 
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO payments
 			(tenant_id, payment_reference, learner_id, source, amount, status, mpesa_trans_id, idempotency_key)
-		VALUES ($1, $2, $3, 'MPESA', $4, 'COMPLETED', $5, $6)
+		VALUES ($1, $2, $3, 'MPESA', $4::numeric, 'COMPLETED', $5, $6)
 		ON CONFLICT (tenant_id, mpesa_trans_id) WHERE mpesa_trans_id IS NOT NULL DO NOTHING
 		RETURNING payment_id`,
 		tenantID, "MPESA-"+transID, learnerID, amount, transID, tenantID+":"+transID).Scan(&paymentID)
@@ -263,58 +299,90 @@ func (s *Service) allocate(ctx context.Context, tx *sqlx.Tx, tenantID, transID, 
 	}
 
 	rows, err := tx.QueryContext(ctx, `
-		SELECT invoice_id, amount_outstanding
+		SELECT invoice_id
 		FROM invoices
 		WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
 		  AND status IN ('ISSUED','PARTIALLY_PAID','OVERDUE')
-		ORDER BY due_date NULLS LAST, created_at`, tenantID, learnerID)
+		ORDER BY due_date NULLS LAST, created_at
+		FOR UPDATE`, tenantID, learnerID)
 	if err != nil {
 		return "", err
 	}
-	type openInvoice struct {
-		id      string
-		balance float64
-	}
-	var invoices []openInvoice
+	var invoiceIDs []string
 	for rows.Next() {
-		var inv openInvoice
-		if err := rows.Scan(&inv.id, &inv.balance); err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			rows.Close()
 			return "", err
 		}
-		invoices = append(invoices, inv)
+		invoiceIDs = append(invoiceIDs, id)
 	}
 	rows.Close()
 
-	remaining := amount
-	for _, inv := range invoices {
-		if remaining <= 0 {
+	for _, invoiceID := range invoiceIDs {
+		var rem string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT GREATEST($1::numeric - COALESCE(SUM(pa.allocated_amount),0), 0)::text
+			FROM payment_allocations pa WHERE pa.tenant_id = $2 AND pa.payment_id = $3`,
+			amount, tenantID, paymentID).Scan(&rem); err != nil {
+			return "", err
+		}
+		if rem == "0" || rem == "0.00" || rem == "0.0" {
 			break
 		}
-		alloc := remaining
-		if alloc > inv.balance {
-			alloc = inv.balance
+		var alloc string
+		err := tx.QueryRowContext(ctx, `
+			SELECT LEAST($1::numeric, amount_outstanding)::text
+			FROM invoices WHERE invoice_id = $2 AND tenant_id = $3 FOR UPDATE`,
+			rem, invoiceID, tenantID).Scan(&alloc)
+		if err != nil {
+			return "", err
+		}
+		if alloc == "0" || alloc == "0.00" || alloc == "0.0" {
+			continue
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount)
-			VALUES ($1, $2, $3, $4)
+			VALUES ($1, $2, $3, $4::numeric)
 			ON CONFLICT (payment_id, invoice_id) DO NOTHING`,
-			tenantID, paymentID, inv.id, alloc); err != nil {
+			tenantID, paymentID, invoiceID, alloc); err != nil {
 			return "", err
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE invoices
-			SET amount_paid = amount_paid + $1,
-			    amount_outstanding = GREATEST(amount_outstanding - $1, 0),
-			    status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-			    paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN now() ELSE paid_at END,
+			SET amount_paid = amount_paid + $1::numeric,
+			    amount_outstanding = amount_outstanding - $1::numeric,
+			    status = CASE WHEN amount_outstanding - $1::numeric <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
+			    paid_at = CASE WHEN amount_outstanding - $1::numeric <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
 			    updated_at = now()
 			WHERE invoice_id = $2 AND tenant_id = $3`,
-			alloc, inv.id, tenantID); err != nil {
+			alloc, invoiceID, tenantID); err != nil {
 			return "", err
 		}
-		remaining -= alloc
 	}
+
+	msg := fmt.Sprintf("Payment received: KES %s (Ref %s). Thank you.", amount, transID)
+	idem := "mpesa-receipt:" + tenantID + ":" + transID
+	_, _ = tx.ExecContext(ctx, `
+		INSERT INTO outbound_messages (tenant_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, idempotency_key)
+		SELECT $1, 'GUARDIAN', g.guardian_id, 'SMS',
+		       COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,'')),
+		       $2, 'QUEUED', $4
+		  FROM learner_guardians lg
+		  JOIN guardians g ON g.guardian_id = lg.guardian_id AND g.tenant_id = $1
+		  LEFT JOIN users u ON u.user_id = g.user_id
+		 WHERE lg.learner_id = $3
+		   AND COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,'')) IS NOT NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM outbound_messages om
+		      WHERE om.tenant_id = $1 AND om.channel = 'SMS'
+		        AND (om.idempotency_key = $4 OR (om.body_text = $2 AND om.recipient_address = COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,''))))
+		   )
+		 ORDER BY lg.is_primary_payer DESC NULLS LAST, lg.created_at
+		 LIMIT 1
+		ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+		tenantID, msg, learnerID, idem,
+	)
 
 	return "PROCESSED", nil
 }

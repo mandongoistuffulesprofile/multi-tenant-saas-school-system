@@ -733,6 +733,7 @@ export interface ReportCard {
   tenant_id: ID;
   run_id: ID;
   learner_id: ID;
+  learner_name?: string;
   card_number: string;
   academic_year_id: ID;
   term_id?: ID | null;

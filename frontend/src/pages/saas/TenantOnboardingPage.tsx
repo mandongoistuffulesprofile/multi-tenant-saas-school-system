@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";
 import Input from "../../components/atoms/Input";
@@ -8,6 +9,7 @@ import { api } from "../../lib/api";
 
 export default function TenantOnboardingPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,19 +51,22 @@ export default function TenantOnboardingPage() {
         <ViewState state="content" message={t("saas.tenant_created", { defaultMessage: "Tenant created successfully!" })} />
         <Card className="p-6 max-w-lg mx-auto text-center space-y-3">
           <p className="font-semibold text-lg text-kenyan-green">School Provisioned</p>
-          <p className="text-sm text-gray-600">Subdomain: <code className="bg-gray-100 px-2 py-1 rounded">{form.subdomain}</code></p>
+          <p className="text-sm text-gray-600">Tenant: <code className="bg-gray-100 px-2 py-1 rounded">{createdTenant?.tenant_id || form.subdomain}</code></p>
           <p className="text-sm text-gray-600">Plan: <span className="font-medium">{createdTenant?.plan_code || form.plan}</span></p>
           <p className="text-sm text-gray-600">Admin: <span className="font-medium">{form.admin_email}</span></p>
           {createdTenant?.temp_password && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-              <p className="text-amber-800 font-semibold mb-1">School Admin Temporary Password</p>
+              <p className="text-amber-800 font-semibold mb-1">School Admin Temporary Password (show once)</p>
               <code className="bg-white px-3 py-1 rounded border border-amber-300 font-mono text-base select-all">{createdTenant.temp_password}</code>
-              <p className="text-[11px] text-amber-700 mt-2">Share this privately — the school admin must change it at first login.</p>
+              <p className="text-[11px] text-amber-700 mt-2">Share privately. Super Admin remains platform-only; School Admin will customize after handoff.</p>
             </div>
           )}
-          <Button variant="primary" onClick={() => { setStep(0); setForm({ school_name: "", subdomain: "", county: "", admin_email: "", admin_phone: "", plan: "STANDARD" }); }}>
-            {t("saas.onboard_another")}
-          </Button>
+          <div className="flex gap-2 justify-center flex-wrap">
+            <Button variant="primary" onClick={() => navigate(`/platform/tenants/${encodeURIComponent(createdTenant?.tenant_id || form.subdomain)}/setup`)}>Continue setup</Button>
+            <Button variant="secondary" onClick={() => { setStep(0); setCreatedTenant(null); setForm({ school_name: "", subdomain: "", county: "", admin_email: "", admin_phone: "", plan: "STANDARD" }); }}>
+              {t("saas.onboard_another")}
+            </Button>
+          </div>
         </Card>
       </div>
     );

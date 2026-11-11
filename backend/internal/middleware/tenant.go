@@ -127,19 +127,29 @@ func isUnsafeMethod(method string) bool {
 	}
 }
 
-// ParseAccessToken extracts and validates a bearer access token from the Gin
-// context. It returns the claims, whether the token came from a cookie (always
-// false in this implementation — cookie-based auth is a follow-up), and any
-// validation error.
+// ParseAccessToken extracts and validates an access token from the Gin
+// context. It first checks the Authorization header, then falls back to the
+// HttpOnly access_token cookie. Returns the claims, whether the token came
+// from a cookie, and any validation error.
 func ParseAccessToken(c *gin.Context, jm *auth.JWTManager) (*auth.Claims, bool, error) {
 	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		claims, err := jm.ValidateToken(tokenStr, auth.TokenTypeAccess)
+		if err != nil {
+			return nil, false, err
+		}
+		return claims, false, nil
+	}
+
+	// Fall back to the HttpOnly access_token cookie.
+	cookie, err := c.Cookie(auth.AccessCookie)
+	if err != nil || cookie == "" {
 		return nil, false, nil
 	}
-	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-	claims, err := jm.ValidateToken(tokenStr, auth.TokenTypeAccess)
+	claims, err := jm.ValidateToken(cookie, auth.TokenTypeAccess)
 	if err != nil {
 		return nil, false, err
 	}
-	return claims, false, nil
+	return claims, true, nil
 }

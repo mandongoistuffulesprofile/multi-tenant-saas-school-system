@@ -30,6 +30,11 @@ func (s *Service) Drain(ctx context.Context, limit int, handler Handler) (int, e
 	}
 	defer tx.Rollback()
 
+	// Worker runs cross-tenant; opt into RLS bypass for outbox processing.
+	if _, err := tx.ExecContext(ctx, "SET LOCAL app.worker = 'on'"); err != nil {
+		return 0, fmt.Errorf("outbox worker context: %w", err)
+	}
+
 	rows, err := tx.QueryContext(ctx, `
 		SELECT outbox_id, aggregate_type, aggregate_id, event_type, event_id,
 		       payload, tenant_id, status, created_at, attempt_count

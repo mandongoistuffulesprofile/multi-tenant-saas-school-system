@@ -7,6 +7,7 @@ import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 import { api } from "../../lib/api";
 import { TenantUsage, Plan, Subscription } from "../../lib/types";
+import { SharpShield } from "../../components/icons";
 
 export default function OperationsCentrePage() {
   const { t } = useTranslation();
@@ -48,7 +49,7 @@ export default function OperationsCentrePage() {
         <KPIStatCard title={'Active Tenants'} value={activeTenants} />
         <KPIStatCard title={'API Success Rate'} value={apiSuccess != null ? `${apiSuccess}%` : "—"} />
         <KPIStatCard title={'MRR'} value={`KES ${mrr.toLocaleString()}`} />
-        <KPIStatCard title={'Alerts'} value={alerts} trend={alerts > 0 ? { label: "providers degraded", value: alerts, positive: false } : undefined} />
+        <KPIStatCard title={'Alerts'} value={alerts} trend={alerts > 0 ? { label: "providers degraded", value: alerts, positive: false } : undefined} icon={SharpShield} />
       </div>
       <Card className="p-4">
         <h3 className="text-heading mb-3">{'Integration Health'}</h3>

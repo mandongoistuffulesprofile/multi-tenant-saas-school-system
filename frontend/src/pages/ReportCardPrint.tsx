@@ -1,118 +1,161 @@
-import React from 'react';
-import { OfficialDocumentWrapper } from '../components/OfficialDocumentWrapper';
+import React, { useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
+import { api } from "../lib/api";
+import { OfficialDocumentWrapper } from "../components/OfficialDocumentWrapper";
+import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
 export const ReportCardPrint: React.FC = () => {
-  return (
-    <div className="space-y-4">
-      {/* Action Header */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-xs print:hidden">
-        <div>
-          <h2 className="text-base font-black text-slate-900 tracking-tight">
-            Ripoti Rasmi ya Maendeleo ya CBC (Learner Progress Form)
-          </h2>
-          <p className="text-xs text-slate-500">
-            Mwanafunzi: <strong>Brian Baraka Kasamba</strong> &bull; ADM: <strong>ADM-MND-0582</strong> &bull; Darasa: <strong>Grade 5 Boarding</strong>
-          </p>
+  const { card_id } = useParams<{ card_id: string }>();
+  const [card, setCard] = useState<any>(null);
+  const [school, setSchool] = useState<any>(null);
+  const [learner, setLearner] = useState<any>(null);
+  const [comments, setComments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!card_id) return;
+    let alive = true;
+    (async () => {
+      try {
+        const [cRes, sRes] = await Promise.all([
+          api.get(`/reports/cards/${card_id}`),
+          api.get("/school").catch(() => ({ data: null })),
+        ]);
+        if (!alive) return;
+        const c = cRes.data;
+        setCard(c);
+        setSchool(sRes.data);
+        try {
+          const [lRes, cmRes] = await Promise.all([
+            c?.learner_id ? api.get(`/learners/${c.learner_id}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
+            api.get(`/reports/cards/${card_id}/comments`).catch(() => ({ data: [] })),
+          ]);
+          if (!alive) return;
+          setLearner(lRes.data);
+          setComments(Array.isArray(cmRes.data) ? cmRes.data : []);
+        } catch { /* non-fatal */ }
+      } catch (e: any) {
+        if (alive) setError(e?.response?.data?.message || "Failed to load report card");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [card_id]);
+
+  if (loading) return <div className="min-h-screen bg-gray-50 p-6">Loading report card…</div>;
+  if (error || !card) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-xl mx-auto bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-heading mb-2">Report card unavailable</h2>
+          <p className="text-sm text-gray-600 mb-4">{error || "Not found"}</p>
+          <Link to="/reports" className="text-kenyan-red underline">Back to reports</Link>
         </div>
-        <button
-          onClick={() => window.print()}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm cursor-pointer"
-        >
-          Chapisha Ripoti (Print / PDF)
-        </button>
       </div>
+    );
+  }
 
-      <OfficialDocumentWrapper
-        schoolName="MANDONGOI COMPREHENSIVE SCHOOL"
-        moeRegNumber="MoE/PRI/2019/4021"
-        poBox="S.L.P. 1 - 90401 Ngomeni, Kitui, Kenya"
-        verificationHash="9f83ab293e41c42f9b8a104f"
-        title="RIPOTI YA TATHMINI YA MAENDELEO YA CBC (GRADE 5 REPORT FORM)"
-      >
-        <div className="space-y-4 text-xs leading-relaxed">
-          {/* Learner Demographics */}
-          <div className="grid grid-cols-2 gap-4 pb-3 border-b border-slate-300">
-            <div>
-              <p><strong>Jina la Mwanafunzi:</strong> BRIAN BARAKA KASAMBA</p>
-              <p><strong>NEMIS UPI:</strong> BBK521K</p>
-              <p><strong>Nambari ya Usajili:</strong> ADM-MND-0582</p>
-              <p><strong>Makazi:</strong> Mwanafunzi wa Bweni (Boarding - Mwingi North Wing)</p>
-            </div>
-            <div>
-              <p><strong>Darasa:</strong> Grade 5 East</p>
-              <p><strong>Muhula:</strong> Muhula wa 1 (Term 1, 2026)</p>
-              <p><strong>Mzazi / Mlezi:</strong> KASAMBA KITHEKA (0718786067)</p>
-              <p><strong>Mahudhurio:</strong> Siku 69 / 70</p>
-            </div>
-          </div>
+  const learnerName = learner ? `${learner.first_name || ""} ${learner.last_name || ""}`.trim() : (card.learner_name || card.learner_id);
+  const adm = learner?.admission_number || "—";
+  const grade = learner?.grade_label || card.grade_id || "—";
+  const stream = learner?.stream_name ? ` ${learner.stream_name}` : "";
+  const schoolName = school?.school_name || school?.name || "School";
+  const moe = school?.moe_reg_number || school?.nemis_code || "—";
+  const address = [school?.po_box, school?.county, "Kenya"].filter(Boolean).join(", ") || "—";
+  const pct = card.percentage != null ? Number(card.percentage).toFixed(1) : "—";
 
-          {/* CBC Learning Area Assessment Matrix */}
-          <table className="w-full text-left border border-slate-400">
-            <thead className="bg-slate-100 border-b border-slate-400 text-[11px] font-bold">
-              <tr>
-                <th className="p-2 border-r border-slate-400">Eneo la Kujifunza (Learning Area)</th>
-                <th className="p-2 border-r border-slate-400">Kipengele (Strand)</th>
-                <th className="p-2 border-r border-slate-400 text-center">Umahiri (Rubric)</th>
-                <th className="p-2">Maoni ya Mwalimu wa Somo</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-300">
-              <tr>
-                <td className="p-2 border-r border-slate-300 font-bold">Hisabati (Mathematics)</td>
-                <td className="p-2 border-r border-slate-300">Fractions & Decimals</td>
-                <td className="p-2 border-r border-slate-300 text-center font-bold text-emerald-800">EE (4/4)</td>
-                <td className="p-2">Uelewa wa kina katika milinganyo na hisabati ya maisha halisi.</td>
-              </tr>
-              <tr>
-                <td className="p-2 border-r border-slate-300 font-bold">Sayansi na Teknolojia</td>
-                <td className="p-2 border-r border-slate-300">Living Things & Environment</td>
-                <td className="p-2 border-r border-slate-300 text-center font-bold text-blue-700">ME (3/4)</td>
-                <td className="p-2">Anashiriki vizuri katika utafiti wa mimea na wanyama wa Kitui.</td>
-              </tr>
-              <tr>
-                <td className="p-2 border-r border-slate-300 font-bold">Kiingereza (English)</td>
-                <td className="p-2 border-r border-slate-300">Debate & Comprehension</td>
-                <td className="p-2 border-r border-slate-300 text-center font-bold text-emerald-800">EE (4/4)</td>
-                <td className="p-2">Ufasaha mkubwa katika mawasiliano na uandishi wa ripoti.</td>
-              </tr>
-              <tr>
-                <td className="p-2 border-r border-slate-300 font-bold">Kiswahili</td>
-                <td className="p-2 border-r border-slate-300">Kusikiliza na Sarufi</td>
-                <td className="p-2 border-r border-slate-300 text-center font-bold text-blue-700">ME (3/4)</td>
-                <td className="p-2">Uelewa mzuri wa misamiati na insha za kiubunifu.</td>
-              </tr>
-              <tr>
-                <td className="p-2 border-r border-slate-300 font-bold">Kilimo na Lishe (Agriculture)</td>
-                <td className="p-2 border-r border-slate-300">Soil Conservation</td>
-                <td className="p-2 border-r border-slate-300 text-center font-bold text-emerald-800">EE (4/4)</td>
-                <td className="p-2">Vitendo bora katika mradi wa utunzaji wa mazingira ya shule.</td>
-              </tr>
-            </tbody>
-          </table>
-
-          {/* Core Values & Conduct */}
-          <div className="p-3 bg-slate-50 border border-slate-300 rounded">
-            <h4 className="font-bold text-slate-800 uppercase text-[11px] mb-1">Tathmini ya Maadili (Core Values):</h4>
-            <p className="text-slate-700">
-              Uzalendo, Heshima, Umoja, na Wajibu: <strong>Kiwango cha Juu (Exemplary Conduct)</strong>. Brian ni kiongozi mzuri bweni na darasani.
+  return (
+    <ErrorBoundary>
+      <div className="space-y-4 min-h-screen bg-gray-50 p-4">
+        <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 print:hidden max-w-5xl mx-auto">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Learner Report Card</h2>
+            <p className="text-xs text-slate-500">
+              {learnerName} · ADM: {adm} · {grade}{stream} · {card.status}
             </p>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-500 hidden sm:inline">Use browser Print/Save as PDF</span>
+            <Link to="/reports" className="px-3 py-2 border border-slate-300 rounded-lg text-xs font-medium hover:bg-slate-50">Back</Link>
+            <button onClick={() => window.print()} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg">
+              Print / Save PDF
+            </button>
+          </div>
+        </div>
 
-          {/* Official Signatures */}
-          <div className="pt-6 grid grid-cols-2 gap-8 text-[11px]">
-            <div>
-              <p>Mwalimu wa Darasa (Class Teacher): _________________________</p>
-              <p className="mt-1 text-slate-500">Saini & Tarehe</p>
+        <OfficialDocumentWrapper
+          schoolName={schoolName}
+          moeRegNumber={moe}
+          poBox={address}
+          verificationHash={String(card.card_number || card.card_id || "").slice(0, 12)}
+          title="CBC LEARNER PROGRESS REPORT"
+        >
+          <div className="space-y-4 text-xs leading-relaxed">
+            <div className="grid grid-cols-2 gap-4 pb-3 border-b border-slate-300">
+              <div>
+                <p><strong>Learner:</strong> {learnerName}</p>
+                <p><strong>Admission No:</strong> {adm}</p>
+                <p><strong>Card No:</strong> {card.card_number || "—"}</p>
+              </div>
+              <div>
+                <p><strong>Grade/Stream:</strong> {grade}{stream}</p>
+                <p><strong>Academic Year:</strong> {card.academic_year_id || "—"}</p>
+                <p><strong>Term:</strong> {card.term_id || "—"}</p>
+                <p><strong>Status:</strong> {card.status}</p>
+              </div>
             </div>
-            <div>
-              <p>Mwalimu Mkuu (Headteacher): <strong>Joel Maundu</strong></p>
-              <div className="w-48 border-b border-slate-800 mt-4 pb-1 text-center font-serif text-[10px] italic">
-                Joel Maundu - Headteacher & Secretary BOM
+
+            <table className="w-full text-left border border-slate-400">
+              <thead className="bg-slate-100 border-b border-slate-400 text-[11px] font-bold">
+                <tr>
+                  <th className="p-2 border-r border-slate-400">Indicator</th>
+                  <th className="p-2">Value</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-300">
+                <tr><td className="p-2 border-r border-slate-300 font-medium">Overall Grade</td><td className="p-2 font-bold">{card.overall_grade || "—"}</td></tr>
+                <tr><td className="p-2 border-r border-slate-300 font-medium">Total Score</td><td className="p-2">{card.total_score ?? "—"} / {card.max_score ?? "—"}</td></tr>
+                <tr><td className="p-2 border-r border-slate-300 font-medium">Percentage</td><td className="p-2">{pct}{pct !== "—" ? "%" : ""}</td></tr>
+                <tr><td className="p-2 border-r border-slate-300 font-medium">Position</td><td className="p-2">{card.position ?? "—"}</td></tr>
+                <tr><td className="p-2 border-r border-slate-300 font-medium">Published</td><td className="p-2">{card.published_at || "—"}</td></tr>
+              </tbody>
+            </table>
+
+            {(card.comment || card.head_teacher_comment) && (
+              <div className="p-3 bg-slate-50 border border-slate-300 rounded space-y-2">
+                {card.comment && <p><strong>Class/Teacher Comment:</strong> {card.comment}</p>}
+                {card.head_teacher_comment && <p><strong>Head Teacher Comment:</strong> {card.head_teacher_comment}</p>}
+              </div>
+            )}
+
+            {comments.length > 0 && (
+              <div>
+                <h4 className="font-bold text-slate-800 uppercase text-[11px] mb-1">Learning Area Comments</h4>
+                <ul className="list-disc pl-5 space-y-1">
+                  {comments.map((cm: any, i: number) => (
+                    <li key={cm.comment_id || i}>{cm.comment_text || cm.comment || JSON.stringify(cm)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="pt-6 grid grid-cols-2 gap-8 text-[11px]">
+              <div>
+                <p>Class Teacher: _________________________</p>
+                <p className="mt-1 text-slate-500">Signature & Date</p>
+              </div>
+              <div>
+                <p>Head Teacher: _________________________</p>
+                <p className="mt-1 text-slate-500">Signature & Date</p>
               </div>
             </div>
           </div>
-        </div>
-      </OfficialDocumentWrapper>
-    </div>
+        </OfficialDocumentWrapper>
+      </div>
+    </ErrorBoundary>
   );
 };
+
+export default ReportCardPrint;

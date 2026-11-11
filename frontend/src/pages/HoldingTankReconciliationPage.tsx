@@ -47,7 +47,7 @@ export default function HoldingTankReconciliationPage() {
     };
   }, []);
 
-  const pending = entries.filter((e) => String(e.status).toUpperCase() !== "RESOLVED");
+  const pending = entries.filter((e) => String(e.status).toUpperCase() !== "ALLOCATED");
 
   const handleResolve = async (entryId: string) => {
     const studentId = selectedLearner[entryId];
@@ -66,7 +66,7 @@ export default function HoldingTankReconciliationPage() {
       });
       setEntries((es) =>
         es.map((e) =>
-          e.id === entryId ? { ...e, status: "RESOLVED", allocated_to: studentId } : e
+          e.id === entryId ? { ...e, status: "ALLOCATED", allocated_to: studentId } : e
         )
       );
     } catch (err: any) {
@@ -84,7 +84,7 @@ export default function HoldingTankReconciliationPage() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-heading">Holding Tank Reconciliation</h2>
@@ -127,7 +127,7 @@ export default function HoldingTankReconciliationPage() {
                   header: "Allocated To",
                   render: (r) =>
                     r.allocated_to ||
-                    (String(r.status).toUpperCase() === "RESOLVED"
+                    (String(r.status).toUpperCase() === "ALLOCATED"
                       ? "—"
                       : "unallocated"),
                 },
@@ -136,7 +136,7 @@ export default function HoldingTankReconciliationPage() {
                   header: "Allocate",
                   sortable: false,
                   render: (r) => {
-                    const done = String(r.status).toUpperCase() === "RESOLVED";
+                    const done = String(r.status).toUpperCase() === "ALLOCATED";
                     if (done) return <span className="text-xs text-gray-500">Allocated</span>;
                     return (
                       <div className="flex items-center gap-2">

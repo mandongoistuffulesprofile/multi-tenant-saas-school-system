@@ -146,25 +146,18 @@ export const SaaSAdminDesk: React.FC = () => {
     }
   };
 
-  /* Time-boxed impersonation: mints a real imp:true JWT scoped to the tenant,
-   * stashes the platform session for one-click restore (exit in Layout header). */
+  /* Time-boxed impersonation: records a support session server-side.
+   * The platform session cookie remains valid; impersonation is scoped by
+   * the server-side impersonation_sessions table. */
   const handleLoginAs = async (t0: SchoolTenant) => {
     const reason = window.prompt(`Sababu ya kuingia kama ${t0.name} (huingia kwenye Platform Audit):`);
     if (!reason) return;
     try {
       const res = await api.post("/platform/impersonations", { tenant_id: t0.id, reason });
-      const tok = res.data?.impersonation_token;
-      if (!tok) throw new Error("No impersonation token returned");
-      const restore = {
-        access: localStorage.getItem("access_token"),
-        refresh: localStorage.getItem("refresh_token"),
-        roles: localStorage.getItem("roles"),
-      };
-      sessionStorage.setItem("imp_restore", JSON.stringify(restore));
-      localStorage.setItem("imp_school", res.data.school_name || t0.name);
-      localStorage.setItem("access_token", tok);
-      localStorage.setItem("roles", JSON.stringify(["ADMIN"]));
-      showToast(`⚠ Session ya ukaguzi: ${res.data.school_name} (hadi ${res.data.expires_at || "60 min"}).`);
+      sessionStorage.setItem("imp_school", res.data.school_name || t0.name);
+      sessionStorage.setItem("imp_session_id", res.data.session_id);
+      sessionStorage.setItem("imp_expires_at", res.data.expires_at);
+      showToast(`⚠ Session ya ukaguzi: ${res.data.school_name || t0.name} (hadi ${res.data.expires_at || "60 min"}).`);
       window.location.href = "/dashboard";
     } catch (err: any) {
       showToast(err.response?.data?.message || "Impersonation imeshindikana.");

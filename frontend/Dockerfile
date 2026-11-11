@@ -1,7 +1,14 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
+# npm/cli#4828: the checked-in lockfile was generated on a glibc host and may
+# only carry the linux-x64-gnu optional binaries, so a musl image ships without
+# the native rollup module. Install exactly once, then re-add the missing
+# musl binary at the resolved rollup version.
+RUN (npm ci --include=optional --no-audit --no-fund \
+  || (rm -f package-lock.json && npm install --include=optional --no-audit --no-fund)) \
+ && ROLLUP_V="$(node -e "console.log(require('rollup/package.json').version)")" \
+ && npm install --no-save --no-audit --no-fund "@rollup/rollup-linux-x64-musl@$ROLLUP_V"
 COPY . .
 RUN npm run build
 

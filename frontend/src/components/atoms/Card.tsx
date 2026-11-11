@@ -19,7 +19,7 @@ interface KPIStatCardProps {
   value: string | number;
   subtitle?: string;
   trend?: { label: string; value: number; positive: boolean };
-  icon?: React.ReactNode;
+  icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>;
 }
 
 export function KPIStatCard({
@@ -27,7 +27,7 @@ export function KPIStatCard({
   value,
   subtitle,
   trend,
-  icon,
+  icon: Icon,
 }: KPIStatCardProps) {
   return (
     <Card padded>
@@ -46,7 +46,7 @@ export function KPIStatCard({
             </p>
           )}
         </div>
-        {icon && <div className="ml-4 p-2 rounded-xl bg-gray-50 text-gray-600">{icon}</div>}
+        {Icon && <div className="ml-4 p-2 rounded-xl bg-gray-50 text-gray-600"><Icon /></div>}
       </div>
     </Card>
   );

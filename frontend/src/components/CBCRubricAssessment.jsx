@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { saveAssessmentOffline, getPendingAssessments, markAssessmentsSynced } from '../services/assessmentDb';
+import { api } from '../lib/api';
 
 const CBC_LEVELS = [
   { code: 'EE', label: 'Exceeding Expectations', score: 4, color: '#16a34a' },
@@ -73,15 +74,7 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
         return;
       }
 
-      const accessToken = localStorage.getItem('access_token');
-      const res = await fetch('/api/v1/assessments/cbc/bulk-sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Tenant-ID': tenantId,
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
-        },
-        body: JSON.stringify({
+      const res = await api.post('/assessments/cbc/bulk-sync', {
           tenant_id: tenantId,
           assessments: pending.map((p) => ({
             studentId: p.studentId,
@@ -90,8 +83,11 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
             ratingCode: p.ratingCode,
             updated_at: p.updatedAt
           }))
-        })
-      });
+        }, {
+          headers: {
+            'X-Tenant-ID': tenantId,
+          }
+        });
 
       if (res.ok) {
         await markAssessmentsSynced(pending.map((p) => p.id));

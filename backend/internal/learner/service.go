@@ -2,9 +2,12 @@ package learner
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
@@ -186,17 +189,28 @@ func nullIfEmpty(s string) interface{} {
 }
 
 func (h *Handler) CreateLearner(c *gin.Context) {
+	type GuardianInput struct {
+		FullName     string `json:"full_name"`
+		FirstName    string `json:"first_name"`
+		LastName     string `json:"last_name"`
+		PhoneNumber  string `json:"phone_number"`
+		Email        string `json:"email"`
+		Relationship string `json:"relationship"`
+	}
 	type CreateRequest struct {
-		AdmissionNumber string `json:"admission_number" binding:"required"`
-		UPINEMISNumber  string `json:"upi_nemis_number"`
-		FirstName       string `json:"first_name" binding:"required"`
-		MiddleName      string `json:"middle_name"`
-		LastName        string `json:"last_name" binding:"required"`
-		DateOfBirth     string `json:"date_of_birth"`
-		Gender          string `json:"gender"`
-		Status          string `json:"status"`
-		AdmittedOn      string `json:"admitted_on"`
-		BoardingType    string `json:"boarding_type"`
+		AdmissionNumber string          `json:"admission_number" binding:"required"`
+		UPINEMISNumber  string          `json:"upi_nemis_number"`
+		FirstName       string          `json:"first_name" binding:"required"`
+		MiddleName      string          `json:"middle_name"`
+		LastName        string          `json:"last_name" binding:"required"`
+		DateOfBirth     string          `json:"date_of_birth"`
+		Gender          string          `json:"gender"`
+		Status          string          `json:"status"`
+		AdmittedOn      string          `json:"admitted_on"`
+		BoardingType    string          `json:"boarding_type"`
+		GradeLabel      string          `json:"grade_label"`
+		StreamName      string          `json:"stream_name"`
+		Guardians       []GuardianInput `json:"guardians"`
 	}
 	var req CreateRequest
 	if errs := validation.BindJSON(c, &req); errs != nil {
@@ -222,6 +236,40 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 		return
 	}
 
+	// Guardians are optional only when no contact is supplied; when a phone
+	// number exists a guardian card must be creatable (guardians.phone_number
+	// is NOT NULL, and a name is required for first_name/last_name NOT NULL).
+	guardianRows := make([]GuardianInput, 0)
+	for _, g := range req.Guardians {
+		phone := strings.TrimSpace(g.PhoneNumber)
+		if phone == "" {
+			continue
+		}
+		if strings.TrimSpace(g.FirstName) == "" && strings.TrimSpace(g.FullName) != "" {
+			parts := strings.Fields(strings.TrimSpace(g.FullName))
+			if len(parts) == 1 {
+				g.FirstName = parts[0]
+				g.LastName = parts[0]
+			} else if len(parts) > 1 {
+				g.FirstName = parts[0]
+				g.LastName = strings.Join(parts[1:], " ")
+			}
+		}
+		g.FirstName = strings.TrimSpace(g.FirstName)
+		g.LastName = strings.TrimSpace(g.LastName)
+		if g.FirstName == "" || g.LastName == "" {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "guardians", Code: "INVALID_VALUE", Message: "each guardian needs a full name and phone number"},
+			})
+			return
+		}
+		if g.Relationship == "" {
+			g.Relationship = "GUARDIAN"
+		}
+		guardianRec := g
+		guardianRec.PhoneNumber = phone
+		guardianRows = append(guardianRows, guardianRec)
+	}
 	var learnerID string
 	err := tx.QueryRow(
 		`INSERT INTO learners (tenant_id, admission_number, upi_nemis_number, first_name,
@@ -236,6 +284,81 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
+
+	// Link guardians in the same transaction: upsert by tenant + phone so
+	// repeat admissions reuse the existing guardian card.
+	for i, g := range guardianRows {
+		var guardianID string
+		err := tx.QueryRow(
+			`SELECT guardian_id FROM guardians WHERE tenant_id = $1 AND phone_number = $2
+			 ORDER BY created_at LIMIT 1`,
+			tenantID, g.PhoneNumber,
+		).Scan(&guardianID)
+		if errors.Is(err, sql.ErrNoRows) {
+			err = tx.QueryRow(
+				`INSERT INTO guardians (tenant_id, first_name, last_name, phone_number, email)
+				 VALUES ($1, $2, $3, $4, NULLIF($5, '')) RETURNING guardian_id`,
+				tenantID, g.FirstName, g.LastName, g.PhoneNumber, strings.TrimSpace(g.Email),
+			).Scan(&guardianID)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		_, err = tx.Exec(
+			`INSERT INTO learner_guardians
+			 (learner_id, guardian_id, relationship, is_primary_payer, is_emergency_contact, can_collect, can_view_fees)
+			 VALUES ($1, $2, $3, $4, $5, false, true)`,
+			learnerID, guardianID, strings.ToUpper(strings.TrimSpace(g.Relationship)),
+			i == 0, g.Relationship != "",
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+
+	// Enrol into the current class group matching grade label + stream name
+	// when both resolve; leave admission without enrolment otherwise (the
+	// school can still adjust structure later).
+	if strings.TrimSpace(req.GradeLabel) != "" && strings.TrimSpace(req.StreamName) != "" {
+		var yearID string
+		if err := tx.QueryRow(
+			`SELECT COALESCE(
+				(SELECT year_id FROM academic_years WHERE tenant_id = $1 AND is_current = true),
+				(SELECT year_id FROM academic_years WHERE tenant_id = $1 ORDER BY start_date DESC LIMIT 1))
+			 FROM tenants WHERE tenant_id = $1`,
+			tenantID,
+		).Scan(&yearID); err == nil && yearID != "" {
+			var classGroupID string
+			row := tx.QueryRow(
+				`SELECT cg.class_group_id
+				 FROM class_groups cg
+				 JOIN grades gr ON gr.grade_id = cg.grade_id
+				 JOIN streams st ON st.stream_id = cg.stream_id
+				 WHERE cg.tenant_id = $1 AND gr.grade_label = $2
+				 AND st.stream_name = $3 AND cg.year_id = $4
+				 ORDER BY cg.created_at LIMIT 1`,
+				tenantID, strings.TrimSpace(req.GradeLabel), strings.TrimSpace(req.StreamName), yearID,
+			)
+			if err := row.Scan(&classGroupID); err == nil {
+				startedOn := req.AdmittedOn
+				if strings.TrimSpace(startedOn) == "" {
+					startedOn = time.Now().Format("2006-01-02")
+				}
+				_, err = tx.Exec(
+					`INSERT INTO enrolments (tenant_id, learner_id, class_group_id, year_id, status, started_on)
+					 VALUES ($1, $2, $3, $4, 'ACTIVE', $5)`,
+					tenantID, learnerID, classGroupID, yearID, startedOn,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+					return
+				}
+			}
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"learner_id": learnerID})
 }
 

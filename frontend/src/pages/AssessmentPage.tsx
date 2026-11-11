@@ -75,13 +75,18 @@ export default function AssessmentPage() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-heading">Assessment</h2>
             <button className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition" onClick={() => setEventModal(true)}>
               New Assessment Event
             </button>
+          </div>
+          <div className="mb-4 -mt-3">
+            <a href="/teacher/grading" className="text-sm font-medium text-kenyan-red hover:underline">
+              Enter marks in the rubric grid →
+            </a>
           </div>
           {loading ? (
             <Skeleton rows={5} columns={6} />

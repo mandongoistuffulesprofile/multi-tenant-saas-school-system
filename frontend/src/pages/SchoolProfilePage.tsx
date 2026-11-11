@@ -28,7 +28,7 @@ export default function SchoolProfilePage() {
 
   if (loading) return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-3xl mx-auto">
           <div className="card p-6 animate-pulse space-y-4">
             <div className="h-6 bg-gray-200 rounded w-1/3"></div>
@@ -48,7 +48,7 @@ export default function SchoolProfilePage() {
 
   if (!school) return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-3xl mx-auto">
           <div className="card p-8 text-center">
             <span className="text-4xl"></span>
@@ -61,7 +61,7 @@ export default function SchoolProfilePage() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-3xl mx-auto">
           <h2 className="text-heading mb-6">School Profile</h2>
           <div className="card p-6">

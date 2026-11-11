@@ -4,7 +4,7 @@
 -- policies added below. Composite FKs where they reference tenant tables.
 
 CREATE TABLE public.ledger_accounts (
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     code character varying(40) NOT NULL,
     name character varying(100) NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE public.ledger_accounts (
 );
 
 CREATE TABLE public.journal_entries (
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     entry_date timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     source_type character varying(50),
@@ -31,7 +31,7 @@ CREATE TABLE public.journal_entries (
 );
 
 CREATE TABLE public.journal_lines (
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     tenant_id character varying(50) NOT NULL,
     entry_id uuid NOT NULL,
     account_id uuid NOT NULL,

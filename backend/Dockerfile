@@ -1,5 +1,13 @@
 FROM golang:1.26-alpine AS builder
 WORKDIR /app
+# Optional local-module proxy for air-gapped/dev builds:
+#   docker build --network=host --build-arg GOPROXY=http://127.0.0.1:9096,direct .
+# When using a local file proxy, also set GOSUMDB=off — the cache was already
+# verified against sum.golang.org when it was populated on the host.
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=sum.golang.org
+ENV GOPROXY=${GOPROXY}
+ENV GOSUMDB=${GOSUMDB}
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .

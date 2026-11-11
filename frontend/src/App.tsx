@@ -1,6 +1,6 @@
 import React from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
-import { isTokenValid, useAuthStore } from "./lib/authStore";
+import { useAuthStore } from "./lib/authStore";
 import {
   ACADEMIC_ROLES,
   ADMIN_ROLES,
@@ -31,6 +31,7 @@ import CurriculumPage from "./pages/CurriculumPage";
 import AssessmentPage from "./pages/AssessmentPage";
 import AttendancePage from "./pages/AttendancePage";
 import ReportsPage from "./pages/ReportsPage";
+import { ReportCardPrint } from "./pages/ReportCardPrint";
 import KnecPage from "./pages/KnecPage";
 import CommsPage from "./pages/CommsPage";
 import CommsComposePage from "./pages/CommsComposePage";
@@ -85,12 +86,15 @@ import { FeesDesk } from "./pages/FeesDesk";
 import { CBCAssessment } from "./pages/CBCAssessment";
 import { StudentsDesk } from "./pages/StudentsDesk";
 import { BOMOversight } from "./pages/BOMOversight";
-import { SaaSAdminDesk } from "./pages/SaaSAdminDesk";
 
-/** Requires a non-expired access token. */
+/** Requires an authenticated session (hydrated from HttpOnly cookies via /me). */
 function Protected() {
-  const token = useAuthStore((state) => state.token);
-  if (!isTokenValid(token)) {
+  const hydrated = useAuthStore((state) => state.hydrated);
+  const userId = useAuthStore((state) => state.userId);
+  if (!hydrated) {
+    return <div className="p-4 text-sm text-slate-600">Loading session...</div>;
+  }
+  if (!userId) {
     return <Navigate to="/login" replace />;
   }
   return <Outlet />;
@@ -138,6 +142,7 @@ export default function App() {
             <Route path="/assessment" element={guard(ACADEMIC_ROLES, <AssessmentPage />)} />
             <Route path="/attendance" element={guard(ACADEMIC_ROLES, <AttendancePage />)} />
             <Route path="/reports" element={guard(ACADEMIC_ROLES, <ReportsPage />)} />
+            <Route path="/reports/cards/:card_id/print" element={guard([...ACADEMIC_ROLES, ...PARENT_ROLES], <ReportCardPrint />)} />
             <Route path="/knec" element={guard(SCHOOL_ADMIN_ROLES, <KnecPage />)} />
             <Route path="/comms" element={guard(ADMIN_ROLES, <CommsPage />)} />
             <Route path="/comms/compose" element={guard(ADMIN_ROLES, <CommsComposePage />)} />
@@ -159,11 +164,16 @@ export default function App() {
             <Route path="/finance/refunds" element={guard(FINANCE_ROLES, <FinanceRefundsPage />)} />
             <Route path="/platform" element={guard(SCHOOL_ADMIN_ROLES, <PlatformPage />)} />
 
-            {/* Presentation pages kept from the executive demo */}
+            {/* Redirects for common aliases */}
             <Route path="/fees" element={<Navigate to="/finance/invoices" replace />} />
-            <Route path="/cbc-assessment" element={guard(ACADEMIC_ROLES, <CBCAssessment />)} />
             <Route path="/students" element={<Navigate to="/learners" replace />} />
-            <Route path="/bom-oversight" element={guard(SCHOOL_ADMIN_ROLES, <BOMOversight />)} />
+            {/* Non-production demo screens (disabled in production builds) */}
+            {import.meta.env.DEV && (
+              <>
+                <Route path="/cbc-assessment" element={guard(ACADEMIC_ROLES, <CBCAssessment />)} />
+                <Route path="/bom-oversight" element={guard(SCHOOL_ADMIN_ROLES, <BOMOversight />)} />
+              </>
+            )}
           </Route>
 
           {/* Parent portal */}
@@ -211,7 +221,7 @@ export default function App() {
               </SaaSLayout>,
             )}
           >
-            <Route path="/saas-admin" element={<SaaSAdminDesk />} />
+            <Route path="/saas-admin" element={<Navigate to="/platform/operations" replace />} />
             <Route path="/platform/tenants" element={<TenantRegistryPage />} />
             <Route path="/platform/onboard" element={<TenantOnboardingPage />} />
             <Route path="/platform/tenants/:tenantId/setup" element={<TenantSetupPage />} />

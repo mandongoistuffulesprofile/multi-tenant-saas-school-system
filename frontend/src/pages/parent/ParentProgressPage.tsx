@@ -68,7 +68,9 @@ export default function ParentProgressPage() {
                       <div className="mt-2 text-sm text-gray-600">{card.comment}</div>
                     )}
                     <div className="mt-3 flex gap-2">
-                      <ButtonLink onClick={() => {}}>{t("download_pdf", { defaultMessage: "Download PDF" })}</ButtonLink>
+                      <a href={`/reports/cards/${card.card_id}/print`} className="text-sm text-kenyan-red hover:underline font-medium">
+                        {t("view_print", { defaultMessage: "View / Print" })}
+                      </a>
                     </div>
                   </Card>
                 ))}

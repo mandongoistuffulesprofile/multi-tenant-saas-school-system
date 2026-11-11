@@ -49,10 +49,10 @@ func (h *Handler) CreateToken(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 	var req struct {
-		ClassID    string   `json:"class_id" binding:"required"`
-		Subjects   []string `json:"subject_scope" binding:"required"`
-		ExpiresAt  string   `json:"expires_at" binding:"required"`
-		PIN        string   `json:"delegate_pin" binding:"required"`
+		ClassID   string   `json:"class_id" binding:"required"`
+		Subjects  []string `json:"subject_scope" binding:"required"`
+		ExpiresAt string   `json:"expires_at" binding:"required"`
+		PIN       string   `json:"delegate_pin" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "BAD_REQUEST", "message": err.Error()})

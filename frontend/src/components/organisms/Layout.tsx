@@ -94,7 +94,6 @@ const SECTION_GROUPS: { id: string; label: string; items: SideItem[] }[] = [
       { path: "/comms", label: "comms" },
       { path: "/compliance", label: "compliance" },
       { path: "/knec", label: "knec" },
-      { path: "/bom-oversight", label: "BOM Oversight" },
     ],
   },
   {
@@ -133,7 +132,6 @@ const ALL_ITEM_ROLES: Record<string, readonly string[]> = {
   "/comms": ADMIN_ROLES,
   "/compliance": SCHOOL_ADMIN_ROLES,
   "/knec": SCHOOL_ADMIN_ROLES,
-  "/bom-oversight": SCHOOL_ADMIN_ROLES,
   "/school": SCHOOL_ADMIN_ROLES,
   "/integrations": SCHOOL_ADMIN_ROLES,
   "/platform": SCHOOL_ADMIN_ROLES,
@@ -212,19 +210,12 @@ export default function Layout({ children }: LayoutProps) {
   /* Exit an impersonation session: restore the platform-owner tokens. */
   const exitImpersonation = () => {
     try {
-      const restore = JSON.parse(sessionStorage.getItem("imp_restore") || "null");
-      if (restore?.access) {
-        localStorage.setItem("access_token", restore.access);
-        if (restore.refresh) localStorage.setItem("refresh_token", restore.refresh);
-        if (restore.roles) localStorage.setItem("roles", restore.roles);
-      } else {
-        clearAuth();
-      }
       sessionStorage.removeItem("imp_restore");
       localStorage.removeItem("imp_school");
-      setImpSchool(null);
     } catch { /* fallthrough */ }
-    window.location.href = "/saas-admin";
+    setImpSchool(null);
+    clearAuth();
+    window.location.href = "/platform/operations";
   };
 
   /* EN/SW toggle: persists and switches every translated surface. */
@@ -275,7 +266,6 @@ export default function Layout({ children }: LayoutProps) {
   const navTo = (p: string) => navigate(p);
 
   const utilityItems: SideItem[] = [
-    ...(isSaasAdmin ? [{ path: "/saas-admin", label: "SaaS Console" }] : []),
     ...(roles.includes("PARENT") || roles.includes("GUARDIAN") ? [{ path: "/parent", label: "Parent Portal" }] : []),
   ];
 
@@ -541,7 +531,6 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "/finance/board-pack": Landmark,
   "/grades-streams": Layers,
   "/teaching-allocation": UserCheck,
-  "/bom-oversight": Shield,
   "/curriculum": BookOpen,
   "/assessment": ClipboardList,
   "/reports": BarChart3,
@@ -550,7 +539,6 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "/attendance": Clock,
   "/knec": FileText,
   "/platform": Settings,
-  "/saas-admin": Settings2,
   "/parent": User2,
   "/profile": User,
 };

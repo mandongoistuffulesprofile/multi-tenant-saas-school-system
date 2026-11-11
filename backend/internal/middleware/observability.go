@@ -116,9 +116,16 @@ func MetricsMiddleware() gin.HandlerFunc {
 }
 
 // MetricsHandler exposes the counters in Prometheus text format.
+// In production, METRICS_TOKEN must be configured; requests without a valid
+// bearer token are rejected to avoid exposing operational data.
 func MetricsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if want := strings.TrimSpace(os.Getenv("METRICS_TOKEN")); want != "" {
+		want := strings.TrimSpace(os.Getenv("METRICS_TOKEN"))
+		if os.Getenv("APP_ENV") == "production" && want == "" {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		if want != "" {
 			if c.GetHeader("Authorization") != "Bearer "+want {
 				c.AbortWithStatus(http.StatusUnauthorized)
 				return

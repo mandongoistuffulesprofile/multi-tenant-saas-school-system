@@ -75,13 +75,7 @@ export default function AttendanceRegisterPage() {
 
   const handleMark = (learnerId: string, mark: string) => {
     setMarks((m) => ({ ...m, [learnerId]: mark }));
-    saveAttendanceMark({
-      register_id: selected!.register_id,
-      learner_id: learnerId,
-      status: mark,
-      marked_at: new Date().toISOString(),
-      device_id: getDeviceId(),
-    } as any);
+    // Local draft only; persisted/queued on explicit save to avoid per-tap queue churn.
   };
 
   return (
@@ -150,11 +144,29 @@ export default function AttendanceRegisterPage() {
       <div className="p-4">
         <Button variant="primary" fullWidth onClick={async () => {
           if (!selected) return;
+          const entries = Object.entries(marks).map(([learner_id, mark]) => {
+            const id = `${selected.register_id}:${learner_id}`;
+            return {
+              id,
+              client_uuid: id,
+              learner_id,
+              status: mark,
+              register_id: selected.register_id,
+              marked_at: new Date().toISOString(),
+              device_id: getDeviceId(),
+              client_ts: new Date().toISOString(),
+            };
+          });
+          if (entries.length === 0) return;
           try {
-            const entries = Object.entries(marks).map(([learner_id, mark]) => ({ learner_id, mark }));
-            await api.post("/attendance/marks/batch", { register_id: selected.register_id, marks: entries });
+            await api.post("/attendance/marks/batch", { register_id: selected.register_id, marks: entries.map(({ learner_id, status, register_id, client_uuid, device_id, client_ts }) => ({ learner_id, status, register_id, client_uuid, device_id, client_ts })) });
+            await Promise.all(entries.map((e) => saveAttendanceMark(e as any, { enqueue: false })));
             toast("Attendance saved successfully!", { type: "success" });
-          } catch (e) { toast("Failed to save attendance", { type: "error" }); }
+          } catch (e) {
+            // Persist each mark locally and queue for sync/retry.
+            await Promise.all(entries.map((e) => saveAttendanceMark(e as any)));
+            toast("Saved offline. Will sync when online.", { type: "warning" });
+          }
         }}>
           {t("teacher.save_register", { defaultMessage: "Save Register" })}
         </Button>

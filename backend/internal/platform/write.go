@@ -21,15 +21,17 @@ import (
 
 // Tenant is the platform view of a school.
 type Tenant struct {
-	TenantID     string `json:"tenant_id"`
-	SchoolName   string `json:"school_name"`
-	Subdomain    string `json:"subdomain"`
-	SchoolType   string `json:"school_type"`
-	FundingMode  string `json:"funding_mode"`
-	Status       string `json:"status"`
-	County       string `json:"county"`
-	Learners     int    `json:"learners"`
-	LastActivity string `json:"last_activity"`
+	TenantID         string `json:"tenant_id"`
+	SchoolName       string `json:"school_name"`
+	Subdomain        string `json:"subdomain"`
+	SchoolType       string `json:"school_type"`
+	FundingMode      string `json:"funding_mode"`
+	Status           string `json:"status"`
+	County           string `json:"county"`
+	Learners         int    `json:"learners"`
+	LastActivity     string `json:"last_activity"`
+	OnboardingStatus string `json:"onboarding_status,omitempty"`
+	OnboardingStep   string `json:"onboarding_step,omitempty"`
 }
 
 func (h *Handler) ListTenants(c *gin.Context) {
@@ -37,8 +39,21 @@ func (h *Handler) ListTenants(c *gin.Context) {
 		`SELECT s.tenant_id, s.school_name, s.subdomain, s.school_type, s.funding_mode,
 			s.status, COALESCE(s.county, ''),
 			(SELECT COUNT(*) FROM learners l WHERE l.tenant_id = s.tenant_id AND l.status = 'ACTIVE'),
-			COALESCE((SELECT MAX(a.created_at)::text FROM audit_events a WHERE a.tenant_id = s.tenant_id), '')
-		 FROM schools s ORDER BY s.school_name`)
+			COALESCE((SELECT MAX(a.created_at)::text FROM audit_events a WHERE a.tenant_id = s.tenant_id), ''),
+			COALESCE(o.status, ''),
+			COALESCE(o.current_step, '')
+		 FROM schools s
+		 LEFT JOIN platform_tenant_onboarding o ON o.tenant_id = s.tenant_id
+		 ORDER BY s.school_name`)
+	if err != nil {
+		rows, err = h.q(c).Query(
+			`SELECT s.tenant_id, s.school_name, s.subdomain, s.school_type, s.funding_mode,
+				s.status, COALESCE(s.county, ''),
+				(SELECT COUNT(*) FROM learners l WHERE l.tenant_id = s.tenant_id AND l.status = 'ACTIVE'),
+				COALESCE((SELECT MAX(a.created_at)::text FROM audit_events a WHERE a.tenant_id = s.tenant_id), ''),
+				'', ''
+			 FROM schools s ORDER BY s.school_name`)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -49,7 +64,7 @@ func (h *Handler) ListTenants(c *gin.Context) {
 	for rows.Next() {
 		var t Tenant
 		if err := rows.Scan(&t.TenantID, &t.SchoolName, &t.Subdomain, &t.SchoolType,
-			&t.FundingMode, &t.Status, &t.County, &t.Learners, &t.LastActivity); err != nil {
+			&t.FundingMode, &t.Status, &t.County, &t.Learners, &t.LastActivity, &t.OnboardingStatus, &t.OnboardingStep); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
@@ -91,8 +106,12 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		licenseTier = "STANDARD"
 	}
 	subdomain := strings.ToLower(strings.TrimSpace(req.Subdomain))
-
 	tenantID := subdomain
+	if tenantID == "" {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{{Field: "subdomain", Code: "REQUIRED", Message: "subdomain is required"}})
+		return
+	}
+
 	var exists int
 	if err := h.q(c).QueryRow(`SELECT COUNT(*) FROM schools WHERE tenant_id = $1`, tenantID).Scan(&exists); err == nil && exists > 0 {
 		validation.Conflict(c, "That subdomain is already in use")
@@ -106,13 +125,6 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// The tenant context must be set for RLS-protected writes inside the tx.
-	if _, err := tx.Exec(`SELECT set_config('app.current_tenant_id', $1, true)`, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
-	}
-
-	// The tenant context must be set for RLS-protected writes inside the tx.
 	if _, err := tx.Exec(`SELECT set_config('app.current_tenant_id', $1, true)`, tenantID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -154,7 +166,6 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		return
 	}
 
-	// Default finance settings for the new school.
 	if _, err := tx.Exec(
 		`INSERT INTO school_finance_settings (tenant_id, tuition_invoicing, optional_services, capitation_tracking, arrears_reminders)
 		 VALUES ($1, $2, true, $3, true)`,
@@ -175,11 +186,17 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		}
 	}
 
+	_, _ = tx.Exec(
+		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, created_by, updated_by)
+		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,''), NULLIF($2,''))
+		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID, adminUserID)
+
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
 
+	h.auditPlatform(c, tenantID, "PLATFORM_TENANT_CREATED", map[string]any{"subdomain": subdomain})
 	c.JSON(http.StatusCreated, gin.H{
 		"tenant_id":     tenantID,
 		"user_id":       userID,

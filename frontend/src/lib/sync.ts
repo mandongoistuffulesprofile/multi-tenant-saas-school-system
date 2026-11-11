@@ -32,12 +32,14 @@ export type { QueuedOp };
 
 function syncItemFor(op: QueuedOp) {
   const entityType = ENTITY_BY_ENDPOINT[op.endpoint] || "ATTENDANCE_MARK";
-  const clientUUID = (op.payload as Record<string, unknown> | undefined)?.id ?? op.id;
+  const p = (op.payload as Record<string, unknown> | undefined) ?? {};
+  const clientUUID = p.id ?? op.id;
+  const clientVersion = typeof p.version === "number" ? p.version : (typeof p.client_version === "number" ? p.client_version : 0);
   return {
     entity_type: entityType,
-    entity_id: (op.payload as Record<string, unknown> | undefined)?.entity_id ?? "",
+    entity_id: String(p.entity_id ?? ""),
     client_uuid: String(clientUUID),
-    client_version: 0,
+    client_version: clientVersion,
     payload: op.payload,
   };
 }
@@ -84,15 +86,16 @@ export async function syncNow(): Promise<{ synced: number; failed: number; confl
           }
         }
 
-        // Remove applied items, record conflicts (left in queue for user
-        // resolution), bump retry on failures.
+        // Remove applied items. Conflicts are recorded server-side and
+        // surfaced in Sync Centre; remove from local queue to avoid endless
+        // replays of the same conflicting client_uuid.
         for (const op of pending) {
           const uuid = String((op.payload as Record<string, unknown> | undefined)?.id ?? op.id);
           if (appliedUUIDs.has(uuid)) {
             await removeFromQueue(op.id);
             synced += 1;
           } else if (conflictUUIDs.has(uuid)) {
-            // Left in queue; surfaced to user via SyncCentrePage.
+            await removeFromQueue(op.id);
             conflicts += 1;
           } else {
             await bumpRetry(op.id);

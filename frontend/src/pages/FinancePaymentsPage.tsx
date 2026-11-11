@@ -26,8 +26,10 @@ export default function FinancePaymentsPage() {
       await api.post("/finance/payments", {
         learner_id: payForm.learner_id,
         amount,
-        payment_method: payForm.payment_method,
-        reference: payForm.reference || undefined,
+        // The payments table column is `source` (CASH/BANK/CHEQUE/MPESA) and
+        // the human receipt reference is `payment_reference`.
+        source: payForm.payment_method,
+        payment_reference: payForm.reference || undefined,
       });
       toast("Payment recorded", { type: "success" });
       setPayModal(false);
@@ -62,7 +64,7 @@ export default function FinancePaymentsPage() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-heading">Payments</h2>

@@ -8,12 +8,50 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sms"
 )
+
+// parseAmountFromCallback extracts and validates a monetary amount from Safaricom
+// callback metadata. The amount may arrive as a JSON number or string. We keep
+// it as a validated decimal string to preserve precision for numeric(12,2) storage.
+func parseAmountFromCallback(v interface{}) (string, error) {
+	switch val := v.(type) {
+	case float64:
+		if val <= 0 {
+			return "", fmt.Errorf("amount must be positive")
+		}
+		// Use strconv.FormatFloat with 'f' format to avoid scientific notation.
+		// Safaricom amounts are whole KES (no cents in STK), but we handle decimals.
+		return strconv.FormatFloat(val, 'f', -1, 64), nil
+	case string:
+		s := strings.TrimSpace(val)
+		if s == "" {
+			return "", fmt.Errorf("missing amount")
+		}
+		// Validate it's a valid number
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil || f <= 0 {
+			return "", fmt.Errorf("invalid amount: %w", err)
+		}
+		return s, nil
+	default:
+		// Fallback: stringify and validate
+		s := strings.TrimSpace(fmt.Sprintf("%v", val))
+		if s == "" {
+			return "", fmt.Errorf("missing amount")
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil || f <= 0 {
+			return "", fmt.Errorf("invalid amount: %w", err)
+		}
+		return s, nil
+	}
+}
 
 type STKPushRequest struct {
 	PhoneNumber string `json:"phone_number"` // 07... or 2547...
@@ -128,7 +166,9 @@ func (s *MpesaService) InitiateSTKPush(ctx context.Context, tenantID uuid.UUID, 
 	return result, nil
 }
 
-// ProcessSTKCallback processes asynchronous responses from Safaricom STK Push
+// ProcessSTKCallback processes asynchronous responses from Safaricom STK Push.
+// It persists the callback to the durable mpesa_raw_inbox (idempotent on
+// tenant+trans_id) so allocation is handled by the existing inbox worker.
 func (s *MpesaService) ProcessSTKCallback(ctx context.Context, tenantID uuid.UUID, body []byte, smsSvc *sms.SMSService) error {
 	var cb STKCallbackBody
 	if err := json.Unmarshal(body, &cb); err != nil {
@@ -137,57 +177,95 @@ func (s *MpesaService) ProcessSTKCallback(ctx context.Context, tenantID uuid.UUI
 
 	stk := cb.Body.StkCallback
 	if stk.ResultCode != 0 {
-		// User cancelled or insufficient balance
+		// User cancelled or insufficient balance: mark request failed if known.
+		if strings.TrimSpace(stk.CheckoutRequestID) != "" {
+			tx, err := s.db.BeginTx(ctx, nil)
+			if err == nil {
+				defer tx.Rollback()
+				if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", tenantID.String()); err == nil {
+					_, _ = tx.ExecContext(ctx, `
+						UPDATE mpesa_stk_requests
+						SET status = CASE WHEN $3 = 1032 THEN 'CANCELLED' ELSE 'FAILED' END,
+						    callback_received_at = NOW(), callback_payload = $4, updated_at = NOW()
+						WHERE tenant_id = $1 AND checkout_request_id = $2`,
+						tenantID.String(), stk.CheckoutRequestID, stk.ResultCode, body)
+					_ = tx.Commit()
+				}
+			}
+		}
 		return nil
 	}
 
-	var mpesaReceipt, phone string
-	var amountFloat float64
+	var mpesaReceipt, phone, amountStr string
 	for _, item := range stk.CallbackMetadata.Item {
 		switch item.Name {
 		case "MpesaReceiptNumber":
 			mpesaReceipt = fmt.Sprintf("%v", item.Value)
 		case "Amount":
-			fmt.Sscanf(fmt.Sprintf("%v", item.Value), "%f", &amountFloat)
+			amt, err := parseAmountFromCallback(item.Value)
+			if err != nil {
+				return fmt.Errorf("invalid amount in callback: %w", err)
+			}
+			amountStr = amt
 		case "PhoneNumber":
 			phone = fmt.Sprintf("%v", item.Value)
 		}
 	}
+	if mpesaReceipt == "" || amountStr == "" {
+		return fmt.Errorf("invalid stk callback: missing receipt or amount")
+	}
 
-	amountCents := int64(amountFloat * 100)
-
-	// Save transaction and trigger auto-allocation
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL app.current_tenant_id = '%s'", tenantID.String())); err != nil {
+	// Parameterized tenant context (no string interpolation).
+	if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", tenantID.String()); err != nil {
 		return err
 	}
 
-	var mpesaID uuid.UUID
-	insertQuery := `
-		INSERT INTO mpesa_transactions (tenant_id, trans_id, trans_time, trans_amount_cents, msisdn, bill_ref_number, raw_payload)
-		VALUES ($1, $2, NOW(), $3, $4, 'STK-PUSH', $5)
-		ON CONFLICT (trans_id) DO NOTHING
-		RETURNING id;
-	`
-	err = tx.QueryRowContext(ctx, insertQuery, tenantID, mpesaReceipt, amountCents, phone, body).Scan(&mpesaID)
-	if err != nil {
-		return nil // Already processed or duplicate
+	// Resolve account reference (admission number) from STK request if possible.
+	accountRef := "STK-PUSH"
+	if strings.TrimSpace(stk.CheckoutRequestID) != "" {
+		var ref string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COALESCE(account_reference, '')
+			FROM mpesa_stk_requests
+			WHERE tenant_id = $1 AND checkout_request_id = $2
+			LIMIT 1`, tenantID.String(), stk.CheckoutRequestID).Scan(&ref); err == nil && strings.TrimSpace(ref) != "" {
+			accountRef = strings.TrimSpace(ref)
+		}
 	}
 
+	// Persist to durable inbox; allocation/receipting handled by inbox worker.
+	// ON CONFLICT makes Safaricom retries idempotent.
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO mpesa_raw_inbox
+			(tenant_id, trans_id, sender_phone, sender_name, amount, account_reference, raw_payload)
+		VALUES ($1, $2, $3, $4, $5::numeric, $6, $7)
+		ON CONFLICT (tenant_id, trans_id) DO NOTHING`,
+		tenantID.String(), mpesaReceipt, phone, "STK", amountStr, accountRef, body)
+	if err != nil {
+		return err
+	}
+	// Best-effort: mark STK request completed.
+	if strings.TrimSpace(stk.CheckoutRequestID) != "" {
+		_, _ = tx.ExecContext(ctx, `
+			UPDATE mpesa_stk_requests
+			SET status = 'SUCCESS', callback_received_at = NOW(), callback_payload = $3, mpesa_trans_id = $4, updated_at = NOW()
+			WHERE tenant_id = $1 AND checkout_request_id = $2`,
+			tenantID.String(), stk.CheckoutRequestID, body, mpesaReceipt)
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
 
-	// Trigger async SMS receipt
+	// Best-effort notification; do not fail the callback after durable persist.
 	if smsSvc != nil {
-		smsSvc.SendFeeReceiptAsync(phone, "Student", mpesaReceipt, fmt.Sprintf("%.2f", amountFloat), "Updated in portal", "School")
+		smsSvc.SendFeeReceiptAsync(phone, "Student", mpesaReceipt, amountStr, "Updated in portal", "School")
 	}
-
 	return nil
 }
 
@@ -226,3 +304,4 @@ func RegisterC2BURLs(consumerKey, consumerSecret, shortcode, validationURL, conf
 	_ = json.NewDecoder(resp.Body).Decode(&result)
 	return result, nil
 }
+

@@ -8,11 +8,13 @@ export const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  // Credentials (cookies) are sent cross-origin so HttpOnly session cookies
+  // are attached to every request.
+  withCredentials: true,
 });
 
-// Endpoints that must never carry a bearer token. Attaching a stale token to
-// these causes the server to reject the request before the handler runs
-// (e.g. login failing with "Invalid or expired token").
+// Endpoints that must never require authentication. These stay public so a
+// login/refresh flow can bootstrap a session without a cookie yet.
 const PUBLIC_PATHS = [
   "/auth/login",
   "/auth/refresh",
@@ -29,11 +31,23 @@ function isPublicPath(url?: string) {
   return PUBLIC_PATHS.some((p) => url.includes(p));
 }
 
+// On mutating requests (POST/PUT/PATCH/DELETE) that are not public, echo the
+// CSRF cookie back in the X-CSRF-Token header (double-submit pattern). The
+// backend enforces this for cookie-authenticated unsafe methods.
 api.interceptors.request.use((config) => {
-  if (!isPublicPath(config.url)) {
-    const token = localStorage.getItem("access_token");
+  if (isPublicPath(config.url)) {
+    return config;
+  }
+  if (
+    config.method &&
+    !["get", "head", "options"].includes(config.method.toLowerCase())
+  ) {
+    const token = document.cookie
+      .split("; ")
+      .find((row) => row.startsWith("csrf_token="))
+      ?.split("=")[1];
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers["X-CSRF-Token"] = token;
     }
   }
   return config;
@@ -48,16 +62,12 @@ function clearSession() {
 }
 
 async function performRefresh(): Promise<string> {
-  const refreshToken = localStorage.getItem("refresh_token");
-  if (!refreshToken) {
-    throw new Error("No refresh token");
-  }
-
   // Use a bare axios call so the refresh request itself never re-enters
-  // this interceptor (which would recurse forever on a 401).
+  // this interceptor (which would recurse forever on a 401). The refresh
+  // cookie is sent automatically via withCredentials.
   const { data } = await axios.post(
     `${API_BASE}/auth/refresh`,
-    { refresh_token: refreshToken },
+    {},
     { headers: { "Content-Type": "application/json" } }
   );
 
@@ -69,10 +79,6 @@ async function performRefresh(): Promise<string> {
     throw new Error("Invalid refresh response");
   }
 
-  localStorage.setItem("access_token", accessToken);
-  if (pair?.refresh_token) {
-    localStorage.setItem("refresh_token", pair.refresh_token);
-  }
   return accessToken;
 }
 
@@ -112,7 +118,7 @@ api.interceptors.response.use(
         });
       }
       const accessToken = await refreshPromise;
-      originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+      // Retry the original request; the cookie is re-attached automatically.
       return api(originalRequest);
     } catch (refreshError: any) {
       // Network error while refreshing: keep the session alive for read-only

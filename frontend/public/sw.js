@@ -35,23 +35,27 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Stale-While-Revalidate network strategy
+// Network-first for navigation/API; cache-first for static assets only.
+// Never cache authenticated API responses to avoid stale/tenant data leaks.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+  const isApi = url.pathname.startsWith('/api') || url.pathname.startsWith('/webhooks') || url.pathname.startsWith('/health') || url.pathname.startsWith('/metrics');
+  if (isApi) {
+    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+    return;
+  }
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
+    caches.match(event.request).then((cached) => {
+      const fetchPromise = fetch(event.request).then((resp) => {
+        if (resp && resp.status === 200) {
+          const copy = resp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         }
-        return networkResponse;
-      }).catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
+        return resp;
+      }).catch(() => cached);
+      return cached || fetchPromise;
     })
   );
 });

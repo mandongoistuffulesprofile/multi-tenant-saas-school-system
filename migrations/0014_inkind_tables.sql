@@ -4,7 +4,7 @@
 
 CREATE TABLE public.inventory_items (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     code character varying(50) NOT NULL,
     name character varying(100) NOT NULL,
     unit character varying(20) NOT NULL DEFAULT 'kg',
@@ -17,7 +17,7 @@ CREATE TABLE public.inventory_items (
 
 CREATE TABLE public.in_kind_rates (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     inventory_item_id uuid NOT NULL,
     term_id uuid NOT NULL,
     rate_per_unit numeric(12,2) NOT NULL CHECK (rate_per_unit > 0),
@@ -33,7 +33,7 @@ CREATE TABLE public.in_kind_rates (
 
 CREATE TABLE public.inventory_lots (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     source_type character varying(50) NOT NULL,
     source_id uuid,
     inventory_item_id uuid NOT NULL,
@@ -49,7 +49,7 @@ CREATE TABLE public.inventory_lots (
 
 CREATE TABLE public.inventory_movements (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     lot_id uuid,
     inventory_item_id uuid NOT NULL,
     qty numeric(12,3) NOT NULL CHECK (qty <> 0),
@@ -64,7 +64,7 @@ CREATE TABLE public.inventory_movements (
 
 CREATE TABLE public.funding_sources (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     code character varying(40) NOT NULL,
     name character varying(100) NOT NULL,
     is_active boolean DEFAULT true,
@@ -75,7 +75,7 @@ CREATE TABLE public.funding_sources (
 
 CREATE TABLE public.voteheads (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     code character varying(40) NOT NULL,
     name character varying(100) NOT NULL,
     funding_source_id uuid,

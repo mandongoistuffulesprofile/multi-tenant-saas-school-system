@@ -13,8 +13,12 @@ export default function ReportsPage() {
     try {
       await api.post("/reports/runs", { term_id: termId || "current", template_id: "standard_cbc" });
       toast("Report cards generation initiated!", { type: "success" });
-      // Reload reports
-      api.get("/reports/cards").then((r) => setCards(Array.isArray(r.data) ? r.data : []));
+      const [rRes, cRes] = await Promise.all([
+        api.get("/reports/runs"),
+        api.get("/reports/cards"),
+      ]);
+      setRuns(Array.isArray(rRes.data) ? rRes.data : []);
+      setCards(Array.isArray(cRes.data) ? cRes.data : []);
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to generate report run", { type: "error" });
     } finally {
@@ -26,6 +30,7 @@ export default function ReportsPage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [publishingRunId, setPublishingRunId] = useState("");
   const { t } = useTranslation();
   const { toast } = useToast();
 
@@ -44,7 +49,7 @@ export default function ReportsPage() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-heading">Reports</h2>
@@ -74,6 +79,74 @@ export default function ReportsPage() {
                   <p className="text-3xl font-bold text-gray-900">{cards.length}</p>
                 </div>
               </div>
+
+              <div className="card p-6 mb-6">
+                <h3 className="text-caption uppercase tracking-wide mb-3">Report Runs</h3>
+                {runs.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    No runs yet — generate cards for the current term above.
+                  </p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                        <th className="pb-2">Run</th>
+                        <th className="pb-2">Term</th>
+                        <th className="pb-2">Status</th>
+                        <th className="pb-2 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runs.map((run: any) => (
+                        <tr key={run.run_id || run.id} className="border-t border-gray-100">
+                          <td className="py-2 font-mono text-xs">{String(run.run_id || run.id).slice(0, 8)}</td>
+                          <td className="py-2">{run.term_id || run.academic_year_id || "—"}</td>
+                          <td className="py-2">
+                            <span
+                              className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                run.status === "PUBLISHED" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
+                              }`}
+                            >
+                              {run.status || "PENDING"}
+                            </span>
+                          </td>
+                          <td className="py-2 text-right">
+                            {run.status === "PUBLISHED" ? (
+                              <span className="text-xs text-gray-400">Published</span>
+                            ) : (
+                              <button
+                                className="px-3 py-1 rounded-lg bg-kenyan-red text-white text-xs font-medium hover:opacity-90 transition disabled:opacity-50"
+                                disabled={publishingRunId !== ""}
+                                onClick={async () => {
+                                  const id = run.run_id || run.id;
+                                  setPublishingRunId(id);
+                                  try {
+                                    const res = await api.post(`/reports/runs/${id}/publish`);
+                                    toast(`Published ${res.data?.published ?? 0} report card(s)`, { type: "success" });
+                                    const [rRes, cRes] = await Promise.all([
+                                      api.get("/reports/runs"),
+                                      api.get("/reports/cards"),
+                                    ]);
+                                    setRuns(Array.isArray(rRes.data) ? rRes.data : []);
+                                    setCards(Array.isArray(cRes.data) ? cRes.data : []);
+                                  } catch (err: any) {
+                                    toast(err.response?.data?.message || "Failed to publish run", { type: "error" });
+                                  } finally {
+                                    setPublishingRunId("");
+                                  }
+                                }}
+                              >
+                                {publishingRunId === (run.run_id || run.id) ? "Publishing…" : "Publish"}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
               <DataTable
                 data={cards}
                 emptyMessage="No report cards found"
@@ -83,6 +156,9 @@ export default function ReportsPage() {
                   { key: "grade_id", header: "Grade" },
                   { key: "status", header: "Status" },
                   { key: "percentage", header: "Percentage", render: (r) => r.percentage != null ? `${r.percentage}%` : "—" },
+                  { key: "action", header: "Action", sortable: false, render: (r) => (
+                    r.card_id ? <a href={`/reports/cards/${r.card_id}/print`} className="text-kenyan-red underline text-sm">View / Print</a> : "—"
+                  ) },
                 ]}
               />
             </>

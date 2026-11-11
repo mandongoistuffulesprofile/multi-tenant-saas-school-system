@@ -37,6 +37,8 @@ export default function LearnersPage() {
     guardian_name: "", guardian_phone: "", guardian_email: "", guardian_relationship: "PARENT",
     fee_category: "TUITION", fee_agreed: true
   });
+  const [categories, setCategories] = useState<{ category_id: string; name: string; is_tuition?: boolean }[]>([]);
+  const [feeChecks, setFeeChecks] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
   const [gradeFilter, setGradeFilter] = useState("");
@@ -49,6 +51,21 @@ export default function LearnersPage() {
       .catch(() => setState("error"));
     const safety = setTimeout(() => setState((s) => (s === "loading" ? "content" : s)), 2500);
     return () => clearTimeout(safety);
+  }, []);
+
+  // Load the school's real fee categories once on mount so step 2 of the
+  // wizard offers live categories (upserted into fee-options after creation).
+  useEffect(() => {
+    api
+      .get("/finance/fee-categories")
+      .then((r) => {
+        const list = Array.isArray(r.data) ? r.data : [];
+        setCategories(list.map((c: any) => ({ category_id: c.category_id, name: c.name || c.code, is_tuition: c.is_tuition })));
+        const defaults: Record<string, boolean> = {};
+        list.forEach((c: any) => { defaults[c.category_id] = Boolean(c.is_tuition); });
+        setFeeChecks(defaults);
+      })
+      .catch(() => { /* step 2 falls back to tuition-free messaging if unavailable */ });
   }, []);
 
   const toggleSelect = (id: string) => {
@@ -85,11 +102,22 @@ export default function LearnersPage() {
   const nextStep = () => setStep((s) => (s < 2 ? s + 1 : s));
   const prevStep = () => setStep((s) => (s > 0 ? s - 1 : s));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     const payload = {
-      ...form,
+      admission_number: form.admission_number,
+      upi_nemis_number: form.upi_nemis_number,
+      first_name: form.first_name,
+      middle_name: form.middle_name,
+      last_name: form.last_name,
+      date_of_birth: form.date_of_birth,
+      gender: form.gender,
+      status: form.status,
+      admitted_on: form.admitted_on,
+      boarding_type: form.boarding_type,
+      grade_label: form.grade_label,
+      stream_name: form.stream_name,
       guardians: form.guardian_phone ? [{
         full_name: form.guardian_name || `${form.last_name} Guardian`,
         phone_number: form.guardian_phone,
@@ -98,16 +126,26 @@ export default function LearnersPage() {
         is_emergency_contact: true
       }] : []
     };
-    api.post("/learners", payload)
-      .then(() => {
-        setOpen(false);
-        setStep(0);
-        api.get<Learner[]>("/learners").then((r) => setLearners(Array.isArray(r.data) ? r.data : []));
-      })
-      .catch((err) => {
-        toast(err.response?.data?.message || "Failed to create learner", { type: "error" });
-      })
-      .finally(() => setSaving(false));
+    try {
+      const res = await api.post("/learners", payload);
+      // Persist opted-in fee categories from step 2 onto the new learner.
+      const learnerId = res?.data?.learner_id;
+      const optedIn = Object.entries(feeChecks).filter(([, v]) => v);
+      if (learnerId && optedIn.length > 0) {
+        for (const [categoryId] of optedIn) {
+          await api.post(`/learners/${learnerId}/fee-options`, { category_id: categoryId, opted_in: true });
+        }
+      }
+      setOpen(false);
+      setStep(0);
+      toast("Learner admitted" + (optedIn.length ? ` with ${optedIn.length} fee category(ies)` : ""), { type: "success" });
+      const r = await api.get<Learner[]>("/learners");
+      setLearners(Array.isArray(r.data) ? r.data : []);
+    } catch (err: any) {
+      toast(err.response?.data?.message || "Failed to create learner", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleBatchInvoice = () => {
@@ -289,15 +327,21 @@ export default function LearnersPage() {
               <Card className="p-4 border-dashed">
                 <p className="text-body">{t("wizard.assign_fee_categories")}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked onChange={() => {}} /> Tuition
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked onChange={() => {}} /> Transport
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked onChange={() => {}} /> Feeding Program
-                  </label>
+                  {categories.length === 0 ? (
+                    <p className="text-xs text-gray-500">
+                      No fee categories configured yet — fees can be assigned after admission via Finance → Fee Categories.
+                    </p>
+                  ) : (
+                    categories.map((c) => (
+                      <label key={c.category_id} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(feeChecks[c.category_id])}
+                          onChange={(e) => setFeeChecks((fc) => ({ ...fc, [c.category_id]: e.target.checked }))}
+                        /> {c.name}
+                      </label>
+                    ))
+                  )}
                 </div>
               </Card>
               <div className="flex justify-between pt-4">

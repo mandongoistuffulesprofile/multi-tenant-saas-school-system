@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -67,6 +68,32 @@ func (h *Handler) Push(c *gin.Context) {
 
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
+
+	// Enforce tenant status
+	var tenantStatus string
+	if err := tx.QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&tenantStatus); err == nil {
+		if strings.ToUpper(tenantStatus) == "SUSPENDED" {
+			c.JSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+			return
+		}
+	}
+
+	// Enforce device status if devices table exists
+	if req.DeviceID != "" {
+		var devRevoked *time.Time
+		var devTenant string
+		if err := tx.QueryRow(`SELECT tenant_id, revoked_at FROM devices WHERE device_id = $1`, req.DeviceID).Scan(&devTenant, &devRevoked); err == nil {
+			if devRevoked != nil {
+				c.JSON(http.StatusForbidden, gin.H{"code": "DEVICE_REVOKED", "message": "Device has been revoked"})
+				return
+			}
+			if devTenant != "" && devTenant != tenantID {
+				c.JSON(http.StatusForbidden, gin.H{"code": "DEVICE_TENANT_MISMATCH", "message": "Device does not belong to this tenant"})
+				return
+			}
+			_, _ = tx.Exec(`UPDATE devices SET last_seen_at = now() WHERE device_id = $1`, req.DeviceID)
+		}
+	}
 
 	var syncID string
 	err := tx.QueryRow(
@@ -216,17 +243,62 @@ func (h *Handler) applyAttendanceMark(tx *sqlx.Tx, tenantID, userID string, item
 	deviceID, _ := item.Payload["device_id"].(string)
 	clientTS, _ := item.Payload["client_ts"].(string)
 
-	var markID string
+	// Conflict detection by client_uuid when both sides have versions.
+	// Version column may be absent on older schemas; degrade gracefully.
+	var serverVersion int
+	var serverValues string
+	versioned := true
 	err := tx.QueryRow(
-		`INSERT INTO attendance_marks
-		 (tenant_id, register_id, learner_id, status, marked_by, notes, client_uuid, device_id, client_ts)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 ON CONFLICT (tenant_id, client_uuid) WHERE client_uuid IS NOT NULL
-		 DO UPDATE SET status = EXCLUDED.status, notes = EXCLUDED.notes, updated_at = now()
-		 RETURNING mark_id`,
-		tenantID, registerID, learnerID, strings.ToUpper(status), nullableString(userID),
-		nullableString(notes), nullableString(item.ClientUUID), nullableString(deviceID), nullableString(clientTS),
-	).Scan(&markID)
+		`SELECT COALESCE(version, 1), COALESCE(status,'') || '|' || COALESCE(notes,'')
+		   FROM attendance_marks
+		  WHERE tenant_id = $1 AND client_uuid = $2`,
+		tenantID, item.ClientUUID).Scan(&serverVersion, &serverValues)
+	if err != nil && err != sql.ErrNoRows {
+		if strings.Contains(strings.ToLower(err.Error()), "version") {
+			versioned = false
+			err = nil
+		} else {
+			return gin.H{}, "FAILED", err
+		}
+	}
+	if versioned && err == nil && item.ClientVersion > 0 && serverVersion > item.ClientVersion {
+		conflictID, cErr := h.recordConflict(tx, tenantID, "ATTENDANCE_MARK", registerID+"|"+learnerID,
+			item.ClientVersion, serverVersion, item.Payload, serverValues)
+		if cErr != nil {
+			return gin.H{}, "FAILED", cErr
+		}
+		return gin.H{
+			"entity_type": item.EntityType,
+			"client_uuid": item.ClientUUID,
+			"status":      "CONFLICT",
+			"conflict_id": conflictID,
+		}, "CONFLICT", nil
+	}
+
+	var markID string
+	if versioned {
+		err = tx.QueryRow(
+			`INSERT INTO attendance_marks
+			 (tenant_id, register_id, learner_id, status, marked_by, notes, client_uuid, device_id, client_ts, version)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)
+			 ON CONFLICT (tenant_id, client_uuid) WHERE client_uuid IS NOT NULL
+			 DO UPDATE SET status = EXCLUDED.status, notes = EXCLUDED.notes, updated_at = now(), version = COALESCE(attendance_marks.version, 1) + 1
+			 RETURNING mark_id`,
+			tenantID, registerID, learnerID, strings.ToUpper(status), nullableString(userID),
+			nullableString(notes), nullableString(item.ClientUUID), nullableString(deviceID), nullableString(clientTS),
+		).Scan(&markID)
+	} else {
+		err = tx.QueryRow(
+			`INSERT INTO attendance_marks
+			 (tenant_id, register_id, learner_id, status, marked_by, notes, client_uuid, device_id, client_ts)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 ON CONFLICT (tenant_id, client_uuid) WHERE client_uuid IS NOT NULL
+			 DO UPDATE SET status = EXCLUDED.status, notes = EXCLUDED.notes, updated_at = now()
+			 RETURNING mark_id`,
+			tenantID, registerID, learnerID, strings.ToUpper(status), nullableString(userID),
+			nullableString(notes), nullableString(item.ClientUUID), nullableString(deviceID), nullableString(clientTS),
+		).Scan(&markID)
+	}
 	if err != nil {
 		return gin.H{}, "FAILED", err
 	}
@@ -531,4 +603,151 @@ func statusFor(failed int) string {
 		return "PARTIAL"
 	}
 	return "COMPLETED"
+}
+
+
+// DeviceEnrollment represents a device enrolled to a tenant/user
+type DeviceEnrollment struct {
+	DeviceID  string     `json:"device_id"`
+	TenantID  string     `json:"tenant_id"`
+	UserID    string     `json:"user_id"`
+	Label     string     `json:"label"`
+	Fingerprint string   `json:"fingerprint"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+// EnrollDevice enrolls a new device for offline access
+func (h *Handler) EnrollDevice(c *gin.Context) {
+	var req struct {
+		Label       string `json:"label"`
+		Fingerprint string `json:"fingerprint" binding:"required"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+
+	var tenantStatus string
+	if err := tx.QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&tenantStatus); err == nil {
+		if strings.ToUpper(tenantStatus) == "SUSPENDED" {
+			c.JSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+			return
+		}
+	}
+
+	var deviceID string
+	err := tx.QueryRow(
+		`INSERT INTO devices (user_id, tenant_id, fingerprint, label)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT DO NOTHING
+		 RETURNING device_id`,
+		nullableString(userID), tenantID, req.Fingerprint, nullableString(req.Label),
+	).Scan(&deviceID)
+	if err != nil {
+		// If device exists, return existing
+		if err := tx.QueryRow(`SELECT device_id FROM devices WHERE tenant_id = $1 AND fingerprint = $2`, tenantID, req.Fingerprint).Scan(&deviceID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"device_id": deviceID, "tenant_id": tenantID})
+}
+
+// RevokeDevice revokes a device
+func (h *Handler) RevokeDevice(c *gin.Context) {
+	deviceID := c.Param("id")
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	res, err := tx.Exec(`UPDATE devices SET revoked_at = now() WHERE device_id = $1 AND tenant_id = $2 AND revoked_at IS NULL`, deviceID, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Device not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"device_id": deviceID, "revoked": true})
+}
+
+// ListDevices lists enrolled devices
+func (h *Handler) ListDevices(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	rows, err := tx.Query(`SELECT device_id, tenant_id, user_id, label, fingerprint, revoked_at, last_seen_at, created_at FROM devices WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+	var devs []DeviceEnrollment
+	for rows.Next() {
+		var d DeviceEnrollment
+		var uid, label, fp sql.NullString
+		if err := rows.Scan(&d.DeviceID, &d.TenantID, &uid, &label, &fp, &d.RevokedAt, &d.LastSeenAt, &d.CreatedAt); err != nil {
+			continue
+		}
+		if uid.Valid { d.UserID = uid.String }
+		if label.Valid { d.Label = label.String }
+		if fp.Valid { d.Fingerprint = fp.String }
+		devs = append(devs, d)
+	}
+	c.JSON(http.StatusOK, devs)
+}
+
+
+// ListSyncLog returns recent sync sessions for admin visibility
+func (h *Handler) ListSyncLog(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	rows, err := tx.Query(`SELECT sync_id, tenant_id, device_id, sync_type, items_sent, conflicts, status, started_at, completed_at FROM sync_log WHERE tenant_id = $1 ORDER BY started_at DESC LIMIT 50`, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+	type SyncLogEntry struct {
+		SyncID      string     `json:"sync_id"`
+		TenantID    string     `json:"tenant_id"`
+		DeviceID    string     `json:"device_id"`
+		SyncType    string     `json:"sync_type"`
+		ItemsSent   int        `json:"items_sent"`
+		Conflicts   int        `json:"conflicts"`
+		Status      string     `json:"status"`
+		StartedAt   time.Time  `json:"started_at"`
+		CompletedAt *time.Time `json:"completed_at,omitempty"`
+	}
+	var logs []SyncLogEntry
+	for rows.Next() {
+		var l SyncLogEntry
+		if err := rows.Scan(&l.SyncID, &l.TenantID, &l.DeviceID, &l.SyncType, &l.ItemsSent, &l.Conflicts, &l.Status, &l.StartedAt, &l.CompletedAt); err != nil {
+			continue
+		}
+		logs = append(logs, l)
+	}
+	c.JSON(http.StatusOK, logs)
 }

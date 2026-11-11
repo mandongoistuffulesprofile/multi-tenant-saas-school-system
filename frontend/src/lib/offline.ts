@@ -99,15 +99,20 @@ async function clearStore(store: StoreName): Promise<void> {
 export async function getAssessmentResults(): Promise<StoredRecord<any>[]> {
   return getAll("assessment_results");
 }
-export async function saveAssessmentResult(result: any): Promise<void> {
+export async function saveAssessmentResult(result: any, opts?: { enqueue?: boolean }): Promise<void> {
+  const id = String(result.id ?? crypto.randomUUID());
+  const payload = { ...result, id, client_uuid: result.client_uuid ?? id };
+  const shouldEnqueue = opts?.enqueue !== false;
   await putRecord("assessment_results", {
-    id: result.id ?? crypto.randomUUID(),
-    payload: result,
-    state: "pending",
+    id,
+    payload,
+    state: shouldEnqueue ? "pending" : "synced",
     updated_at: new Date().toISOString(),
-    device_id: result.device_id ?? null,
+    device_id: payload.device_id ?? null,
   });
-  await enqueueOp({ type: "create", endpoint: "/assessment/results", method: "POST", payload: result });
+  if (shouldEnqueue) {
+    await enqueueOp({ type: "create", endpoint: "/assessment/results", method: "POST", payload });
+  }
 }
 export async function deleteAssessmentResult(id: ID): Promise<void> {
   await deleteRecord("assessment_results", id);
@@ -116,24 +121,29 @@ export async function deleteAssessmentResult(id: ID): Promise<void> {
 export async function getAttendanceMarks(): Promise<StoredRecord<any>[]> {
   return getAll("attendance_marks");
 }
-export async function saveAttendanceMark(mark: any): Promise<void> {
+export async function saveAttendanceMark(mark: any, opts?: { enqueue?: boolean }): Promise<void> {
+  const id = String(mark.id ?? crypto.randomUUID());
+  const payload = { ...mark, id, client_uuid: mark.client_uuid ?? id, client_ts: mark.client_ts ?? new Date().toISOString() };
+  const shouldEnqueue = opts?.enqueue !== false;
   await putRecord("attendance_marks", {
-    id: mark.id ?? crypto.randomUUID(),
-    payload: mark,
-    state: "pending",
+    id,
+    payload,
+    state: shouldEnqueue ? "pending" : "synced",
     updated_at: new Date().toISOString(),
-    device_id: mark.device_id ?? null,
+    device_id: payload.device_id ?? null,
   });
-  await enqueueOp({ type: "create", endpoint: "/attendance/marks", method: "POST", payload: mark });
+  if (shouldEnqueue) {
+    await enqueueOp({ type: "create", endpoint: "/attendance/marks", method: "POST", payload });
+  }
 }
 export async function deleteAttendanceMark(id: ID): Promise<void> {
   await deleteRecord("attendance_marks", id);
 }
 
 export async function clearOfflineData(): Promise<void> {
-  (["assessment_results", "attendance_marks", "sync_queue"] as StoreName[]).forEach((store) => {
-    clearStore(store);
-  });
+  for (const store of ["assessment_results", "attendance_marks", "sync_queue"] as StoreName[]) {
+    await clearStore(store);
+  }
 }
 
 /* ============ Sync queue ============ */

@@ -10,12 +10,9 @@ export interface NavItem {
 }
 
 const NAVIGATION_ITEMS: NavItem[] = [
-  { label: 'SaaS Platform Owner', href: '/saas-admin', roles: ['SUPER_ADMIN'] },
   { label: 'Dashibodi ya Shule', href: '/dashboard', roles: ['HEADTEACHER', 'BURSAR', 'TEACHER', 'BOM_MEMBER', 'STOREKEEPER'] },
   { label: 'Usimamizi wa Ada', href: '/fees', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BURSAR'] },
-  { label: 'Tathmini ya CBC', href: '/cbc-assessment', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'TEACHER'] },
   { label: 'Sajili ya Wanafunzi (NEMIS)', href: '/students', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BURSAR', 'TEACHER'] },
-  { label: 'BOM Oversight & QASO', href: '/bom-oversight', roles: ['SUPER_ADMIN', 'HEADTEACHER', 'BOM_MEMBER'] },
 ];
 
 interface RBACNavProps {

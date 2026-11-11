@@ -1,12 +1,10 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAuthStore } from "../../lib/authStore";
 import { api } from "../../lib/api";
 import Card from "../../components/atoms/Card";
-import Input from "../../components/atoms/Input";
 import Button from "../../components/atoms/Button";
+import Input from "../../components/atoms/Input";
 import ViewState from "../../components/organisms/ViewState";
-import DataTable from "../../components/organisms/DataTable";
 import { Learner } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
@@ -15,10 +13,13 @@ export default function LearnerRemarksPage() {
   const { toast } = useToast();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [learners, setLearners] = useState<Learner[]>([]);
-  const [selected, setSelected] = useState<Learner | null>(null);
+  const [cards, setCards] = useState<any[]>([]);
+  const [selectedLearnerId, setSelectedLearnerId] = useState("");
+  const [selectedCardId, setSelectedCardId] = useState("");
   const [remark, setRemark] = useState("");
+  const [learningAreaId, setLearningAreaId] = useState("GENERAL");
   const [publishing, setPublishing] = useState(false);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [headComment, setHeadComment] = useState("");
 
   useEffect(() => {
     api.get<Learner[]>("/learners")
@@ -26,92 +27,98 @@ export default function LearnerRemarksPage() {
       .catch(() => setState("error"));
   }, []);
 
-  const competencies = ["Reading", "Writing", "Numeracy", "Creativity", "Collaboration", "Digital Literacy"];
-  const levels = ["EE", "ME", "AE", "BE"];
+  useEffect(() => {
+    if (!selectedLearnerId) { setCards([]); setSelectedCardId(""); return; }
+    api.get("/reports/cards", { params: { learner_id: selectedLearnerId } })
+      .then((r) => {
+        const list = Array.isArray(r.data) ? r.data : [];
+        setCards(list);
+        setSelectedCardId(list[0]?.card_id || "");
+      })
+      .catch(() => { setCards([]); setSelectedCardId(""); });
+  }, [selectedLearnerId]);
+
+  const selectedLearner = useMemo(() => learners.find((l) => l.learner_id === selectedLearnerId) || null, [learners, selectedLearnerId]);
+
+  const submitRemark = async () => {
+    if (!selectedCardId) { toast("Select a report card for this learner", { type: "error" }); return; }
+    if (!remark.trim()) { toast("Enter a remark", { type: "error" }); return; }
+    setPublishing(true);
+    try {
+      await api.post(`/reports/cards/${selectedCardId}/comments`, {
+        learning_area_id: learningAreaId.trim() || "GENERAL",
+        comment_text: remark.trim(),
+      });
+      if (headComment.trim()) {
+        await api.put(`/reports/cards/${selectedCardId}/head-comment`, { head_teacher_comment: headComment.trim() });
+      }
+      toast("Remark saved to report card", { type: "success" });
+      setRemark("");
+    } catch (e: any) {
+      toast(e?.response?.data?.message || "Could not save remark", { type: "error" });
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   if (state === "loading") return <ViewState state="loading" />;
-  if (learners.length === 0) return <ViewState state="empty" message={t("teacher.no_learners")} />;
+  if (state === "error") return <ViewState state="error" onRetry={() => window.location.reload()} />;
 
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-display font-display">{t("teacher.learner_remarks")}</h1>
-      <div className="flex flex-col gap-4">
-        <Card className="p-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <label className="label block" htmlFor="learner-select">{'Select learner'}</label>
-              <select id="learner-select" className="input-field" value={selected?.learner_id ?? ""} onChange={(e) => setSelected(learners.find((l) => l.learner_id === e.target.value) ?? null)}>
-                <option value="">{'Select learner'}</option>
-                {learners.map((l) => <option key={l.learner_id} value={l.learner_id}>{l.first_name} {l.last_name} ({l.admission_number})</option>)}
-              </select>
-            </div>
+      <h1 className="text-display font-display">{t("teacher.learner_remarks", { defaultMessage: "Learner Remarks" })}</h1>
+      <Card className="p-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="label block mb-1">Learner</label>
+            <select className="input-field w-full" value={selectedLearnerId} onChange={(e) => setSelectedLearnerId(e.target.value)}>
+              <option value="">Select learner…</option>
+              {learners.map((l) => <option key={l.learner_id} value={l.learner_id}>{l.first_name} {l.last_name} ({l.admission_number})</option>)}
+            </select>
           </div>
-        </Card>
-        {selected && (
-          <Card className="p-4">
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-heading font-display mb-2">{selected.first_name} {selected.last_name}</h2>
-                <p className="text-caption text-muted">{selected.admission_number} — {selected.grade_label ?? "—"} {selected.stream_name ?? ""}</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {competencies.map((c) => (
-                  <div key={c} className="flex flex-col gap-2">
-                    <label className="label">{c}</label>
-                    <div className="flex gap-2">
-                      {levels.map((lv) => (
-                        <Button
-                          key={lv}
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setValues({ ...values, [c]: lv })}
-                          className={`w-10 h-10 rounded-lg text-xs font-bold border ${values[c] === lv ? "bg-kenyan-red text-white border-kenyan-red" : "bg-white border-gray-300 text-gray-600"}`}
-                        >
-                          {lv}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="pt-4 border-t">
-                <label className="label block">{'Term remark'}</label>
-                <Input value={remark} onChange={(e) => setRemark(e.target.value)} className="h-32" />
-              </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="secondary" onClick={() => setRemark("")}>{t("save_draft")}</Button>
-                <Button
-                  variant="primary"
-                  loading={publishing}
-                  onClick={async () => {
-                    setPublishing(true);
-                    try {
-                      const competencyRemark = Object.entries(values)
-                        .filter(([, lv]) => lv)
-                        .map(([c, lv]) => `${c}: ${lv}`)
-                        .join(" | ");
-                      await api.post("/reports/cards/comments", {
-                        learner_id: selected.learner_id,
-                        remarks: [competencyRemark, remark].filter(Boolean).join(" — "),
-                        status: "PUBLISHED",
-                      });
-                      toast("Remarks published to the learner's report card!", { type: "success" });
-                      setRemark("");
-                      setValues({});
-                    } catch (e: any) {
-                      toast(e.response?.data?.message || "Could not publish remarks", { type: "error" });
-                    } finally {
-                      setPublishing(false);
-                    }
-                  }}
-                >
-                  {t("teacher.publish")}
-                </Button>
-              </div>
+          <div>
+            <label className="label block mb-1">Report card</label>
+            <select className="input-field w-full" value={selectedCardId} onChange={(e) => setSelectedCardId(e.target.value)} disabled={!selectedLearnerId}>
+              <option value="">{cards.length ? "Select report card…" : "No report cards for learner"}</option>
+              {cards.map((c) => (
+                <option key={c.card_id} value={c.card_id}>
+                  {(c.card_number || c.card_id)} · {c.grade_id || ""} · {c.status}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {selectedLearner && (
+          <div className="space-y-3">
+            <div className="text-sm text-gray-700">
+              <span className="font-medium">{selectedLearner.first_name} {selectedLearner.last_name}</span>
+              <span className="text-gray-500"> · {selectedLearner.admission_number} · {selectedLearner.grade_label || "—"}</span>
             </div>
-          </Card>
+            <div>
+              <label className="label block mb-1">Learning area / strand code</label>
+              <Input value={learningAreaId} onChange={(e) => setLearningAreaId(e.target.value)} placeholder="e.g. MATH, ENG, GENERAL" />
+            </div>
+            <div>
+              <label className="label block mb-1">Teacher remark</label>
+              <textarea className="input-field w-full min-h-[100px]" value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Write remark for this learning area…" />
+            </div>
+            <div>
+              <label className="label block mb-1">Head teacher comment (optional)</label>
+              <Input value={headComment} onChange={(e) => setHeadComment(e.target.value)} placeholder="Overall/head teacher comment" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => { setRemark(""); setHeadComment(""); }}>Clear</Button>
+              <Button variant="primary" loading={publishing} disabled={!selectedCardId} onClick={submitRemark}>
+                {t("teacher.publish", { defaultMessage: "Save remark" })}
+              </Button>
+            </div>
+            {!cards.length && selectedLearnerId && (
+              <p className="text-xs text-amber-700">No report cards found for this learner. Generate/publish report cards first.</p>
+            )}
+          </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

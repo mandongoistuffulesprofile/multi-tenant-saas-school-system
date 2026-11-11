@@ -62,14 +62,31 @@ var RoleAllStaff = []string{
 var RolePlatformAdministrators = []string{RoleSaasAdmin, RoleSuperAdmin}
 
 // RequireRole restricts a Gin route to one of the given roles.
+// It checks all roles in the token claims (ContextRoles) to support
+// multi-membership users.
 func RequireRole(allowedRoles ...string) gin.HandlerFunc {
+	allowed := make(map[string]struct{}, len(allowedRoles))
+	for _, r := range allowedRoles {
+		allowed[r] = struct{}{}
+	}
 	return func(c *gin.Context) {
-		role, _ := c.Get(ContextRole)
-		roleStr, _ := role.(string)
-		for _, allowed := range allowedRoles {
-			if roleStr == allowed {
-				c.Next()
-				return
+		if rolesVal, ok := c.Get(ContextRoles); ok {
+			if roles, ok := rolesVal.([]string); ok {
+				for _, role := range roles {
+					if _, ok := allowed[role]; ok {
+						c.Next()
+						return
+					}
+				}
+			}
+		}
+		// Fallback to single role for compatibility.
+		if role, _ := c.Get(ContextRole); role != nil {
+			if roleStr, ok := role.(string); ok {
+				if _, ok := allowed[roleStr]; ok {
+					c.Next()
+					return
+				}
 			}
 		}
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden: insufficient role permissions"})

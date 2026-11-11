@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/assessment"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/attendance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
@@ -21,6 +23,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/comms"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/compliance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/config"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/curriculum"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
@@ -157,21 +160,54 @@ func Run() error {
 	wizardHandler := wizard.NewHandler(wizardService)
 
 	// M-Pesa: the callback writes to a durable inbox; a background worker
-	// allocates the payment. The worker is cancelled during shutdown.
-	if cfg.AppEnv == "production" && os.Getenv("MPESA_WEBHOOK_TOKEN") == "" {
-		return fmt.Errorf("MPESA_WEBHOOK_TOKEN must be set in production")
+	// allocates the payment. Fail closed in production if no webhook auth is
+	// configured (token or IP allowlist), since Daraja callbacks are unsigned.
+	if cfg.AppEnv == "production" {
+		if strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN")) == "" && strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS")) == "" {
+			return fmt.Errorf("MPESA_WEBHOOK_TOKEN or MPESA_ALLOWED_IPS must be set in production")
+		}
 	}
 	mpesaService := mpesa.NewService(database)
 	mpesaCtx, stopMpesa := context.WithCancel(context.Background())
 	defer stopMpesa()
 	go mpesaService.StartWorker(mpesaCtx, 15*time.Second)
 
-	// Outbox worker. Consumers are introduced per event type; until a consumer
-	// exists the event is logged and acknowledged so the queue cannot grow
-	// without bound. Add real handlers here (receipt SMS, projections, ...).
+	// Outbox worker: deliver SMS/receipt/alert events idempotently with retries.
+	// Unknown event types are acknowledged to avoid queue buildup; add consumers
+	// as new event types are introduced.
 	outboxService := outbox.NewService(database)
+	smsSvc := sms.NewSMSService()
 	go outboxService.StartWorker(mpesaCtx, 10*time.Second, func(ctx context.Context, event outbox.OutboxEvent) error {
-		slog.Info("outbox_event", "event_type", event.EventType, "aggregate_type", event.AggregateType,
+		payload := event.Payload
+		if payload == nil {
+			payload = map[string]interface{}{}
+		}
+		getStr := func(keys ...string) string {
+			for _, k := range keys {
+				if v, ok := payload[k]; ok {
+					if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+						return strings.TrimSpace(s)
+					}
+				}
+			}
+			return ""
+		}
+		eventType := strings.ToUpper(strings.TrimSpace(event.EventType))
+		channel := strings.ToUpper(getStr("channel", "Channel"))
+
+		// SMS-like events: payload may carry phone/to and message/body/text.
+		phone := getStr("phone", "phone_number", "to", "recipient_phone", "msisdn")
+		message := getStr("message", "body", "body_text", "text", "sms_text")
+		if (channel == "SMS" || strings.Contains(eventType, "SMS") || strings.Contains(eventType, "RECEIPT") || strings.Contains(eventType, "ALERT") || strings.Contains(eventType, "NOTICE")) && phone != "" && message != "" {
+			if err := smsSvc.SendSMS(ctx, phone, message); err != nil {
+				return err
+			}
+			slog.Info("outbox_sms_sent", "event_type", event.EventType, "aggregate_type", event.AggregateType, "tenant_id", event.TenantID)
+			return nil
+		}
+
+		// Acknowledge unhandled events (logged for observability) so queue drains.
+		slog.Info("outbox_event_ignored", "event_type", event.EventType, "aggregate_type", event.AggregateType,
 			"aggregate_id", event.AggregateID, "tenant_id", event.TenantID)
 		return nil
 	})
@@ -215,9 +251,134 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 		tenantLimit(c)
 	})
 
-	// Public Safaricom callback. Authentication is the shared webhook token,
-	// not a user JWT; it must stay outside the authenticated groups.
+	// Public Safaricom callbacks. Authentication is the shared webhook token/IP,
+	// not a user JWT; they must stay outside authenticated groups.
 	router.POST("/webhooks/mpesa/c2b", mpesaService.HandleC2B)
+
+	// Outbound SMS dispatcher: drains QUEUED outbound_messages (SMS) with retries.
+	go func(ctx context.Context) {
+		svc := sms.NewSMSService()
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				tx, err := database.BeginTxx(ctx, nil)
+				if err != nil {
+					slog.Warn("outbound_sms: begin failed", "error", err)
+					continue
+				}
+				if _, err := tx.ExecContext(ctx, "SET LOCAL app.worker = 'on'"); err != nil {
+					_ = tx.Rollback()
+					continue
+				}
+				rows, err := tx.QueryContext(ctx, `
+					SELECT message_id, tenant_id, recipient_address, body_text
+					FROM outbound_messages
+					WHERE status = 'QUEUED' AND channel = 'SMS'
+					ORDER BY created_at
+					LIMIT 50
+					FOR UPDATE SKIP LOCKED`)
+				if err != nil {
+					_ = tx.Rollback()
+					continue
+				}
+				type msg struct{ id, tenant, to, body string }
+				msgs := []msg{}
+				for rows.Next() {
+					var m msg
+					if err := rows.Scan(&m.id, &m.tenant, &m.to, &m.body); err == nil {
+						msgs = append(msgs, m)
+					}
+				}
+				rows.Close()
+				for _, m := range msgs {
+					if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", m.tenant); err != nil {
+						continue
+					}
+					// Respect SMS opt-outs (guardian/user linked by phone).
+					var optedOut int
+					_ = tx.QueryRowContext(ctx, `
+						SELECT COUNT(*) FROM opt_outs o
+						 JOIN guardians g ON g.user_id = o.user_id AND g.tenant_id = $1
+						WHERE o.tenant_id = $1 AND o.channel = 'SMS' AND o.is_active = true
+						  AND g.phone_number = $2`, m.tenant, m.to).Scan(&optedOut)
+					if optedOut == 0 {
+						// Also honor opt-outs where user record stores the same phone.
+						_ = tx.QueryRowContext(ctx, `
+							SELECT COUNT(*) FROM opt_outs o
+							 JOIN users u ON u.user_id = o.user_id
+							WHERE o.tenant_id = $1 AND o.channel = 'SMS' AND o.is_active = true
+							  AND u.phone_number = $2`, m.tenant, m.to).Scan(&optedOut)
+					}
+					if optedOut > 0 {
+						_, _ = tx.ExecContext(ctx, `
+							UPDATE outbound_messages SET status = 'SKIPPED', error_message = 'opted_out', updated_at = now()
+							WHERE message_id = $1 AND tenant_id = $2`, m.id, m.tenant)
+						continue
+					}
+					sendErr := svc.SendSMS(ctx, m.to, m.body)
+					if sendErr != nil {
+						_, _ = tx.ExecContext(ctx, `
+							UPDATE outbound_messages
+							SET status = CASE WHEN COALESCE((provider_response->>'attempts')::int,0) + 1 >= 5 THEN 'FAILED' ELSE 'QUEUED' END,
+							    provider_response = jsonb_set(COALESCE(provider_response,'{}'::jsonb), '{attempts}', to_jsonb(COALESCE((provider_response->>'attempts')::int,0)+1), true),
+							    error_message = $2, updated_at = now()
+							WHERE message_id = $1 AND tenant_id = $3`, m.id, sendErr.Error(), m.tenant)
+						continue
+					}
+					_, _ = tx.ExecContext(ctx, `
+						UPDATE outbound_messages
+						SET status = 'SENT', sent_at = now(), error_message = NULL, updated_at = now()
+						WHERE message_id = $1 AND tenant_id = $2`, m.id, m.tenant)
+				}
+				_ = tx.Commit()
+			}
+		}
+	}(mpesaCtx)
+
+	router.POST("/webhooks/mpesa/stk", func(c *gin.Context) {
+		want := strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN"))
+		allow := strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS"))
+		if want == "" && allow == "" {
+			c.JSON(401, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
+			return
+		}
+		if want != "" && c.GetHeader("X-Webhook-Token") != want {
+			c.JSON(401, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
+			return
+		}
+		if allow != "" {
+			client := c.ClientIP()
+			ok := false
+			for _, ip := range strings.Split(allow, ",") {
+				if strings.TrimSpace(ip) == client { ok = true; break }
+			}
+			if !ok {
+				c.JSON(401, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
+				return
+			}
+		}
+		tenantIDStr := c.Query("tenant_id")
+		tenantUUID, err := uuid.Parse(tenantIDStr)
+		if err != nil {
+			c.JSON(400, gin.H{"ResultCode": 1, "ResultDesc": "Invalid tenant"})
+			return
+		}
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(400, gin.H{"ResultCode": 1, "ResultDesc": "Invalid body"})
+			return
+		}
+		stkSvc := daraja.NewMpesaService(database.DB.DB)
+		if err := stkSvc.ProcessSTKCallback(c.Request.Context(), tenantUUID, body, sms.NewSMSService()); err != nil {
+			c.JSON(500, gin.H{"ResultCode": 1, "ResultDesc": "Temporary failure"})
+			return
+		}
+		c.JSON(200, gin.H{"ResultCode": 0, "ResultDesc": "Success"})
+	})
 
 	apiV1 := router.Group("/api/v1")
 
@@ -467,8 +628,8 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 		reportsGroup.GET("/templates", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportTemplates)
 		reportsGroup.GET("/runs", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportRuns)
 		reportsGroup.GET("/cards", middleware.RequireRole(append(middleware.RoleAcademicStaff, middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.ListReportCards)
-		reportsGroup.GET("/cards/:card_id", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.GetReportCard)
-		reportsGroup.GET("/cards/:card_id/comments", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportCardComments)
+		reportsGroup.GET("/cards/:card_id", middleware.RequireRole(append(middleware.RoleAcademicStaff, middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.GetReportCard)
+		reportsGroup.GET("/cards/:card_id/comments", middleware.RequireRole(append(middleware.RoleAcademicStaff, middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.ListReportCardComments)
 
 		// Write side
 		reportsGroup.POST("/templates", middleware.RequireRole(middleware.RoleSchoolAdministrators...), reportsHandler.CreateReportTemplate)

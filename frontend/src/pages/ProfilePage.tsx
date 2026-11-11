@@ -22,11 +22,17 @@ export default function ProfilePage() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    clearAuth();
-    window.location.href = "/login";
+  const handleLogout = async () => {
+    setLoading(true);
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // Ignore logout errors; still clear local session.
+    } finally {
+      clearAuth();
+      setLoading(false);
+      window.location.href = "/login";
+    }
   };
 
   return (

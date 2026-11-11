@@ -36,6 +36,11 @@ func main() {
 		fatal("DATABASE_URL is required")
 	}
 
+	// Refuse to apply seed/demo data in production.
+	if *seed && os.Getenv("APP_ENV") == "production" {
+		fatal("seed flag is disabled when APP_ENV=production; remove demo data from production deployments")
+	}
+
 	db, err := sql.Open("postgres", url)
 	if err != nil {
 		fatal("open database: %v", err)

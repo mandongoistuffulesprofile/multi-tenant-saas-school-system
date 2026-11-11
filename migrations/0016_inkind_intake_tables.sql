@@ -4,7 +4,7 @@
 
 CREATE TABLE public.in_kind_intake_logs (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     student_id uuid NOT NULL,
     intake_date date NOT NULL DEFAULT CURRENT_DATE,
     received_by uuid,
@@ -23,7 +23,7 @@ CREATE TABLE public.in_kind_intake_logs (
 
 CREATE TABLE public.in_kind_intake_items (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     intake_log_id uuid NOT NULL,
     inventory_item_id uuid NOT NULL,
     quantity numeric(12,3) NOT NULL CHECK (quantity > 0),
@@ -45,7 +45,7 @@ CREATE TABLE public.in_kind_intake_items (
 
 CREATE TABLE public.fee_payment_allocations (
     tenant_id character varying(50) NOT NULL,
-    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
     student_id uuid NOT NULL,
     payment_type character varying(30) NOT NULL DEFAULT 'IN_KIND' CHECK (payment_type IN ('CASH','MPESA','BANK_DIRECT','IN_KIND')),
     source_reference character varying(100),

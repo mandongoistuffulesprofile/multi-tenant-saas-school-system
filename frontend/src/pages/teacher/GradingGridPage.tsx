@@ -51,20 +51,24 @@ export default function GradingGridPage() {
       });
       const synced = r.data?.synced ?? entries.length;
       toast(`Synced ${synced}/${entries.length} results to the server.`, { type: "success" });
+      // Cache locally as already-synced; do not enqueue duplicate offline ops.
       await Promise.all(
-        entries.map((e) =>
-          saveAssessmentResult({
+        entries.map((e) => {
+          const clientId = `${selectedEvent}:${e.learner_id}:${e.sub_strand_id || event.learning_area_id}`;
+          return saveAssessmentResult({
+            id: clientId,
+            client_uuid: clientId,
             learner_id: e.learner_id,
             event_id: selectedEvent,
-            sub_strand_id: e.sub_strand_id,
+            sub_strand_id: e.sub_strand_id || event.learning_area_id,
             level_code: e.level_code,
             state: "SUBMITTED",
             version: 1,
             device_id: getDeviceId(),
             client_ts: new Date().toISOString(),
             teacher_id: roles.includes("TEACHER") ? (useAuthStore.getState().userId || "") : "",
-          } as any)
-        )
+          } as any, { enqueue: false });
+        })
       );
     } catch {
       toast("Sync failed — results stay queued offline.", { type: "error" });
@@ -143,7 +147,10 @@ export default function GradingGridPage() {
   const handleLevel = (learnerId: string, level: LevelCode) => {
     const key = `${learnerId}|${event.learning_area_id}`;
     setCells((c) => ({ ...c, [key]: level }));
+    const clientId = `${selectedEvent}:${learnerId}:${event.learning_area_id}`;
     saveAssessmentResult({
+      id: clientId,
+      client_uuid: clientId,
       learner_id: learnerId,
       event_id: selectedEvent,
       sub_strand_id: event.learning_area_id,

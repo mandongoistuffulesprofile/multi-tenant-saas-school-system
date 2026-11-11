@@ -236,11 +236,11 @@ func (h *Handler) TenantSwitch(c *gin.Context) {
 
 	h.setSessionCookies(c, tokenPair)
 
-	c.JSON(http.StatusOK, LoginResponse{
-		UserID:    userID,
-		TenantID:  req.TenantID,
-		Roles:     roles,
-		TokenPair: *tokenPair,
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":    userID,
+		"tenant_id":  req.TenantID,
+		"roles":      roles,
+		"token_pair": tokenPair,
 	})
 }
 
@@ -249,7 +249,7 @@ type LoginResponse struct {
 	UserID    string    `json:"user_id"`
 	TenantID  string    `json:"tenant_id"`
 	Roles     []string  `json:"roles"`
-	TokenPair TokenPair `json:"tokens"`
+	TokenPair TokenPair `json:"token_pair"`
 }
 
 // Membership describes one school the current user belongs to.
@@ -364,16 +364,20 @@ func (h *Handler) ParentActivate(c *gin.Context) {
 
 	phone := h.service.NormalisePhone(req.Phone)
 
-	// Verify claim code: must exist, be unexpired, unused, and match the phone.
-	var claimCodeID string
-	var guardianID sql.NullString
-	var expiresAt time.Time
-	var usedAt sql.NullTime
+	var (
+		claimCodeID  string
+		guardianID   sql.NullString
+		expiresAt    time.Time
+		usedAt       sql.NullTime
+	)
+	// Verify claim code: must exist, be unexpired, unused. Accept hashed or
+	// legacy plaintext storage for compatibility.
+	codeHash := HashToken(req.ClaimCode)
 	err := h.database.QueryRow(
 		`SELECT cc.claim_code_id, cc.guardian_id, cc.expires_at, cc.used_at
 		 FROM guardian_claim_codes cc
-		 WHERE cc.code_hash = $1 AND cc.used_at IS NULL`,
-		req.ClaimCode,
+		 WHERE (cc.code_hash = $1 OR cc.code_hash = $2) AND cc.used_at IS NULL`,
+		codeHash, req.ClaimCode,
 	).Scan(&claimCodeID, &guardianID, &expiresAt, &usedAt)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CLAIM_CODE", "message": "Claim code is invalid or has already been used"})
@@ -392,11 +396,29 @@ func (h *Handler) ParentActivate(c *gin.Context) {
 		return
 	}
 
+	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to start activation"})
+		return
+	}
+	defer tx.Rollback()
+
+	// Resolve tenant and guardian from claim code context.
+	var guardianTenant string
+	if guardianID.Valid {
+		if err := tx.QueryRowContext(c.Request.Context(),
+			`SELECT tenant_id FROM guardians WHERE guardian_id = $1`, guardianID.String,
+		).Scan(&guardianTenant); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_CLAIM_CODE", "message": "Guardian not found for claim code"})
+			return
+		}
+	}
+
 	// Create user record linked to the guardian.
 	var userID string
-	err = h.database.QueryRow(
-		`INSERT INTO users (phone_number, password_hash, status)
-		 VALUES ($1, $2, 'ACTIVE')
+	err = tx.QueryRowContext(c.Request.Context(),
+		`INSERT INTO users (phone_number, password_hash, status, is_active)
+		 VALUES ($1, $2, 'ACTIVE', true)
 		 RETURNING user_id`,
 		phone, hash,
 	).Scan(&userID)
@@ -405,25 +427,45 @@ func (h *Handler) ParentActivate(c *gin.Context) {
 		return
 	}
 
-	// Link the guardian to the new user account (if a guardian row exists).
 	if guardianID.Valid {
-		_, _ = h.database.Exec(
+		if _, err := tx.ExecContext(c.Request.Context(),
 			`UPDATE guardians SET user_id = $1 WHERE guardian_id = $2`,
 			userID, guardianID.String,
-		)
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to link guardian"})
+			return
+		}
+		// Ensure portal membership exists for this tenant.
+		if guardianTenant != "" {
+			if _, err := tx.ExecContext(c.Request.Context(), `
+				INSERT INTO tenant_memberships (tenant_id, user_id, role, status)
+				VALUES ($1, $2, 'PARENT', 'ACTIVE')
+				ON CONFLICT (user_id, tenant_id) DO NOTHING`, guardianTenant, userID); err != nil {
+				// Fallback for schemas without the unique constraint yet.
+				_, _ = tx.ExecContext(c.Request.Context(), `
+					INSERT INTO tenant_memberships (tenant_id, user_id, role, status)
+					SELECT $1, $2, 'PARENT', 'ACTIVE'
+					WHERE NOT EXISTS (
+						SELECT 1 FROM tenant_memberships WHERE tenant_id = $1 AND user_id = $2
+					)`, guardianTenant, userID)
+			}
+		}
 	}
 
-	// Mark claim code as used.
-	_, _ = h.database.Exec(
-		`UPDATE guardian_claim_codes SET used_at = CURRENT_TIMESTAMP WHERE claim_code_id = $1`,
+	if _, err := tx.ExecContext(c.Request.Context(),
+		`UPDATE guardian_claim_codes SET used_at = CURRENT_TIMESTAMP WHERE claim_code_id = $1 AND used_at IS NULL`,
 		claimCodeID,
-	)
+	); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to consume claim code"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    "ACTIVATED",
-		"message": "Parent account activated",
-		"user_id": userID,
-	})
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to complete activation"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": "ACTIVATED", "message": "Parent account activated. You can now log in.", "user_id": userID, "tenant_id": guardianTenant})
 }
 
 func (h *Handler) InviteAccept(c *gin.Context) {

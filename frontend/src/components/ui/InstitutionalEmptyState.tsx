@@ -1,12 +1,12 @@
 import React from 'react';
-import { LucideIcon, FileSpreadsheet, Plus } from 'lucide-react';
+import { FileSpreadsheet, Plus } from 'lucide-react';
 
 export interface InstitutionalEmptyStateProps {
   title: string;
   description: string;
   actionLabel?: string;
   onAction?: () => void;
-  icon?: LucideIcon;
+  icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>;
 }
 
 export const InstitutionalEmptyState: React.FC<InstitutionalEmptyStateProps> = ({

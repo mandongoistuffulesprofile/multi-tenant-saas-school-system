@@ -372,6 +372,43 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 	if amount == 0 {
 		amount = transactionAmount
 	}
+	if amount <= 0 {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "amount", Code: "INVALID_VALUE", Message: "amount must be greater than zero"},
+		})
+		return
+	}
+
+	// Lock invoice and validate tenant/learner ownership before allocating.
+	var invLearnerID string
+	var outstanding float64
+	err = tx.QueryRow(
+		`SELECT learner_id, amount_outstanding FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
+		req.InvoiceID, tenantID).Scan(&invLearnerID, &outstanding)
+	if err == sql.ErrNoRows {
+		validation.NotFound(c, "Invoice not found")
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if learnerID != "" && invLearnerID != learnerID {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "learner_id", Code: "INVALID_VALUE", Message: "invoice does not belong to learner"},
+		})
+		return
+	}
+	if learnerID == "" {
+		learnerID = invLearnerID
+	}
+	if amount > outstanding+0.001 {
+		amount = outstanding
+	}
+	if amount <= 0 {
+		validation.Conflict(c, "Invoice has no outstanding balance")
+		return
+	}
 
 	// Record the payment and allocate it to the invoice.
 	var paymentID string
@@ -391,8 +428,9 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 
 	_, _ = tx.Exec(
 		`UPDATE invoices SET amount_paid = amount_paid + $1,
-		   amount_outstanding = GREATEST(amount_outstanding - $1, 0),
+		   amount_outstanding = amount_outstanding - $1,
 		   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
+		   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
 		   updated_at = now()
 		 WHERE invoice_id = $2 AND tenant_id = $3`, amount, req.InvoiceID, tenantID)
 
@@ -831,33 +869,71 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 
-	// Allocate to the oldest unpaid invoice when no invoice was chosen.
+	// Allocate to the selected invoice, or the oldest unpaid invoice.
 	allocationInvoice := req.InvoiceID
 	if allocationInvoice == "" {
-		var invoiceID string
-		if err := tx.QueryRow(
-			`SELECT invoice_id FROM invoices WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
-			 ORDER BY due_date NULLS LAST, issue_date LIMIT 1`,
-			tenantID, req.LearnerID).Scan(&invoiceID); err == nil {
-			allocationInvoice = invoiceID
+		_ = tx.QueryRow(
+			`SELECT invoice_id FROM invoices
+			  WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
+			  ORDER BY due_date NULLS LAST, issue_date
+			  LIMIT 1 FOR UPDATE SKIP LOCKED`,
+			tenantID, req.LearnerID).Scan(&allocationInvoice)
+	}
+	allocatedAmount := 0.0
+	if allocationInvoice != "" {
+		var outstanding float64
+		err := tx.QueryRow(
+			`SELECT amount_outstanding FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
+			allocationInvoice, tenantID).Scan(&outstanding)
+		if err == nil && outstanding > 0 {
+			alloc := req.Amount
+			if alloc > outstanding {
+				alloc = outstanding
+			}
+			if _, err := tx.Exec(
+				`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
+				 VALUES ($1, $2, $3, $4, $5)`,
+				tenantID, paymentID, allocationInvoice, alloc, nullableString(userID)); err == nil {
+				_, _ = tx.Exec(
+					`UPDATE invoices SET amount_paid = amount_paid + $1,
+					   amount_outstanding = amount_outstanding - $1,
+					   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
+					   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
+					   updated_at = now()
+					 WHERE invoice_id = $2 AND tenant_id = $3`, alloc, allocationInvoice, tenantID)
+				allocatedAmount = alloc
+			}
 		}
 	}
-	if allocationInvoice != "" {
-		_, _ = tx.Exec(
-			`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
-			 VALUES ($1, $2, $3, $4, $5)`,
-			tenantID, paymentID, allocationInvoice, req.Amount, nullableString(userID))
-		_, _ = tx.Exec(
-			`UPDATE invoices SET amount_paid = amount_paid + $1,
-			   amount_outstanding = GREATEST(amount_outstanding - $1, 0),
-			   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-			   updated_at = now()
-			 WHERE invoice_id = $2 AND tenant_id = $3`, req.Amount, allocationInvoice, tenantID)
-	}
+
+	// Best-effort receipt notification to primary payer guardian (idempotent).
+	idem := "payment-receipt:" + tenantID + ":" + paymentID
+	msg := fmt.Sprintf("Payment received: KES %.2f (Ref %s). Thank you.", req.Amount, req.PaymentReference)
+	_, _ = tx.Exec(`
+		INSERT INTO outbound_messages (tenant_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, idempotency_key)
+		SELECT $1, 'GUARDIAN', g.guardian_id, 'SMS',
+		       COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,'')),
+		       $2, 'QUEUED', $4
+		  FROM learner_guardians lg
+		  JOIN guardians g ON g.guardian_id = lg.guardian_id AND g.tenant_id = $1
+		  LEFT JOIN users u ON u.user_id = g.user_id
+		 WHERE lg.learner_id = $3
+		   AND COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,'')) IS NOT NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM outbound_messages om
+		      WHERE om.tenant_id = $1 AND om.channel = 'SMS'
+		        AND (om.idempotency_key = $4 OR (om.body_text = $2 AND om.recipient_address = COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,''))))
+		   )
+		 ORDER BY lg.is_primary_payer DESC NULLS LAST, lg.created_at
+		 LIMIT 1
+		ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+		tenantID, msg, req.LearnerID, idem,
+	)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"payment_id": paymentID,
-		"invoice_id": allocationInvoice,
+		"payment_id":       paymentID,
+		"invoice_id":       allocationInvoice,
+		"allocated_amount": allocatedAmount,
 	})
 }
 

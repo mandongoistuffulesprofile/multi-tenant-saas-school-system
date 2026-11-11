@@ -227,14 +227,14 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		}
 		cardNumber := req.GradeID + "-" + strings.ToUpper(lr.learnerID[:8]) + "-" + runID[:8]
 
-_, err = tx.Exec(
-		`INSERT INTO report_cards
+		_, err = tx.Exec(
+			`INSERT INTO report_cards
 		 (tenant_id, run_id, learner_id, card_number, academic_year_id, term_id, grade_id,
 		  overall_grade, total_score, max_score, percentage, status, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'DRAFT', $12)
 		 ON CONFLICT (tenant_id, run_id, learner_id) DO NOTHING`,
-		tenantID, runID, lr.learnerID, cardNumber, req.AcademicYearID, termID, req.GradeID,
-		nullableString(overall), total, max, percentage, nullableString(userID))
+			tenantID, runID, lr.learnerID, cardNumber, req.AcademicYearID, termID, req.GradeID,
+			nullableString(overall), total, max, percentage, nullableString(userID))
 		if err != nil {
 			continue
 		}

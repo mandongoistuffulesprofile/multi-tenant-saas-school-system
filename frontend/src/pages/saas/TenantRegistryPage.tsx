@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useToast } from "../../components/toast/ToastProvider";
 import Card from "../../components/atoms/Card";
@@ -9,6 +10,7 @@ import { api } from "../../lib/api";
 export default function TenantRegistryPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [tenants, setTenants] = useState<any[]>([]);
 
@@ -66,14 +68,21 @@ export default function TenantRegistryPage() {
           columns={[
             { key: "school_name", header: 'School' },
             { key: "subdomain", header: t("subdomain") },
-            { key: "tier", header: 'Tier' },
             { key: "learners", header: 'Learners' },
+            { key: "onboarding_status", header: 'Setup', render: (row: any) => <span className="text-xs">{row.onboarding_status || "—"}{row.onboarding_step ? ` (${row.onboarding_step})` : ""}</span> },
             { key: "status", header: t("status"), render: (row: any) => <BadgeVariant status={row.status || "ACTIVE"} /> },
             {
               key: "actions",
               header: t("actions"),
               render: (row: any) => (
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/platform/tenants/${row.tenant_id}/setup`)}
+                    className="px-2.5 py-1 text-xs border rounded-lg font-medium text-kenyan-red hover:bg-kenyan-red/5 transition"
+                  >
+                    Setup
+                  </button>
                   <button
                     type="button"
                     onClick={() => requestToggle(row)}

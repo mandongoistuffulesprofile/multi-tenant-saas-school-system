@@ -34,7 +34,11 @@ export default function StaffPage() {
     e.preventDefault();
     setSaving(true);
     api.post("/staff", form)
-      .then(() => { setOpen(false); api.get<StaffRow[]>("/staff").then((r) => setStaff(Array.isArray(r.data) ? r.data : [])); })
+      .then(() => {
+        setOpen(false);
+        toast("Staff member created — an invite has been sent to their email/phone", { type: "success" });
+        api.get<StaffRow[]>("/staff").then((r) => setStaff(Array.isArray(r.data) ? r.data : []));
+      })
       .catch((err) => { toast(err.response?.data?.message || "Failed to save staff", { type: "error" }); })
       .finally(() => setSaving(false));
   };
@@ -110,9 +114,33 @@ export default function StaffPage() {
               id="tsc"
               type="text"
               className="input-field"
-              placeholder="TSC number"
-              value={form.subjects ? "" : ""}
-              
+              placeholder="TSC number (optional)"
+              value={form.tsc_number || ""}
+              onChange={(e) => setForm({ ...form, tsc_number: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">Subjects</label>
+            <input
+              id="subjects"
+              type="text"
+              className="input-field"
+              placeholder="Comma-separated, e.g. Mathematics, English"
+              value={(form.subjects || []).join(", ")}
+              onChange={(e) => setForm({
+                ...form,
+                subjects: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+              })}
+            />
+          </div>
+          <div>
+            <label className="label">Employment Date</label>
+            <input
+              id="employment_date"
+              type="date"
+              className="input-field"
+              value={form.employment_date}
+              onChange={(e) => setForm({ ...form, employment_date: e.target.value })}
             />
           </div>
           <div className="flex justify-end gap-2 pt-4">

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -182,8 +183,36 @@ func (h *APIHandlers) InitiateSTKPushHandler(w http.ResponseWriter, r *http.Requ
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func webhookAuthorised(r *http.Request) bool {
+	want := strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN"))
+	allow := strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS"))
+	if want == "" && allow == "" {
+		return false
+	}
+	if want != "" && r.Header.Get("X-Webhook-Token") != want {
+		return false
+	}
+	if allow != "" {
+		client := r.RemoteAddr
+		if i := strings.LastIndex(client, ":"); i >= 0 && strings.Count(client, ":") == 1 {
+			client = client[:i]
+		}
+		for _, ip := range strings.Split(allow, ",") {
+			if strings.TrimSpace(ip) == client {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
 // STKCallbackHandler processes incoming Daraja STK Push callbacks
 func (h *APIHandlers) STKCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	if !webhookAuthorised(r) {
+		http.Error(w, `{"ResultCode":1,"ResultDesc":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, `{"ResultCode":1,"ResultDesc":"Failed to read body"}`, http.StatusBadRequest)
@@ -191,15 +220,27 @@ func (h *APIHandlers) STKCallbackHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	tenantIDStr := r.URL.Query().Get("tenant_id")
-	tenantID, _ := uuid.Parse(tenantIDStr)
+	tenantID, err := uuid.Parse(tenantIDStr)
+	if err != nil {
+		http.Error(w, `{"ResultCode":1,"ResultDesc":"Invalid tenant"}`, http.StatusBadRequest)
+		return
+	}
 
-	_ = h.MpesaService.ProcessSTKCallback(r.Context(), tenantID, body, h.SMSService)
+	if err := h.MpesaService.ProcessSTKCallback(r.Context(), tenantID, body, h.SMSService); err != nil {
+		// Do not acknowledge with success on persistence failure; allow retry.
+		http.Error(w, `{"ResultCode":1,"ResultDesc":"Temporary failure"}`, http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ResultCode": 0, "ResultDesc": "Success"})
 }
 
 // DarajaC2BCallbackHandler processes incoming Safaricom M-Pesa IPNs
 func (h *APIHandlers) DarajaC2BCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	if !webhookAuthorised(r) {
+		http.Error(w, `{"ResultCode":1,"ResultDesc":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, `{"ResultCode":1,"ResultDesc":"Failed to read body"}`, http.StatusBadRequest)
@@ -207,10 +248,18 @@ func (h *APIHandlers) DarajaC2BCallbackHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	tenantID, _ := r.Context().Value(middleware.TenantIDKey).(uuid.UUID)
+	if tenantID == uuid.Nil {
+		// Try query param fallback
+		tenantID, _ = uuid.Parse(r.URL.Query().Get("tenant_id"))
+	}
+	if tenantID == uuid.Nil {
+		http.Error(w, `{"ResultCode":1,"ResultDesc":"Missing tenant context"}`, http.StatusBadRequest)
+		return
+	}
+
 	resp, err := h.MpesaService.ProcessCallback(r.Context(), tenantID, body)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ResultCode": 0, "ResultDesc": "Accepted with warning"})
+		http.Error(w, `{"ResultCode":1,"ResultDesc":"Temporary failure"}`, http.StatusInternalServerError)
 		return
 	}
 

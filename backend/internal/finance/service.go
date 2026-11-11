@@ -3,14 +3,20 @@ package finance
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
@@ -143,6 +149,12 @@ func nullIfEmpty(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+// nullableInvoiceString is nullIfEmpty for optional uuid/date columns
+// (term_id, due_date, …): an empty string must never reach the driver.
+func nullableInvoiceString(s string) interface{} {
+	return nullIfEmpty(s)
 }
 
 // ============ Fee Structures (tenant-scoped) ============
@@ -351,15 +363,49 @@ func (s *Service) ListInvoices(ctx context.Context, tenantID string, limit, offs
 
 func (s *Service) CreateInvoice(ctx context.Context, tenantID string, inv Invoice) (*Invoice, error) {
 	q := middleware.TxFromContext(ctx)
+
+	// The invoices table requires invoice_number and academic_year_id. When a
+	// client omits either, fill them from server-side values so the finance
+	// modal (and any other caller) cannot fail on a NOT NULL constraint.
+	if strings.TrimSpace(inv.Currency) == "" {
+		inv.Currency = "KES"
+	}
+	if strings.TrimSpace(inv.InvoiceNumber) == "" {
+		inv.InvoiceNumber = fmt.Sprintf("INV-%d-%s", time.Now().Year(), strings.ToUpper(uuid.NewString()[:8]))
+	}
+	if strings.TrimSpace(inv.AcademicYearID) == "" {
+		var yearID string
+		err := q.QueryRow(
+			`SELECT year_id FROM academic_years WHERE tenant_id = $1 AND is_current = true LIMIT 1`,
+			tenantID,
+		).Scan(&yearID)
+		if errors.Is(err, sql.ErrNoRows) || err != nil {
+			err = q.QueryRow(
+				`SELECT year_id FROM academic_years WHERE tenant_id = $1 ORDER BY start_date DESC LIMIT 1`,
+				tenantID,
+			).Scan(&yearID)
+		}
+		if err != nil {
+			return nil, errors.New("no academic year configured — create a year in Calendar first")
+		}
+		inv.AcademicYearID = yearID
+	}
+	if strings.TrimSpace(inv.Status) == "" {
+		inv.Status = "OUTSTANDING"
+	}
+	if inv.AmountOutstanding == 0 && inv.TotalAmount > 0 && inv.AmountPaid == 0 {
+		inv.AmountOutstanding = inv.TotalAmount
+	}
+
 	err := q.QueryRow(
 		`INSERT INTO invoices (tenant_id, invoice_number, learner_id, academic_year_id,
 			term_id, status, currency, total_amount, amount_paid, amount_outstanding,
 			issue_date, due_date, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE(NULLIF($11, ''), CURRENT_DATE), $12, $13)
 		 RETURNING invoice_id, created_at`,
 		tenantID, inv.InvoiceNumber, inv.LearnerID, inv.AcademicYearID,
-		inv.TermID, inv.Status, inv.Currency, inv.TotalAmount,
-		inv.AmountPaid, inv.AmountOutstanding, inv.IssueDate, inv.DueDate, inv.CreatedBy,
+		nullableInvoiceString(inv.TermID), inv.Status, inv.Currency, inv.TotalAmount,
+		inv.AmountPaid, inv.AmountOutstanding, inv.IssueDate, nullableInvoiceString(inv.DueDate), nullableInvoiceString(inv.CreatedBy),
 	).Scan(&inv.InvoiceID, &inv.CreatedAt)
 	if err != nil {
 		return nil, err
@@ -526,26 +572,52 @@ func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc Pa
 	if tx == nil {
 		return nil, errors.New("no tenant transaction")
 	}
+	if alloc.AllocatedAmount <= 0 {
+		return nil, errors.New("allocated amount must be positive")
+	}
+
+	// Lock invoice and allocate atomically in SQL (numeric-safe) to prevent races/over-allocation.
+	var paidAfter, outstandingAfter float64
 	err := tx.QueryRow(
+		`WITH locked AS (
+			SELECT amount_paid, amount_outstanding
+			  FROM invoices
+			 WHERE invoice_id = $1 AND tenant_id = $2
+			 FOR UPDATE
+		), upd AS (
+			UPDATE invoices i SET
+				amount_paid = i.amount_paid + $3::numeric,
+				amount_outstanding = i.amount_outstanding - $3::numeric,
+				status = CASE WHEN i.amount_outstanding - $3::numeric <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
+				paid_at = CASE WHEN i.amount_outstanding - $3::numeric <= 0 THEN COALESCE(i.paid_at, CURRENT_TIMESTAMP) ELSE i.paid_at END,
+				updated_at = CURRENT_TIMESTAMP
+			FROM locked l
+			WHERE i.invoice_id = $1 AND i.tenant_id = $2
+			  AND l.amount_outstanding >= $3::numeric
+			RETURNING i.amount_paid, i.amount_outstanding
+		)
+		SELECT amount_paid, amount_outstanding FROM upd`,
+		alloc.InvoiceID, tenantID, alloc.AllocatedAmount,
+	).Scan(&paidAfter, &outstandingAfter)
+	if err == sql.ErrNoRows {
+		// Either invoice missing or insufficient outstanding.
+		var exists bool
+		_ = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM invoices WHERE invoice_id=$1 AND tenant_id=$2)`, alloc.InvoiceID, tenantID).Scan(&exists)
+		if !exists {
+			return nil, sql.ErrNoRows
+		}
+		return nil, errors.New("allocated amount exceeds invoice outstanding balance")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	err = tx.QueryRow(
 		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING allocation_id, allocated_at`,
 		tenantID, alloc.PaymentID, alloc.InvoiceID, alloc.AllocatedAmount, alloc.AllocatedBy,
 	).Scan(&alloc.AllocationID, &alloc.AllocatedAt)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update invoice amounts
-	_, err = tx.Exec(
-		`UPDATE invoices SET
-			amount_paid = amount_paid + $1,
-			amount_outstanding = amount_outstanding - $1,
-			status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-			updated_at = CURRENT_TIMESTAMP
-		 WHERE invoice_id = $2 AND tenant_id = $3`,
-		alloc.AllocatedAmount, alloc.InvoiceID, tenantID,
-	)
 	if err != nil {
 		return nil, err
 	}
@@ -1481,6 +1553,205 @@ func (h *Handler) CreateMPESASTKRequest(c *gin.Context) {
 	c.JSON(http.StatusCreated, created)
 }
 
+// CreateParentMPESASTKRequest lets a parent/guardian principal initiate an
+// M-Pesa STK push for one of THEIR OWN invoices only. The invoice must belong
+// to a learner linked to the caller via learner_guardians; the amount may not
+// exceed the outstanding balance. The channel is resolved server-side from
+// the school's default ACTIVE M-PESA channel, so the request body only needs
+// invoice_id, phone_number and amount.
+func (h *Handler) CreateParentMPESASTKRequest(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+
+	var req struct {
+		InvoiceID   string  `json:"invoice_id" binding:"required"`
+		PhoneNumber string  `json:"phone_number" binding:"required"`
+		Amount      float64 `json:"amount"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+
+	// Normalise the Safaricom number to 2547XXXXXXXX / 2541XXXXXXXX.
+	phone := strings.TrimSpace(req.PhoneNumber)
+	phone = regexp.MustCompile(`[+\s\-]`).ReplaceAllString(phone, "")
+	switch {
+	case strings.HasPrefix(phone, "+254"):
+		phone = "254" + phone[4:]
+	case strings.HasPrefix(phone, "0"):
+		phone = "254" + phone[1:]
+	case strings.HasPrefix(phone, "7") || strings.HasPrefix(phone, "1"):
+		phone = "254" + phone
+	}
+	if !regexp.MustCompile(`^254[17]\d{8}$`).MatchString(phone) {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "phone_number", Code: "INVALID_VALUE", Message: "phone must be a Safaricom number like 07XXXXXXXX or 2547XXXXXXXX"},
+		})
+		return
+	}
+
+	// The invoice must belong to a learner linked to this guardian user.
+	var outstanding float64
+	var admissionNo string
+	err := tx.QueryRow(
+		`SELECT i.amount_outstanding, l.admission_number
+		 FROM invoices i
+		 JOIN learners l ON l.learner_id = i.learner_id
+		 JOIN learner_guardians lg ON lg.learner_id = l.learner_id
+		 JOIN guardians gd ON gd.guardian_id = lg.guardian_id
+		 WHERE i.invoice_id = $1 AND i.tenant_id = $2 AND gd.user_id = $3
+		 LIMIT 1`,
+		req.InvoiceID, tenantID, userID,
+	).Scan(&outstanding, &admissionNo)
+	if errors.Is(err, sql.ErrNoRows) {
+		validation.NotFound(c, "Invoice not found among your linked learners' invoices")
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	amount := req.Amount
+	if amount <= 0 {
+		amount = outstanding
+	}
+	if amount <= 0 {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "amount", Code: "INVALID_VALUE", Message: "amount must be greater than zero"},
+		})
+		return
+	}
+	if amount > outstanding+0.001 {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "amount", Code: "INVALID_VALUE", Message: "amount exceeds the outstanding balance"},
+		})
+		return
+	}
+
+	// Resolve the school's default ACTIVE M-PESA channel.
+	var channelID string
+	err = tx.QueryRow(
+		`SELECT channel_id FROM school_payment_channels
+		 WHERE tenant_id = $1 AND UPPER(channel_type) = 'MPESA' AND status = 'ACTIVE'
+		 ORDER BY is_default DESC, created_at ASC LIMIT 1`,
+		tenantID,
+	).Scan(&channelID)
+	if errors.Is(err, sql.ErrNoRows) || err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    "MPESA_NOT_CONFIGURED",
+			"message": "M-Pesa STK is not enabled for this school yet",
+		})
+		return
+	}
+
+	created, err := h.service.CreateMPESASTKRequest(c.Request.Context(), tenantID, MPESASTKRequest{
+		ChannelID:         channelID,
+		CheckoutRequestID: "PARENT-" + strings.ToUpper(uuid.NewString()[:10]),
+		MerchantRequestID: "PARENT-" + strings.ToUpper(uuid.NewString()[:10]),
+		PhoneNumber:       phone,
+		Amount:            amount,
+		Currency:          "KES",
+		AccountReference:  admissionNo,
+		TransactionDesc:   "School fees invoice " + req.InvoiceID,
+		Status:            "PENDING",
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	// When Daraja credentials are configured, push the real STK prompt and
+	// record Safaricom's request ids on the row; the poll endpoint then
+	// reflects the callback processing. Without credentials the request is
+	// recorded (status PENDING → the poll returns it unchanged) exactly like
+	// the bursar-facing flow, which is the documented no-credentials mode.
+	if darajaConfigured() {
+		pushed, pushErr := daraja.NewMpesaService(nil).InitiateSTKPush(c.Request.Context(), uuidMustParse(tenantID), daraja.STKPushRequest{
+			PhoneNumber: phone,
+			AmountKES:   int64(amount),
+			AdmissionNo: admissionNo,
+		})
+		if pushErr != nil {
+			_, _ = tx.Exec(
+				`UPDATE mpesa_stk_requests SET status = 'FAILED', callback_payload = jsonb_build_object('error', $2)
+				 WHERE stk_id = $1`,
+				created.STKID, pushErr.Error(),
+			)
+			c.JSON(http.StatusBadGateway, gin.H{
+				"code":    "DARAJA_ERROR",
+				"message": "M-Pesa STK push failed — please try again shortly",
+				"stk_id":  created.STKID,
+			})
+			return
+		}
+		checkoutID, _ := pushed["CheckoutRequestID"].(string)
+		merchantID, _ := pushed["MerchantRequestID"].(string)
+		payloadJSON, _ := json.Marshal(pushed)
+		if checkoutID != "" {
+			_, _ = tx.Exec(
+				`UPDATE mpesa_stk_requests SET checkout_request_id = NULLIF($2, ''), merchant_request_id = NULLIF($3, ''),
+				 callback_payload = COALESCE(callback_payload, '{}'::jsonb) || $4::jsonb
+				 WHERE stk_id = $1`,
+				created.STKID, checkoutID, merchantID, string(payloadJSON),
+			)
+		}
+		c.JSON(http.StatusCreated, gin.H{
+			"stk_id":                 created.STKID,
+			"status":                 "PENDING",
+			"amount":                 amount,
+			"account_reference":      admissionNo,
+			"daraja_pushed":          true,
+			"checkout_request_id":    checkoutID,
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, created)
+}
+
+// ParentMPESASTKStatus returns the polling-safe status of an STK request
+// created from the parent portal. Access is restricted to requests whose
+// phone number matches one of the caller's linked guardians, or the caller's
+// own portal phone.
+func (h *Handler) ParentMPESASTKStatus(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	stkID := c.Param("id")
+
+	var status, phone string
+	err := tx.QueryRow(
+		`SELECT r.status, r.phone_number
+		 FROM mpesa_stk_requests r
+		 WHERE r.stk_id = $1 AND r.tenant_id = $2
+		 AND EXISTS (
+			SELECT 1 FROM guardians gd
+			WHERE gd.tenant_id = $2 AND (gd.user_id = $3 OR gd.phone_number = r.phone_number)
+		 )`,
+		stkID, tenantID, userID,
+	).Scan(&status, &phone)
+	if errors.Is(err, sql.ErrNoRows) {
+		validation.NotFound(c, "STK request not found")
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"stk_id": stkID, "status": status})
+}
+
 // Receipt Sequence handler
 func (h *Handler) GetReceiptSequence(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
@@ -1541,6 +1812,26 @@ func paginationParams(c *gin.Context) (limit, offset int) {
 		}
 	}
 	return limit, offset
+}
+
+// darajaConfigured reports whether the live M-Pesa STK path is provisioned
+// via environment credentials (see internal/daraja/stk.go).
+func darajaConfigured() bool {
+	return os.Getenv("MPESA_SHORTCODE") != "" &&
+		os.Getenv("MPESA_PASSKEY") != "" &&
+		os.Getenv("MPESA_CONSUMER_KEY") != "" &&
+		os.Getenv("MPESA_CONSUMER_SECRET") != "" &&
+		os.Getenv("MPESA_STK_CALLBACK_URL") != ""
+}
+
+// uuidMustParse converts a tenant_id string to a UUID; the middleware has
+// already validated it as a UUID, so failure here is terminal.
+func uuidMustParse(s string) uuid.UUID {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		panic("invalid tenant uuid: " + s)
+	}
+	return id
 }
 
 var _ = http.StatusOK

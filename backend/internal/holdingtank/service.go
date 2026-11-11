@@ -166,15 +166,15 @@ func (s *Service) Resolve(ctx context.Context, tenantID, userID, entryID, studen
 }
 
 type Token struct {
-	ID           string    `json:"id"`
-	Token        string    `json:"token"`
-	TenantID     string    `json:"tenant_id"`
-	ClassID      string    `json:"class_id"`
-	SubjectScope []string  `json:"subject_scope"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	ID           string     `json:"id"`
+	Token        string     `json:"token"`
+	TenantID     string     `json:"tenant_id"`
+	ClassID      string     `json:"class_id"`
+	SubjectScope []string   `json:"subject_scope"`
+	ExpiresAt    time.Time  `json:"expires_at"`
 	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
-	CreatedBy    string    `json:"created_by"`
-	CreatedAt    time.Time `json:"created_at"`
+	CreatedBy    string     `json:"created_by"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 func (s *Service) CreateToken(ctx context.Context, tenantID, userID, classID string, subjects []string, expiresAt time.Time, pin string) (*Token, error) {
