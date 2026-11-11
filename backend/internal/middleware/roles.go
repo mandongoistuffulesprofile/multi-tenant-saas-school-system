@@ -57,7 +57,6 @@ var RoleAllStaff = []string{
 	RoleSchoolAdmin, RoleHead, RoleDeputy, RoleBursar, RoleClerk, RoleTeacher,
 }
 
-
 // RolePlatformAdministrators manage SaaS root operations, subscriptions and tenant onboarding.
 var RolePlatformAdministrators = []string{RoleSaasAdmin, RoleSuperAdmin}
 
