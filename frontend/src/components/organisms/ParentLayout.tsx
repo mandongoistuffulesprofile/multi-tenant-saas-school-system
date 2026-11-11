@@ -1,16 +1,9 @@
-import React, { ReactNode, useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import React, { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useAuthStore } from "../../lib/authStore";
 import Badge from "../atoms/Badge";
-import Button from "../atoms/Button";
 import { Home, BarChart3, CreditCard, Receipt, Clock, Megaphone, Signature } from "lucide-react";
-
-interface Tab {
-  path: string;
-  labelKey: string;
-  icon: React.ElementType;
-}
+import TabBar, { type Tab } from "../organisms/TabBar";
 
 const TABS: Tab[] = [
   { path: "/parent", labelKey: "parent.home", icon: Home },
@@ -29,7 +22,6 @@ interface ParentLayoutProps {
 export default function ParentLayout({ children }: ParentLayoutProps) {
   const { t } = useTranslation();
   const location = useLocation();
-  const activeTab = TABS.find((tab) => location.pathname === tab.path) || TABS[0];
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -44,30 +36,7 @@ export default function ParentLayout({ children }: ParentLayoutProps) {
 
       <main className="flex-1 overflow-y-auto pb-24">{children}</main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
-        <div className="flex h-16 items-center justify-around px-2">
-          {TABS.map((tab) => {
-            const active = location.pathname === tab.path;
-            return (
-              <NavLink
-                key={tab.path}
-                to={tab.path}
-                className={({ isActive }) =>
-                  `flex flex-col items-center gap-1 p-2 rounded-xl text-sm font-medium transition ${
-                    isActive
-                      ? "bg-kenyan-red/10 text-kenyan-red"
-                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-                  }`
-                }
-                end={tab.path === "/parent"}
-              >
-                <tab.icon className="w-5 h-5 stroke-[1.5]" />
-                {t(tab.labelKey)}
-              </NavLink>
-            );
-          })}
-        </div>
-      </nav>
+      <TabBar tabs={TABS} currentPath={location.pathname} prefixMatch={true} />
     </div>
   );
 }
