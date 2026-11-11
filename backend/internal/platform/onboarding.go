@@ -156,10 +156,24 @@ func (h *Handler) GetTenantOnboarding(c *gin.Context) {
 }
 
 func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (ReadinessResult, error) {
+	// RLS policies key off app.current_tenant_id, which is session-local — a
+	// *sql.DB pool hands out a different connection to each Exec/Query, so the
+	// counts would silently see zero rows and report false "block"s. Run the
+	// whole evaluation on one pinned connection instead.
+	tx, err := h.service.database.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return ReadinessResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT set_config('app.current_tenant_id', $1, true)`, tenantID); err != nil {
+		return ReadinessResult{}, err
+	}
 	checks := []ReadinessCheck{}
 	var adminCount int
-	_ = h.service.database.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id=$1 AND role='SCHOOL_ADMIN' AND status='ACTIVE'`, tenantID).Scan(&adminCount)
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id=$1 AND role='SCHOOL_ADMIN' AND status='ACTIVE'`, tenantID).Scan(&adminCount); err != nil {
+		return ReadinessResult{}, err
+	}
 	if adminCount > 0 {
 		checks = append(checks, ReadinessCheck{"school_admin", "ok", "School admin assigned"})
 	} else {
@@ -167,8 +181,12 @@ func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (Readin
 	}
 
 	var yearCount, currentYear int
-	_ = h.service.database.QueryRowContext(ctx, `SELECT COUNT(*) FROM academic_years WHERE tenant_id=$1`, tenantID).Scan(&yearCount)
-	_ = h.service.database.QueryRowContext(ctx, `SELECT COUNT(*) FROM academic_years WHERE tenant_id=$1 AND is_current=true`, tenantID).Scan(&currentYear)
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM academic_years WHERE tenant_id=$1`, tenantID).Scan(&yearCount); err != nil {
+		return ReadinessResult{}, err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM academic_years WHERE tenant_id=$1 AND is_current=true`, tenantID).Scan(&currentYear); err != nil {
+		return ReadinessResult{}, err
+	}
 	if yearCount == 0 {
 		checks = append(checks, ReadinessCheck{"academic_year", "block", "No academic year created"})
 	}
@@ -180,7 +198,9 @@ func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (Readin
 	}
 
 	var termCount int
-	_ = h.service.database.QueryRowContext(ctx, `SELECT COUNT(*) FROM terms t JOIN academic_years y ON y.year_id=t.year_id WHERE y.tenant_id=$1`, tenantID).Scan(&termCount)
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM terms t JOIN academic_years y ON y.year_id=t.year_id WHERE y.tenant_id=$1`, tenantID).Scan(&termCount); err != nil {
+		return ReadinessResult{}, err
+	}
 	if termCount == 0 {
 		checks = append(checks, ReadinessCheck{"terms", "block", "No terms configured"})
 	} else {
@@ -188,7 +208,9 @@ func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (Readin
 	}
 
 	var cgCount int
-	_ = h.service.database.QueryRowContext(ctx, `SELECT COUNT(*) FROM class_groups WHERE tenant_id=$1`, tenantID).Scan(&cgCount)
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM class_groups WHERE tenant_id=$1`, tenantID).Scan(&cgCount); err != nil {
+		return ReadinessResult{}, err
+	}
 	if cgCount == 0 {
 		checks = append(checks, ReadinessCheck{"structure", "warn", "No class groups/streams created"})
 	} else {
@@ -196,7 +218,9 @@ func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (Readin
 	}
 
 	var feeStruct int
-	_ = h.service.database.QueryRowContext(ctx, `SELECT COUNT(*) FROM fee_structures WHERE tenant_id=$1`, tenantID).Scan(&feeStruct)
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM fee_structures WHERE tenant_id=$1`, tenantID).Scan(&feeStruct); err != nil {
+		return ReadinessResult{}, err
+	}
 	if feeStruct == 0 {
 		checks = append(checks, ReadinessCheck{"finance", "warn", "No fee structures created"})
 	} else {
@@ -204,7 +228,9 @@ func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (Readin
 	}
 
 	var channelCount int
-	_ = h.service.database.QueryRowContext(ctx, `SELECT COUNT(*) FROM school_payment_channels WHERE tenant_id=$1`, tenantID).Scan(&channelCount)
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM school_payment_channels WHERE tenant_id=$1`, tenantID).Scan(&channelCount); err != nil {
+		return ReadinessResult{}, err
+	}
 	if channelCount == 0 {
 		checks = append(checks, ReadinessCheck{"payment_channels", "warn", "No payment channels configured"})
 	} else {
@@ -217,6 +243,9 @@ func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (Readin
 			ready = false
 			break
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return ReadinessResult{}, err
 	}
 	return ReadinessResult{Ready: ready, Checks: checks, EvaluatedAt: time.Now().UTC().Format(time.RFC3339)}, nil
 }

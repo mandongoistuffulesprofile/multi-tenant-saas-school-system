@@ -76,16 +76,18 @@ func (h *Handler) ListTenants(c *gin.Context) {
 // CreateTenant registers a new school and its first administrator.
 func (h *Handler) CreateTenant(c *gin.Context) {
 	var req struct {
-		SchoolName    string `json:"school_name" binding:"required"`
-		Subdomain     string `json:"subdomain" binding:"required"`
-		SchoolType    string `json:"school_type"`
-		FundingMode   string `json:"funding_mode"`
-		County        string `json:"county"`
-		LicenseTier   string `json:"license_tier"`
-		AdminEmail    string `json:"admin_email" binding:"required"`
-		AdminPhone    string `json:"admin_phone" binding:"required"`
-		AdminPassword string `json:"admin_password"`
-		PlanCode      string `json:"plan_code"`
+		SchoolName     string `json:"school_name" binding:"required"`
+		Subdomain      string `json:"subdomain" binding:"required"`
+		SchoolType     string `json:"school_type"`
+		FundingMode    string `json:"funding_mode"`
+		County         string `json:"county"`
+		LicenseTier    string `json:"license_tier"`
+		AdminFullName  string `json:"admin_full_name"`
+		AdminEmail     string `json:"admin_email" binding:"required"`
+		AdminPhone     string `json:"admin_phone" binding:"required"`
+		AdminPassword  string `json:"admin_password"`
+		PlanCode       string `json:"plan_code"`
+		Plan           string `json:"plan"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -159,6 +161,22 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		return
 	}
 
+	if req.AdminFullName != "" {
+		firstName := req.AdminFullName
+		lastName := ""
+		if idx := strings.LastIndex(req.AdminFullName, " "); idx > 0 {
+			firstName = req.AdminFullName[:idx]
+			lastName = req.AdminFullName[idx+1:]
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO staff_memberships (tenant_id, user_id, role, employment_status, first_name, last_name)
+			 VALUES ($1, $2, 'SCHOOL_ADMIN', 'ACTIVE', $3, $4)`,
+			tenantID, userID, firstName, lastName); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+
 	if _, err := tx.Exec(
 		`INSERT INTO tenant_memberships (user_id, tenant_id, role, status)
 		 VALUES ($1, $2, 'SCHOOL_ADMIN', 'ACTIVE')`, userID, tenantID); err != nil {
@@ -174,7 +192,11 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		return
 	}
 
-	if planCode := strings.TrimSpace(req.PlanCode); planCode != "" {
+	planCode := strings.TrimSpace(req.PlanCode)
+	if planCode == "" {
+		planCode = strings.TrimSpace(req.Plan)
+	}
+	if planCode != "" {
 		var planID string
 		if err := tx.QueryRow(`SELECT plan_id FROM plans WHERE plan_code = $1`, planCode).Scan(&planID); err == nil {
 			if _, err := tx.Exec(

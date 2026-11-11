@@ -30,6 +30,23 @@ FROM learners l, guardians g
 WHERE l.tenant_id = 'demo-school' AND l.admission_number = 'DEMO-001'
   AND g.tenant_id = 'demo-school' AND g.phone_number = '254700000003'
   AND NOT EXISTS (
-      SELECT 1 FROM learner_guardians lg
-      WHERE lg.learner_id = l.learner_id AND lg.guardian_id = g.guardian_id
+    SELECT 1 FROM learner_guardians lg
+    WHERE lg.learner_id = l.learner_id AND lg.guardian_id = g.guardian_id
   );
+
+-- Global grade reference (Kenyan CBC 1-9 + PP1/PP2). Required by
+-- fee_structures.grade_id and class_groups.grade_id FKs; the onboarding
+-- wizard's finance/structure steps reference these codes.
+INSERT INTO grades (grade_id, grade_label, level_band, lessons_per_week) VALUES
+  ('PP1', 'PP1', 'EYE', 25),
+  ('PP2', 'PP2', 'EYE', 25),
+  ('G1',  'Grade 1', 'LOWER_PRIMARY', 31),
+  ('G2',  'Grade 2', 'LOWER_PRIMARY', 31),
+  ('G3',  'Grade 3', 'LOWER_PRIMARY', 31),
+  ('G4',  'Grade 4', 'UPPER_PRIMARY', 35),
+  ('G5',  'Grade 5', 'UPPER_PRIMARY', 35),
+  ('G6',  'Grade 6', 'UPPER_PRIMARY', 35),
+  ('G7',  'Grade 7', 'JSS', 45),
+  ('G8',  'Grade 8', 'JSS', 45),
+  ('G9',  'Grade 9', 'JSS', 45)
+ON CONFLICT (grade_id) DO NOTHING;
