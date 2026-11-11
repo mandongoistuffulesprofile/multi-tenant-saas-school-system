@@ -27,5 +27,8 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+# Local runtime logs (dev servers, API output)
+logs/
+
 backend/api
 backend/cmd/api/api
