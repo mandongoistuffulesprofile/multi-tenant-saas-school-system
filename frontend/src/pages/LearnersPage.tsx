@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../lib/authStore";
 import { api } from "../lib/api";
@@ -279,9 +280,14 @@ export default function LearnersPage() {
           <h1 className="text-display">{t("learners")}</h1>
           <p className="text-body">{t("learner_registry")}</p>
         </div>
-        <Button variant="primary" onClick={() => setOpen(true)}>
-          {t("add_learner")}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Link to="/imports/learners" className="text-sm font-medium text-kenyan-red hover:underline">
+            Import CSV
+          </Link>
+          <Button variant="primary" onClick={() => setOpen(true)}>
+            {t("add_learner")}
+          </Button>
+        </div>
       </div>
 
       <Card>

@@ -26,6 +26,7 @@ import IntegrationsPage from "./pages/IntegrationsPage";
 import AcademicCalendarPage from "./pages/AcademicCalendarPage";
 import StaffPage from "./pages/StaffPage";
 import LearnersPage from "./pages/LearnersPage";
+import ImportLearnersPage from "./pages/ImportLearnersPage";
 import GradesStreamsPage from "./pages/GradesStreamsPage";
 import TeachingAllocationPage from "./pages/TeachingAllocationPage";
 import CurriculumPage from "./pages/CurriculumPage";
@@ -136,6 +137,7 @@ export default function App() {
             <Route path="/calendar" element={guard(ADMIN_ROLES, <AcademicCalendarPage />)} />
             <Route path="/staff" element={guard(ADMIN_ROLES, <StaffPage />)} />
             <Route path="/learners" element={guard(ACADEMIC_ROLES, <LearnersPage />)} />
+            <Route path="/imports/learners" element={guard(SCHOOL_ADMIN_ROLES, <ImportLearnersPage />)} />
             <Route path="/grades-streams" element={guard(SCHOOL_ADMIN_ROLES, <GradesStreamsPage />)} />
             <Route path="/teaching-allocation" element={guard(SCHOOL_ADMIN_ROLES, <TeachingAllocationPage />)} />
             <Route path="/curriculum" element={guard(ACADEMIC_ROLES, <CurriculumPage />)} />
