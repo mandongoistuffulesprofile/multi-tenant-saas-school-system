@@ -46,7 +46,7 @@ interface ShuleYetuDB extends DBSchema {
   syncQueue: {
     key: string;
     value: SyncQueueItem;
-    indexes: { 'by-status': string };
+    indexes: { 'by-status': number };
   };
 }
 
@@ -69,7 +69,7 @@ export async function getDB(): Promise<IDBPDatabase<ShuleYetuDB>> {
   }
 
   dbInstance = await openDB<ShuleYetuDB>('shule_yetu_offline', 2, {
-    upgrade(db, oldVersion) {
+    upgrade(db, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const assessmentStore = db.createObjectStore('assessments', { keyPath: 'id' });
         assessmentStore.createIndex('by-sync', 'syncStatus');
@@ -86,12 +86,12 @@ export async function getDB(): Promise<IDBPDatabase<ShuleYetuDB>> {
       }
 
       if (oldVersion < 2) {
-        const assessmentStore = db.transaction.objectStore('assessments');
+        const assessmentStore = transaction.objectStore('assessments');
         if (!assessmentStore.indexNames.contains('by-change-vector')) {
           assessmentStore.createIndex('by-change-vector', 'changeVector');
         }
 
-        const attendanceStore = db.transaction.objectStore('attendance');
+        const attendanceStore = transaction.objectStore('attendance');
         if (!attendanceStore.indexNames.contains('by-change-vector')) {
           attendanceStore.createIndex('by-change-vector', 'changeVector');
         }

@@ -38,7 +38,7 @@ interface SyncResult {
   failed: number;
 }
 
-let isSyncing = false;
+let syncInProgress = false;
 const MAX_RETRIES = 5;
 const BACKOFF_BASE_MS = 2000;
 
@@ -95,7 +95,7 @@ async function applyServerResolution(
   serverRecord: AssessmentRecord | AttendanceRecord
 ): Promise<void> {
   const db = await getDB();
-  const storeName = 'entityType' in serverRecord && serverRecord.entityType === 'ATTENDANCE' ? 'attendance' : 'assessments';
+  const storeName = 'rubricLevel' in serverRecord ? 'assessments' : 'attendance';
   
   // Server wins - overwrite local with server version
   const mergedRecord = {
@@ -125,9 +125,9 @@ async function applyClientResolution(
 }
 
 export async function synchronizeAssessments(apiBaseUrl: string): Promise<SyncResult> {
-  if (isSyncing) {
-    return { synced: 0, conflicts: 0, failed: 0 };
-  }
+  	if (syncInProgress) {
+	    return { synced: 0, conflicts: 0, failed: 0 };
+	  }
 
   const tenantId = getTenantId();
   const token = getAuthToken();
@@ -136,13 +136,13 @@ export async function synchronizeAssessments(apiBaseUrl: string): Promise<SyncRe
     return { synced: 0, conflicts: 0, failed: 0 };
   }
 
-  isSyncing = true;
+  	  syncInProgress = true;
 
   try {
     const db = await getDB();
-    const queue = await db.getAllFromIndex('syncQueue', 'by-status');
-    const pending = queue.filter((item) => item.retryCount < MAX_RETRIES);
-    const exhausted = queue.filter((item) => item.retryCount >= MAX_RETRIES);
+    const queue: SyncQueueItem[] = await db.getAllFromIndex('syncQueue', 'by-status');
+    const pending: SyncQueueItem[] = queue.filter((item: SyncQueueItem) => item.retryCount < MAX_RETRIES);
+    const exhausted: SyncQueueItem[] = queue.filter((item: SyncQueueItem) => item.retryCount >= MAX_RETRIES);
 
     let synced = 0;
     let conflicts = 0;
@@ -191,8 +191,9 @@ export async function synchronizeAssessments(apiBaseUrl: string): Promise<SyncRe
           if (conflict.resolution === 'SERVER_WINS') {
             await applyServerResolution(conflict, conflict.serverRecord);
           } else {
-            // Get local record
-            const storeName = conflict.resolution === 'SERVER_WINS' ? 'assessments' : 'attendance';
+            // Get local record from the queue item's entity store; the
+            // resolution direction says nothing about which store to read.
+            const storeName = queueItem.entityType === 'ASSESSMENT' ? 'assessments' : 'attendance';
             const localRecord = await db.get(storeName, conflict.id);
             if (localRecord) {
               await applyClientResolution(conflict, localRecord);
@@ -221,7 +222,7 @@ export async function synchronizeAssessments(apiBaseUrl: string): Promise<SyncRe
 
     return { synced, conflicts, failed };
   } finally {
-    isSyncing = false;
+    	    syncInProgress = false;
   }
 }
 
@@ -246,7 +247,7 @@ async function incrementRetry(queueId: string, error: string): Promise<void> {
 }
 
 export function isSyncing(): boolean {
-  return isSyncing;
+  return syncInProgress;
 }
 
 export function registerBackgroundSync(): void {
