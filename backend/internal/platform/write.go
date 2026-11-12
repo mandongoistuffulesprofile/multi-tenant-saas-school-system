@@ -2,8 +2,8 @@ package platform
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -76,18 +76,18 @@ func (h *Handler) ListTenants(c *gin.Context) {
 // CreateTenant registers a new school and its first administrator.
 func (h *Handler) CreateTenant(c *gin.Context) {
 	var req struct {
-		SchoolName     string `json:"school_name" binding:"required"`
-		Subdomain      string `json:"subdomain" binding:"required"`
-		SchoolType     string `json:"school_type"`
-		FundingMode    string `json:"funding_mode"`
-		County         string `json:"county"`
-		LicenseTier    string `json:"license_tier"`
-		AdminFullName  string `json:"admin_full_name"`
-		AdminEmail     string `json:"admin_email" binding:"required"`
-		AdminPhone     string `json:"admin_phone" binding:"required"`
-		AdminPassword  string `json:"admin_password"`
-		PlanCode       string `json:"plan_code"`
-		Plan           string `json:"plan"`
+		SchoolName    string `json:"school_name" binding:"required"`
+		Subdomain     string `json:"subdomain" binding:"required"`
+		SchoolType    string `json:"school_type"`
+		FundingMode   string `json:"funding_mode"`
+		County        string `json:"county"`
+		LicenseTier   string `json:"license_tier"`
+		AdminFullName string `json:"admin_full_name"`
+		AdminEmail    string `json:"admin_email" binding:"required"`
+		AdminPhone    string `json:"admin_phone" binding:"required"`
+		AdminPassword string `json:"admin_password"`
+		PlanCode      string `json:"plan_code"`
+		Plan          string `json:"plan"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -284,9 +284,24 @@ func (h *Handler) UpdateTenant(c *gin.Context) {
 }
 
 // SetTenantStatus suspends or reactivates a school.
+//
+// The console sends the new status in the JSON body
+// (PUT /platform/tenants/:id/status {"status":"SUSPENDED"}). The older
+// /status/:status form is still accepted when the body is absent.
 func (h *Handler) SetTenantStatus(c *gin.Context) {
 	tenantID := c.Param("id")
-	status := strings.ToUpper(strings.TrimSpace(c.Param("status")))
+	var req struct {
+		Status string `json:"status"`
+	}
+	status := strings.TrimSpace(c.Param("status"))
+	if c.Request.ContentLength != 0 {
+		if errs := validation.BindJSON(c, &req); errs != nil {
+			validation.BadRequest(c, "Invalid request", errs)
+			return
+		}
+		status = req.Status
+	}
+	status = strings.ToUpper(strings.TrimSpace(status))
 	switch status {
 	case "SUSPENDED", "ACTIVE":
 	default:
@@ -309,15 +324,30 @@ func (h *Handler) SetTenantStatus(c *gin.Context) {
 }
 
 // CreateImpersonation starts a time-boxed support session.
+//
+// The console posts {tenant_id, reason}. target_tenant_id is accepted as an
+// alias and target_user_id is optional: when omitted the tenant's primary
+// active school administrator is impersonated.
 func (h *Handler) CreateImpersonation(c *gin.Context) {
 	var req struct {
-		TargetUserID    string `json:"target_user_id" binding:"required"`
-		TargetTenantID  string `json:"target_tenant_id" binding:"required"`
+		TargetUserID    string `json:"target_user_id"`
+		TargetTenantID  string `json:"target_tenant_id"`
+		TenantID        string `json:"tenant_id"`
 		Reason          string `json:"reason" binding:"required"`
 		DurationMinutes int    `json:"duration_minutes"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+	targetTenantID := strings.TrimSpace(req.TargetTenantID)
+	if targetTenantID == "" {
+		targetTenantID = strings.TrimSpace(req.TenantID)
+	}
+	if targetTenantID == "" {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "tenant_id", Code: "REQUIRED", Message: "'tenant_id' is required"},
+		})
 		return
 	}
 	duration := req.DurationMinutes
@@ -326,11 +356,37 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 	}
 	adminUserID := c.GetString("user_id")
 
+	var schoolName string
+	if err := h.q(c).QueryRow(`SELECT school_name FROM schools WHERE tenant_id = $1`, targetTenantID).Scan(&schoolName); err != nil {
+		if err == sql.ErrNoRows {
+			validation.NotFound(c, "Tenant not found")
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	targetUserID := strings.TrimSpace(req.TargetUserID)
+	if targetUserID == "" {
+		err := h.q(c).QueryRow(
+			`SELECT user_id FROM tenant_memberships
+			 WHERE tenant_id = $1 AND role = 'SCHOOL_ADMIN' AND status = 'ACTIVE'
+			 ORDER BY created_at LIMIT 1`, targetTenantID).Scan(&targetUserID)
+		if err == sql.ErrNoRows {
+			validation.Conflict(c, "Tenant has no active school administrator to impersonate")
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+
 	var sessionID string
 	err := h.q(c).QueryRow(
 		`INSERT INTO impersonation_sessions (admin_user_id, target_user_id, target_tenant_id, reason, expires_at)
 		 VALUES ($1, $2, $3, $4, now() + ($5 || ' minutes')::interval) RETURNING session_id`,
-		adminUserID, req.TargetUserID, req.TargetTenantID, req.Reason, itoa(duration)).Scan(&sessionID)
+		adminUserID, targetUserID, targetTenantID, req.Reason, itoa(duration)).Scan(&sessionID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -342,7 +398,7 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 	rows, err := h.q(c).Query(
 		`SELECT role FROM tenant_memberships
 		 WHERE user_id = $1 AND tenant_id = $2 AND status = 'ACTIVE'`,
-		req.TargetUserID, req.TargetTenantID)
+		targetUserID, targetTenantID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -352,18 +408,19 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 			}
 		}
 	}
-	
+
 	// Get the JWT manager from the handler (we need to add it to the handler struct)
 	// For now, we'll return the session info and the frontend will call a separate endpoint
 	// to get the impersonation token. But let's add a method to get the token.
-	
+
 	expiresAt := time.Now().Add(time.Duration(duration) * time.Minute).UTC()
 	c.JSON(http.StatusCreated, gin.H{
-		"session_id":          sessionID,
-		"expires_at":          expiresAt,
-		"read_only":           true,
-		"target_user_id":      req.TargetUserID,
-		"target_tenant_id":    req.TargetTenantID,
+		"session_id":       sessionID,
+		"expires_at":       expiresAt,
+		"read_only":        true,
+		"school_name":      schoolName,
+		"target_user_id":   targetUserID,
+		"target_tenant_id": targetTenantID,
 	})
 }
 
@@ -429,9 +486,9 @@ func (h *Handler) GetImpersonationToken(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"access_token":  token,
-		"expires_at":    expiresAt,
-		"read_only":     true,
+		"access_token":     token,
+		"expires_at":       expiresAt,
+		"read_only":        true,
 		"target_tenant_id": targetTenantID,
 	})
 }
