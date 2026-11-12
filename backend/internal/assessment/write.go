@@ -165,12 +165,12 @@ func (e *writeError) Error() string { return e.msg }
 
 // upsertResult performs the actual insert/update and records history.
 func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID string, input ResultInput) (gin.H, error) {
-	state := strings.ToUpper(strings.TrimSpace(input.State))
-	if state == "" {
-		state = StateDraft
+	event := ResultEvent(strings.ToUpper(strings.TrimSpace(input.State)))
+	if event == "" {
+		event = EventSubmit
 	}
-	if state != StateDraft && state != StateSubmitted && state != StateModerated && state != StateLocked {
-		return nil, &writeError{"invalid state " + state}
+	if event != EventSubmit && event != EventModerate && event != EventPublish && event != EventLockTerm && event != EventReject {
+		return nil, &writeError{"invalid event " + string(event)}
 	}
 
 	subStrand := interface{}(nil)
@@ -208,22 +208,34 @@ func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID string, input Resul
 		points = input.Points
 	}
 
-	// Reject writes against a locked result: the spec requires an explicit
-	// reopen before a moderated result can change.
 	var existingState string
 	var existingID string
 	err := tx.QueryRow(
 		`SELECT result_id, state FROM assessment_results
 		 WHERE tenant_id = $1 AND event_id = $2 AND learner_id = $3
 		   AND COALESCE(sub_strand_id, '00000000-0000-0000-0000-000000000000'::uuid)
-		     = COALESCE($4::uuid, '00000000-0000-0000-0000-000000000000'::uuid)`,
+		     = COALESCE($4::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+		 FOR UPDATE`,
 		tenantID, input.EventID, input.LearnerID, subStrand,
 	).Scan(&existingID, &existingState)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
-	if err == nil && existingState == StateLocked {
-		return nil, errLocked
+	currentState := ResultDraft
+	if err == nil {
+		if existingState == string(ResultPublished) || existingState == string(ResultLocked) {
+			return nil, errLocked
+		}
+		currentState = ResultState(existingState)
+	}
+	targetState, terr := TransitionResult(currentState, event, ResultContext{
+		TenantID: tenantID,
+		EventID:  input.EventID,
+		LearnerID: input.LearnerID,
+		LevelCode: input.LevelCode,
+	})
+	if terr != nil {
+		return nil, &writeError{terr.Error()}
 	}
 
 	var resultID string
@@ -242,7 +254,7 @@ func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID string, input Resul
 			 WHERE result_id = $11
 			 RETURNING result_id, state, version, server_ts`,
 			nullableString(input.LevelCode), points, rawScore, maxScore,
-			nullableString(input.Remarks), teacherID, state, deviceID, clientTS, clientUUID,
+			nullableString(input.Remarks), teacherID, targetState, deviceID, clientTS, clientUUID,
 			existingID,
 		).Scan(&resultID, &existingState, &version, &serverTS)
 		if err != nil {
@@ -267,7 +279,7 @@ func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID string, input Resul
 			 RETURNING result_id, state, version, server_ts`,
 			tenantID, input.EventID, input.LearnerID, subStrand, nullableString(input.LevelCode),
 			points, rawScore, maxScore, nullableString(input.Remarks), teacherID, clientUUID,
-			input.Version, state, deviceID, clientTS,
+			input.Version, targetState, deviceID, clientTS,
 		).Scan(&resultID, &existingState, &version, &serverTS)
 		if err != nil {
 			if strings.Contains(err.Error(), "foreign key") {
@@ -284,13 +296,13 @@ func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID string, input Resul
 		  raw_score, max_score, state, changed_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		tenantID, resultID, input.EventID, input.LearnerID, subStrand,
-		nullableString(input.LevelCode), points, rawScore, maxScore, state, nullableString(userID))
+		nullableString(input.LevelCode), points, rawScore, maxScore, targetState, nullableString(userID))
 
 	return gin.H{
 		"result_id":  resultID,
 		"event_id":   input.EventID,
 		"learner_id": input.LearnerID,
-		"state":      existingState,
+		"state":      string(targetState),
 	}, nil
 }
 
