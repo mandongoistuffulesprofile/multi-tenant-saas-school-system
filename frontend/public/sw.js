@@ -12,7 +12,10 @@
  *    survive a killed tab.
  */
 
-const CACHE_NAME = 'shuleyetu-v1.0.1';
+// The suffix is filled in by scripts/inject-precache.mjs with a hash of the
+// emitted bundles, so every release gets a fresh cache and activate() deletes
+// the previous one.
+const CACHE_NAME = 'shuleyetu-__BUILD_REVISION__';
 
 // App shell entries precached at install. The build step (vite) emits these
 // files into dist/; the SW only needs the routes, not the hashed filenames.
@@ -27,13 +30,20 @@ const STATIC_ASSETS = [
   '/icons/apple-touch-icon.png',
 ];
 
+// The hashed Vite bundles, injected at build time by
+// scripts/inject-precache.mjs. Without these the cached index.html points at
+// assets that are not available offline.
+const PRECACHE_ASSETS = __PRECACHE_ASSETS__;
+
+const PRECACHE = [...STATIC_ASSETS, ...PRECACHE_ASSETS];
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
       // A single missing file must not fail the whole install: without an
       // installed worker the app is neither installable nor offline-capable.
       Promise.all(
-        STATIC_ASSETS.map((url) =>
+        PRECACHE.map((url) =>
           cache.add(url).catch((err) => console.warn('[SW] precache skipped:', url, err))
         )
       )
@@ -72,6 +82,12 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request).catch(() => caches.match(request))
     );
+    return;
+  }
+
+  // Hashed bundles are immutable: once precached, never touch the network.
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
     return;
   }
 
