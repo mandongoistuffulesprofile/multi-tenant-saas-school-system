@@ -32,6 +32,7 @@ const emptyForm: FeeCategoryRequest = {
 export default function FinanceFeeCategoriesPage() {
   const { t } = useTranslation();
   const [categories, setCategories] = useState<FeeCategory[]>([]);
+  const [templates, setTemplates] = useState<FeeCategoryRequest[]>([]);
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [editing, setEditing] = useState<FeeCategory | null>(null);
   const [open, setOpen] = useState(false);
@@ -41,8 +42,12 @@ export default function FinanceFeeCategoriesPage() {
 
   const load = useCallback(async () => {
     try {
-      const { data } = await api.get<FeeCategory[]>("/finance/fee-categories");
-      setCategories(Array.isArray(data) ? data : []);
+      const [{ data: categoriesData }, { data: templatesData }] = await Promise.all([
+        api.get<FeeCategory[]>("/finance/fee-categories"),
+        api.get<FeeCategoryRequest[]>("/finance/fee-categories/templates"),
+      ]);
+      setCategories(Array.isArray(categoriesData) ? categoriesData : []);
+      setTemplates(Array.isArray(templatesData) ? templatesData : []);
       setState("content");
     } catch {
       setState("error");
@@ -56,6 +61,21 @@ export default function FinanceFeeCategoriesPage() {
   const openCreate = () => {
     setEditing(null);
     setForm(emptyForm);
+    setFieldErrors({});
+    setOpen(true);
+  };
+
+  const openCreateFromTemplate = (template: FeeCategoryRequest) => {
+    setEditing(null);
+    setForm({
+      ...emptyForm,
+      code: template.code,
+      name: template.name,
+      description: template.description,
+      is_tuition: template.is_tuition,
+      is_optional: template.is_optional,
+      requires_consent: template.requires_consent,
+    });
     setFieldErrors({});
     setOpen(true);
   };
@@ -150,6 +170,41 @@ export default function FinanceFeeCategoriesPage() {
               {t("add_fee_category")}
             </Button>
           </div>
+
+          {templates.length > 0 && (
+            <Card title={t("quick_add_templates", { defaultMessage: "Quick Add from Templates" })}>
+              <p className="text-sm text-gray-500 mb-4">
+                {t("quick_add_templates_desc", { defaultMessage: "Add common Kenyan school fee types with one click. Pre-filled with recommended settings." })}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {templates.map((template) => {
+                  const exists = categories.some(
+                    (c) => c.code === template.code && c.tenant_id
+                  );
+                  return (
+                    <Button
+                      key={template.code}
+                      variant={exists ? "default" : "outline"}
+                      size="sm"
+                      className="h-auto py-3 text-left gap-2"
+                      onClick={() => !exists && openCreateFromTemplate(template)}
+                      disabled={exists}
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{template.name}</div>
+                        <div className="text-xs text-gray-500">{template.code}</div>
+                      </div>
+                      {exists && (
+                        <Badge variant="default" className="text-xs">
+                          {t("added", { defaultMessage: "Added" })}
+                        </Badge>
+                      )}
+                    </Button>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
 
           <Card title={t("custom_fee_categories")}>
             {customCategories.length === 0 ? (

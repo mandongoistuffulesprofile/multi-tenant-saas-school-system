@@ -91,67 +91,83 @@ func (h *Handler) Login(c *gin.Context) {
 		}
 	}
 
-	const identityPredicate = `u.is_active = true
-		AND (u.email_norm = LOWER($1) OR LOWER(u.email) = LOWER($1) OR u.phone_number = $1)`
+const identityPredicate = `u.is_active = true
+ 		AND (u.email_norm = LOWER($1) OR LOWER(u.email) = LOWER($1) OR u.phone_number = $1)`
 
-	var (
-		userID       string
-		passwordHash string
-	)
+ 	var (
+ 		userID       string
+ 		passwordHash string
+ 	)
 
-	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate + ` LIMIT 1`
-	args := []any{identifier}
+ 	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate + ` LIMIT 1`
+ 	args := []any{identifier}
 
-	if err := h.database.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
-		!VerifyPassword(passwordHash, req.Password) {
-		if h.redis != nil {
-			key := "rl:login:fail:" + strings.ToLower(identifier)
-			n, _ := h.redis.Incr(c.Request.Context(), key).Result()
-			if n == 1 {
-				h.redis.Expire(c.Request.Context(), key, 15*time.Minute)
-			}
-		}
-		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
-		return
-	}
-	// Clear lockout on success.
-	if h.redis != nil {
-		h.redis.Del(c.Request.Context(), "rl:login:fail:"+strings.ToLower(identifier))
-	}
+ 	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
+ 	if err != nil {
+ 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+ 		return
+ 	}
+ 	if _, err := tx.Exec(`SELECT set_config('app.current_user_role', 'SAAS_ADMIN', true)`); err != nil {
+ 		tx.Rollback()
+ 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+ 		return
+ 	}
 
-	// Resolve the membership(s) that may mint a session for this user.
-	type membership struct {
-		TenantID string `db:"tenant_id"`
-		Role     string `db:"role"`
-	}
-	// tenant_memberships is FORCE-RLS protected. Read the user's memberships in
-	// a short transaction scoped to that user: the self-select policy allows it
-	// and no other tenant's rows become visible during login.
-	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
-		return
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(
-		`SELECT set_config('app.current_user_id', $1, true)`, userID,
-	); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
-		return
-	}
+if err := tx.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
+ 		!VerifyPassword(passwordHash, req.Password) {
+ 		tx.Rollback()
+ 		if h.redis != nil {
+ 			key := "rl:login:fail:" + strings.ToLower(identifier)
+ 			n, _ := h.redis.Incr(c.Request.Context(), key).Result()
+ 			if n == 1 {
+ 				h.redis.Expire(c.Request.Context(), key, 15*time.Minute)
+ 			}
+ 		}
+ 		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
+ 		return
+ 	}
+ 	if err := tx.Commit(); err != nil {
+ 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+ 		return
+ 	}
+ 	// Clear lockout on success.
+ 	if h.redis != nil {
+ 		h.redis.Del(c.Request.Context(), "rl:login:fail:"+strings.ToLower(identifier))
+ 	}
 
-	var memberships []membership
-	if err := tx.Select(
-		&memberships,
-		`SELECT tenant_id, role FROM tenant_memberships
-		  WHERE user_id = $1 AND status = 'ACTIVE'
-		  ORDER BY created_at`,
-		userID,
-	); err != nil || len(memberships) == 0 {
-		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
-		return
-	}
-	_ = tx.Rollback()
+ 	// Resolve the membership(s) that may mint a session for this user.
+ 	type membership struct {
+ 		TenantID string `db:"tenant_id"`
+ 		Role     string `db:"role"`
+ 	}
+ 	// tenant_memberships is FORCE-RLS protected. Read the user's memberships in
+ 	// a short transaction scoped to that user: the self-select policy allows it
+ 	// and no other tenant's rows become visible during login.
+ 	tx2, err := h.database.BeginTxx(c.Request.Context(), nil)
+ 	if err != nil {
+ 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+ 		return
+ 	}
+ 	defer tx2.Rollback()
+ 	if _, err := tx2.Exec(
+ 		`SELECT set_config('app.current_user_id', $1, true)`, userID,
+ 	); err != nil {
+ 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+ 		return
+ 	}
+
+ 	var memberships []membership
+ 	if err := tx2.Select(
+ 		&memberships,
+ 		`SELECT tenant_id, role FROM tenant_memberships
+ 		  WHERE user_id = $1 AND status = 'ACTIVE'
+ 		  ORDER BY created_at`,
+ 		userID,
+ 	); err != nil || len(memberships) == 0 {
+ 		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
+ 		return
+ 	}
+ 	_ = tx2.Rollback()
 
 	tenantID := requestedTenant
 	roles := make([]string, 0, 1)

@@ -563,6 +563,7 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	{
 		// Fee categories — global defaults plus this school's own categories
 		financeGroup.GET("/fee-categories", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListFeeCategories)
+		financeGroup.GET("/fee-categories/templates", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.GetFeeCategoryTemplates)
 		financeGroup.POST("/fee-categories", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateFeeCategory)
 		financeGroup.PATCH("/fee-categories/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.UpdateFeeCategory)
 		financeGroup.DELETE("/fee-categories/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.DeleteFeeCategory)

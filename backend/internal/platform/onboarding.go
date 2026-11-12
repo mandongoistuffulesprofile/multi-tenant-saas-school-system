@@ -30,6 +30,44 @@ func generateRandomToken(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// seedStandardFeeCategories creates the standard Kenyan school fee categories
+// for a new tenant. These are custom categories (tenant_id = tenantID) that
+// correspond to the global defaults but are owned by the school so they can
+// be customized (amounts, mandatory/optional, etc.).
+func (h *Handler) seedStandardFeeCategories(ctx context.Context, tx *sql.Tx, tenantID, actor string) error {
+	standardCategories := []struct {
+		Code            string
+		Name            string
+		Description     string
+		IsTuition       bool
+		IsOptional      bool
+		RequiresConsent bool
+	}{
+		{"MEALS", "Meals", "School meals / feeding program", false, true, true},
+		{"TRANSPORT", "Transport", "School transport / bus fees", false, true, true},
+		{"UNIFORM", "Uniform", "School uniform", false, true, false},
+		{"EXAM", "Examination", "Internal examination fees", false, false, false},
+		{"ACTIVITY", "Activity", "Co-curricular activities", false, true, true},
+		{"BOARDING", "Boarding", "Boarding / accommodation fees", false, true, false},
+		{"OTHER", "Other", "Miscellaneous fees", false, true, true},
+		{"PTA", "PTA Levy", "Parent-Teacher Association levy", false, true, true},
+		{"DEVELOPMENT", "Development Fund", "School infrastructure development fund", false, true, true},
+		{"ICT", "ICT Levy", "Information & Communication Technology levy", false, true, true},
+	}
+
+	for _, cat := range standardCategories {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO fee_categories (tenant_id, code, name, description, is_tuition, is_optional, requires_consent, is_active)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,true)
+			 ON CONFLICT (tenant_id, code) DO NOTHING`,
+			tenantID, cat.Code, cat.Name, cat.Description, cat.IsTuition, cat.IsOptional, cat.RequiresConsent)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type OnboardingState struct {
 	TenantID    string          `json:"tenant_id"`
 	Status      string          `json:"status"`
@@ -488,6 +526,10 @@ func (h *Handler) SetupFinance(c *gin.Context) {
 	}
 	actor := c.GetString("user_id")
 	err := h.withTenantTx(c.Request.Context(), tenantID, actor, func(tx *sql.Tx) error {
+		// Seed standard Kenyan fee categories for this tenant
+		if err := h.seedStandardFeeCategories(c.Request.Context(), tx, tenantID, actor); err != nil {
+			return err
+		}
 		for _, cat := range req.Categories {
 			if _, err := tx.ExecContext(c.Request.Context(),
 				`INSERT INTO fee_categories (tenant_id, code, name, description, is_tuition, is_optional, requires_consent, is_active)

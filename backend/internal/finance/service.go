@@ -1159,6 +1159,29 @@ func (h *Handler) ListFeeCategories(c *gin.Context) {
 	c.JSON(http.StatusOK, categories)
 }
 
+// GetFeeCategoryTemplates returns the standard Kenyan school fee category templates
+// that schools can quickly add as custom categories.
+func (h *Handler) GetFeeCategoryTemplates(c *gin.Context) {
+	templates := []FeeCategoryRequest{
+		{Code: "MEALS", Name: "Meals", Description: "School meals / feeding program", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "TRANSPORT", Name: "Transport", Description: "School transport / bus fees", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "UNIFORM", Name: "Uniform", Description: "School uniform", IsTuition: false, IsOptional: true, RequiresConsent: false},
+		{Code: "EXAM", Name: "Examination", Description: "Internal examination fees", IsTuition: false, IsOptional: false, RequiresConsent: false},
+		{Code: "ACTIVITY", Name: "Activity", Description: "Co-curricular activities", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "BOARDING", Name: "Boarding", Description: "Boarding / accommodation fees", IsTuition: false, IsOptional: true, RequiresConsent: false},
+		{Code: "OTHER", Name: "Other", Description: "Miscellaneous fees", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "PTA", Name: "PTA Levy", Description: "Parent-Teacher Association levy", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "DEVELOPMENT", Name: "Development Fund", Description: "School infrastructure development fund", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "ICT", Name: "ICT Levy", Description: "Information & Communication Technology levy", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "MEDICAL", Name: "Medical", Description: "Medical / health services", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "INSURANCE", Name: "Insurance", Description: "Student insurance", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "STATIONERY", Name: "Stationery", Description: "Exercise books, pens, learning materials", IsTuition: false, IsOptional: true, RequiresConsent: false},
+		{Code: "TRIP", Name: "School Trips", Description: "Educational trips and excursions", IsTuition: false, IsOptional: true, RequiresConsent: true},
+		{Code: "CLUB", Name: "Club Fees", Description: "Club and society membership fees", IsTuition: false, IsOptional: true, RequiresConsent: true},
+	}
+	c.JSON(http.StatusOK, templates)
+}
+
 // FeeCategoryRequest is the payload for creating or updating a custom fee
 // category.
 type FeeCategoryRequest struct {

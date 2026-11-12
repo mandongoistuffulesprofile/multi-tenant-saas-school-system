@@ -209,6 +209,8 @@ export const translations = {
       no_custom_fee_categories: "You have not added any custom fee types yet.",
       add_fee_category: "Add Fee Type",
       edit_fee_category: "Edit Fee Type",
+      quick_add_templates: "Quick Add from Templates",
+      quick_add_templates_desc: "Add common Kenyan school fee types with one click. Pre-filled with recommended settings.",
       code: "Code",
       is_tuition: "Tuition fee",
       is_optional: "Optional",
@@ -217,6 +219,7 @@ export const translations = {
       standard: "Standard",
       swimming_lessons: "Swimming Lessons",
       edit: "Edit",
+      added: "Added",
       wizard: {
         step_personal: "Step 1: Personal Details",
         step_guardian: "Step 2: Guardian Information",
@@ -552,6 +555,8 @@ export const translations = {
       no_custom_fee_categories: "Bado hujongeza aina yoyote ya malipo mwenyewe.",
       add_fee_category: "Ongeza Aina ya Malipo",
       edit_fee_category: "Hariri Aina ya Malipo",
+      quick_add_templates: "Ongeza Haraka kutoka Rasimu",
+      quick_add_templates_desc: "Ongeza aina za kawaida za malipo za shule za Kenya kwa kichupo kimoja. Uzaliwa na mipangilio iliyopendekezwa.",
       code: "Msimbo",
       is_tuition: "Malipo ya tuition",
       is_optional: "Si lazima",
@@ -560,6 +565,7 @@ export const translations = {
       standard: "Kawaida",
       swimming_lessons: "Mafunzo ya Kuogelea",
       edit: "Hariri",
+      added: "Imeongezwa",
       wizard: {
         step_personal: "Hatua ya 1: Maelekezo ya Kibinafsi",
         step_guardian: "Hatua ya 2: Maelekezo ya Mzazi",
