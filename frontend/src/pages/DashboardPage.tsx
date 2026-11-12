@@ -7,6 +7,7 @@ import { KPIStatCard } from "../components/atoms/Card";
 import Badge from "../components/atoms/Badge";
 import ViewState from "../components/organisms/ViewState";
 import { Role } from "../lib/types";
+import { formatKES } from "../utils/currency";
 import { User2, Megaphone, Puzzle, BarChart3, Plus, Users, Receipt, CreditCard, Clock } from "lucide-react";
 
 export interface DashboardStat {
@@ -25,7 +26,7 @@ interface SchoolSnapshot {
   audit: any[];
 }
 
-const money = (n: number) => `KES ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const money = (n: number) => formatKES(n);
 
 export default function DashboardPage() {
   const { t } = useTranslation();
@@ -77,6 +78,34 @@ export default function DashboardPage() {
   }, [roles, isSaasAdmin, isSchoolStaff]);
 
   if (loading) return <ViewState state="loading" />;
+
+  // ---------- Empty onboarding state (no learners yet) ----------
+  if (!loading && snap?.learners === 0) {
+    return (
+      <div className="p-8 max-w-4xl mx-auto">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-8 text-center">
+          <h2 className="text-2xl font-bold text-emerald-950">Welcome to Shule Yetu! 🇰🇪</h2>
+          <p className="text-emerald-800 text-sm mt-2 max-w-md mx-auto">
+            Your school database is active and secured. Begin by admitting your first learner or importing your class registers.
+          </p>
+          <div className="mt-6 flex justify-center gap-4">
+            <a
+              href="/learners?action=new"
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg text-sm shadow"
+            >
+              + Admit First Learner
+            </a>
+            <a
+              href="/finance/fee-structures"
+              className="px-5 py-2.5 bg-white border border-emerald-300 text-emerald-800 font-medium rounded-lg text-sm hover:bg-emerald-100/50"
+            >
+              Configure Fee Structure
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ---------- Parent variant ----------
   if (isParent) {

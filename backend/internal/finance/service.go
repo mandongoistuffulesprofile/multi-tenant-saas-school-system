@@ -577,38 +577,47 @@ func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc Pa
 		return nil, errors.New("allocated amount must be positive")
 	}
 
-	// Lock invoice and allocate atomically in SQL (numeric-safe) to prevent races/over-allocation.
-	var paidAfter, outstandingAfter float64
-	err := tx.QueryRow(
-		`WITH locked AS (
-			SELECT amount_paid, amount_outstanding
-			  FROM invoices
-			 WHERE invoice_id = $1 AND tenant_id = $2
-			 FOR UPDATE
-		), upd AS (
-			UPDATE invoices i SET
-				amount_paid = i.amount_paid + $3::numeric,
-				amount_outstanding = i.amount_outstanding - $3::numeric,
-				status = CASE WHEN i.amount_outstanding - $3::numeric <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-				paid_at = CASE WHEN i.amount_outstanding - $3::numeric <= 0 THEN COALESCE(i.paid_at, CURRENT_TIMESTAMP) ELSE i.paid_at END,
-				updated_at = CURRENT_TIMESTAMP
-			FROM locked l
-			WHERE i.invoice_id = $1 AND i.tenant_id = $2
-			  AND l.amount_outstanding >= $3::numeric
-			RETURNING i.amount_paid, i.amount_outstanding
-		)
-		SELECT amount_paid, amount_outstanding FROM upd`,
-		alloc.InvoiceID, tenantID, alloc.AllocatedAmount,
-	).Scan(&paidAfter, &outstandingAfter)
+	// 1. Lock the invoice row to prevent concurrent allocation races.
+	var (
+		currentState InvoiceState
+		totalAmount  float64
+		paidAmount   float64
+		outstanding  float64
+	)
+	err := tx.QueryRowContext(ctx, `
+		SELECT status, total_amount, amount_paid, amount_outstanding
+		  FROM invoices
+		 WHERE invoice_id = $1 AND tenant_id = $2
+		 FOR UPDATE`,
+		alloc.InvoiceID, tenantID).Scan(&currentState, &totalAmount, &paidAmount, &outstanding)
 	if err == sql.ErrNoRows {
-		// Either invoice missing or insufficient outstanding.
-		var exists bool
-		_ = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM invoices WHERE invoice_id=$1 AND tenant_id=$2)`, alloc.InvoiceID, tenantID).Scan(&exists)
-		if !exists {
-			return nil, sql.ErrNoRows
-		}
-		return nil, errors.New("allocated amount exceeds invoice outstanding balance")
+		return nil, sql.ErrNoRows
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Evaluate the pure FSM transition (APPLY_CREDIT).
+	newPaid := paidAmount + alloc.AllocatedAmount
+	nextState, err := TransitionInvoice(currentState, EventApplyCredit, InvoiceContext{
+		TotalAmount:       totalAmount,
+		PaidAmount:        newPaid,
+		AmountOutstanding: outstanding - alloc.AllocatedAmount,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("allocation rejected: %w", err)
+	}
+
+	// 3. Persist the validated transition atomically.
+	_, err = tx.ExecContext(ctx, `
+		UPDATE invoices
+		   SET amount_paid = $1,
+		       amount_outstanding = $2,
+		       status = $3,
+		       paid_at = CASE WHEN $1 >= $4 THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
+		       updated_at = CURRENT_TIMESTAMP
+		 WHERE invoice_id = $5 AND tenant_id = $6`,
+		newPaid, outstanding-alloc.AllocatedAmount, nextState, totalAmount, alloc.InvoiceID, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -625,6 +634,140 @@ func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc Pa
 
 	alloc.TenantID = tenantID
 	return &alloc, nil
+}
+
+// CancelInvoice cancels an invoice via the FSM. Guard: no active payments.
+func (s *Service) CancelInvoice(ctx context.Context, tenantID, invoiceID, cancelledBy string) (*Invoice, error) {
+	tx := middleware.TxFromContext(ctx)
+	if tx == nil {
+		return nil, errors.New("no tenant transaction")
+	}
+
+	var inv Invoice
+	err := tx.QueryRowContext(ctx, `
+		SELECT invoice_id, tenant_id, status, total_amount, amount_paid
+		  FROM invoices
+		 WHERE invoice_id = $1 AND tenant_id = $2
+		 FOR UPDATE`,
+		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &inv.TotalAmount, &inv.AmountPaid)
+	if err == sql.ErrNoRows {
+		return nil, sql.ErrNoRows
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	currentState := InvoiceState(inv.Status)
+	nextState, err := TransitionInvoice(currentState, EventCancel, InvoiceContext{
+		TotalAmount:  inv.TotalAmount,
+		PaidAmount:   inv.AmountPaid,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cancel rejected: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE invoices
+		   SET status = $1,
+		       voided_at = CURRENT_TIMESTAMP,
+		       void_reason = $2,
+		       updated_at = CURRENT_TIMESTAMP
+		 WHERE invoice_id = $3 AND tenant_id = $4`,
+		nextState, "cancelled:"+cancelledBy, invoiceID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	inv.Status = string(nextState)
+	return &inv, nil
+}
+
+// WaiveInvoice waives an invoice via the FSM. Guard: no active payments.
+func (s *Service) WaiveInvoice(ctx context.Context, tenantID, invoiceID, waivedBy string) (*Invoice, error) {
+	tx := middleware.TxFromContext(ctx)
+	if tx == nil {
+		return nil, errors.New("no tenant transaction")
+	}
+
+	var inv Invoice
+	err := tx.QueryRowContext(ctx, `
+		SELECT invoice_id, tenant_id, status, total_amount, amount_paid
+		  FROM invoices
+		 WHERE invoice_id = $1 AND tenant_id = $2
+		 FOR UPDATE`,
+		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &inv.TotalAmount, &inv.AmountPaid)
+	if err == sql.ErrNoRows {
+		return nil, sql.ErrNoRows
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	currentState := InvoiceState(inv.Status)
+	nextState, err := TransitionInvoice(currentState, EventWaive, InvoiceContext{
+		TotalAmount: inv.TotalAmount,
+		PaidAmount:  inv.AmountPaid,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("waive rejected: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE invoices
+		   SET status = $1,
+		       voided_at = CURRENT_TIMESTAMP,
+		       void_reason = $2,
+		       updated_at = CURRENT_TIMESTAMP
+		 WHERE invoice_id = $3 AND tenant_id = $4`,
+		nextState, "waived:"+waivedBy, invoiceID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	inv.Status = string(nextState)
+	return &inv, nil
+}
+
+// SuspendInvoice suspends an invoice via the FSM.
+func (s *Service) SuspendInvoice(ctx context.Context, tenantID, invoiceID, suspendedBy string) (*Invoice, error) {
+	tx := middleware.TxFromContext(ctx)
+	if tx == nil {
+		return nil, errors.New("no tenant transaction")
+	}
+
+	var inv Invoice
+	err := tx.QueryRowContext(ctx, `
+		SELECT invoice_id, tenant_id, status, total_amount, amount_paid
+		  FROM invoices
+		 WHERE invoice_id = $1 AND tenant_id = $2
+		 FOR UPDATE`,
+		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &inv.TotalAmount, &inv.AmountPaid)
+	if err == sql.ErrNoRows {
+		return nil, sql.ErrNoRows
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	currentState := InvoiceState(inv.Status)
+	nextState, err := TransitionInvoice(currentState, EventSuspend, InvoiceContext{
+		TotalAmount: inv.TotalAmount,
+		PaidAmount:  inv.AmountPaid,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("suspend rejected: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE invoices
+		   SET status = $1,
+		       void_reason = $2,
+		       updated_at = CURRENT_TIMESTAMP
+		 WHERE invoice_id = $3 AND tenant_id = $4`,
+		nextState, "suspended:"+suspendedBy, invoiceID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	inv.Status = string(nextState)
+	return &inv, nil
 }
 
 // ============ Credits (tenant-scoped) ============

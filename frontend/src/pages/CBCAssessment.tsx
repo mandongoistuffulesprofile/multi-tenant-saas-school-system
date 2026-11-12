@@ -46,36 +46,46 @@ export const CBCAssessment: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-slate-100 text-slate-800 uppercase font-semibold border-b border-slate-200">
-            <tr>
-              <th className="px-4 py-3">UPI ya NEMIS</th>
-              <th className="px-4 py-3">Jina la Mwanafunzi</th>
-              <th className="px-4 py-3">Darasa</th>
-              <th className="px-4 py-3">Eneo la Kujifunza (Strand)</th>
-              <th className="px-4 py-3">Kipengele (Sub-strand)</th>
-              <th className="px-4 py-3">Kiwango cha Umahiri (Rubric Level)</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {assessments.map((learner) => (
-              <tr key={learner.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-mono font-semibold text-slate-700">{learner.upi}</td>
-                <td className="px-4 py-3 font-medium text-slate-900">{learner.student_name}</td>
-                <td className="px-4 py-3 text-slate-600">{learner.grade}</td>
-                <td className="px-4 py-3 text-slate-600">{learner.strand}</td>
-                <td className="px-4 py-3 text-slate-600">{learner.substrand}</td>
-                <td className="px-4 py-3">
-                  <CBCRubricSelector
-                    value={learner.rubric}
-                    onChange={(level) => handleUpdateRubric(learner.id, level)}
-                  />
-                </td>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs min-w-[760px]">
+            <thead className="bg-slate-100 text-slate-800 uppercase font-semibold border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-3 sticky left-0 bg-slate-100 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                  UPI ya NEMIS
+                </th>
+                <th className="px-4 py-3 sticky left-4 bg-slate-100 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                  Jina la Mwanafunzi
+                </th>
+                <th className="px-4 py-3">Darasa</th>
+                <th className="px-4 py-3">Eneo la Kujifunza (Strand)</th>
+                <th className="px-4 py-3">Kipengele (Sub-strand)</th>
+                <th className="px-4 py-3">Kiwango cha Umahiri (Rubric Level)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {assessments.map((learner) => (
+                <tr key={learner.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 font-mono font-semibold text-slate-700 sticky left-0 bg-white z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                    {learner.upi}
+                  </td>
+                  <td className="px-4 py-3 font-medium text-slate-900 sticky left-[88px] bg-white z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                    {learner.student_name}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{learner.grade}</td>
+                  <td className="px-4 py-3 text-slate-600">{learner.strand}</td>
+                  <td className="px-4 py-3 text-slate-600">{learner.substrand}</td>
+                  <td className="px-4 py-3">
+                    <CBCRubricSelector
+                      value={learner.rubric}
+                      onChange={(level) => handleUpdateRubric(learner.id, level)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Offline-first CBC rubric engine (IndexedDB -> /assessments/cbc/bulk-sync).

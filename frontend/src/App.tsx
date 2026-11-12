@@ -20,6 +20,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import SchoolPickerPage from "./pages/SchoolPickerPage";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import SchoolProfilePage from "./pages/SchoolProfilePage";
 import IntegrationsPage from "./pages/IntegrationsPage";
 import AcademicCalendarPage from "./pages/AcademicCalendarPage";
@@ -112,8 +113,9 @@ export default function App() {
   return (
     <>
       <PWAOfflineSyncBanner />
-      <Routes>
-        {/* Public */}
+      <ErrorBoundary>
+        <Routes>
+          {/* Public */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/auth/reset" element={<ResetPasswordPage />} />
@@ -233,6 +235,7 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
+      </ErrorBoundary>
     </>
   );
 }

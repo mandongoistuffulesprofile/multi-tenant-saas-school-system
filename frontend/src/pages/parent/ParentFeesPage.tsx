@@ -1,5 +1,5 @@
 import { api } from "../../lib/api";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import Card from "../../components/atoms/Card";
 import Badge from "../../components/atoms/Badge";
@@ -8,6 +8,8 @@ import Input from "../../components/atoms/Input";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 import { useToast } from "../../components/toast/ToastProvider";
+import { normalizeKenyanPhone } from "../../utils/phone";
+import { formatKES } from "../../utils/currency";
 
 interface Invoice {
   invoice_id: string;
@@ -28,6 +30,14 @@ export default function ParentFeesPage() {
   const [amount, setAmount] = useState("");
   const [processing, setProcessing] = useState(false);
   const [lastStatus, setLastStatus] = useState<"idle" | "pending" | "confirmed" | "failed" | "rejected" | null>(null);
+  const [pollSecondsRemaining, setPollSecondsRemaining] = useState(0);
+  const pollAlive = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      pollAlive.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -54,15 +64,28 @@ export default function ParentFeesPage() {
 
   // Poll the persona-scoped STK status endpoint until the request leaves
   // PENDING (confirmed by the Safaricom callback) or attempts run out.
+  // 22 ticks × 2s ≈ 44s — Safaricom STK prompts routinely take 15–30s for a
+  // parent to unlock their phone and enter their PIN. The poll is cancelled
+  // on unmount and on a new payment so no interval writes to an unmounted
+  // component.
   const pollStkStatus = (stkID: string) => {
-    const maxAttempts = 15;
+    const maxAttempts = 22;
+    const TICK_MS = 2000;
     let attempt = 0;
+    pollAlive.current = true;
+    setPollSecondsRemaining(maxAttempts * 2);
+
     const tick = async () => {
+      if (!pollAlive.current) return;
       attempt += 1;
+      setPollSecondsRemaining((prev) => Math.max(0, prev - 2));
+
       try {
         const r = await api.get(`/finance/parent/mpesa/stk-requests/${stkID}`);
         const status = String(r.data?.status || "").toUpperCase();
         if (status && status !== "PENDING") {
+          pollAlive.current = false;
+          setPollSecondsRemaining(0);
           if (status === "FAILED" || status === "REJECTED") {
             setLastStatus("failed");
             toast("M-Pesa could not confirm this payment — try again", { type: "error" });
@@ -75,16 +98,24 @@ export default function ParentFeesPage() {
       } catch {
         // transient poll errors keep polling until attempts exhausted
       }
-      if (attempt >= maxAttempts) return; // stay pending; receipt arrives async
-      window.setTimeout(tick, 4000);
+
+      if (attempt >= maxAttempts) {
+        pollAlive.current = false;
+        setPollSecondsRemaining(0);
+        return; // stay pending; receipt arrives async via the callback
+      }
+      window.setTimeout(tick, TICK_MS);
     };
-    window.setTimeout(tick, 4000);
+
+    window.setTimeout(tick, TICK_MS);
   };
 
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleaned = phone.trim().replace(/[\s+]/g, "");
-    if (!/^(\+?254|0)?[17]\d{8}$/.test(cleaned)) {
+    let normalizedPhone: string;
+    try {
+      normalizedPhone = normalizeKenyanPhone(phone);
+    } catch {
       toast("Enter a valid Safaricom number (07XXXXXXXX)", { type: "error" });
       return;
     }
@@ -95,15 +126,16 @@ export default function ParentFeesPage() {
     const outstanding = outstandingFor(paidInvoiceId);
     const requested = Number(amount);
     if (requested > outstanding) {
-      toast(`Amount exceeds the outstanding balance of KES ${outstanding.toLocaleString()}`, { type: "error" });
+      toast(`Amount exceeds the outstanding balance of ${formatKES(outstanding)}`, { type: "error" });
       return;
     }
     setProcessing(true);
     setLastStatus("pending");
+    setPollSecondsRemaining(0);
     try {
       const r = await api.post("/finance/parent/mpesa/stk-requests", {
         invoice_id: paidInvoiceId,
-        phone_number: phone.trim(),
+        phone_number: normalizedPhone,
         amount: requested > 0 ? requested : undefined,
       });
       const stkID = r.data?.stk_id;
@@ -128,7 +160,7 @@ export default function ParentFeesPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-heading">{'Total Outstanding'}</h2>
-            <div className="text-3xl font-bold text-kenyan-red">KES {totalOutstanding.toLocaleString()}</div>
+            <div className="text-3xl font-bold text-kenyan-red">{formatKES(totalOutstanding)}</div>
           </div>
         </div>
         <DataTable
@@ -136,8 +168,8 @@ export default function ParentFeesPage() {
           columns={[
             { key: "invoice_number", header: t("invoice_number") },
             { key: "status", header: t("status"), render: (row: any) => <Badge variant="default">{row.status}</Badge> },
-            { key: "total_amount", header: t("total_amount"), render: (row: any) => `KES ${Number(row.total_amount).toLocaleString()}` },
-            { key: "amount_outstanding", header: t("amount_outstanding"), render: (row: any) => `KES ${Number(row.amount_outstanding).toLocaleString()}` },
+            { key: "total_amount", header: t("total_amount"), render: (row: any) => formatKES(row.total_amount) },
+            { key: "amount_outstanding", header: t("amount_outstanding"), render: (row: any) => formatKES(row.amount_outstanding) },
             { key: "due_date", header: t("due_date") },
           ]}
           emptyMessage={'No invoices'}
@@ -160,7 +192,7 @@ export default function ParentFeesPage() {
               )}
               {invoices.filter((i) => Number(i.amount_outstanding) > 0).map((i) => (
                 <option key={i.invoice_id} value={i.invoice_id}>
-                  {`${i.invoice_number} — KES ${Number(i.amount_outstanding).toLocaleString()}`}
+                  {`${i.invoice_number} — ${formatKES(i.amount_outstanding)}`}
                 </option>
               ))}
             </select>
@@ -183,7 +215,12 @@ export default function ParentFeesPage() {
             {processing ? 'Sending STK PIN…' : 'Initiate M-Pesa Payment'}
           </Button>
           {lastStatus === "pending" && (
-            <div className="text-sm text-amber-600 flex items-center gap-2">⏳ {'STK PIN sent to your phone. Enter it to complete — your receipt will appear under Receipts.'}</div>
+            <div className="text-sm text-amber-600 flex items-center gap-2">
+              ⏳ {'STK PIN sent to your phone. Enter it to complete — your receipt will appear under Receipts.'}
+              {pollSecondsRemaining > 0 && (
+                <span className="font-mono font-semibold ml-2">({pollSecondsRemaining}s remaining)</span>
+              )}
+            </div>
           )}
           {lastStatus === "confirmed" && (
             <div className="text-sm text-green-700">✓ {'Payment confirmed by Safaricom. Find the receipt under Receipts.'}</div>

@@ -136,18 +136,41 @@ func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inbo
 			allocation = remainingBalance
 		}
 
-		// Update Invoice atomically
+		// Lock invoice row and transition via the invoice FSM.
+		var (
+			invState     InvoiceState
+			invTotal     float64
+			invPaid      float64
+			invOutstanding float64
+		)
+		err := tx.QueryRowContext(ctx, `
+			SELECT status, total_amount, amount_paid, amount_outstanding
+			  FROM invoices
+			 WHERE invoice_id = $1 AND tenant_id = $2
+			 FOR UPDATE`, invoiceID, tenantID).Scan(&invState, &invTotal, &invPaid, &invOutstanding)
+		if err != nil {
+			return err
+		}
+
+		newPaid := invPaid + allocation
+		newOutstanding := invOutstanding - allocation
 		newBalance := remainingBalance - allocation
-		newStatus := "PARTIALLY_PAID"
-		if newBalance <= 0.005 { // Account for floating point
-			newStatus = "PAID"
-			newBalance = 0
+		nextState, err := TransitionInvoice(InvoiceState(invState), EventApplyCredit, InvoiceContext{
+			TotalAmount:       invTotal,
+			PaidAmount:        newPaid,
+			AmountOutstanding: newOutstanding,
+		})
+		if err != nil {
+			return fmt.Errorf("invoice transition rejected: %w", err)
 		}
 
 		_, err = tx.ExecContext(ctx, `
 			UPDATE invoices 
-			SET amount_paid = amount_paid + $1, status = $2, amount_outstanding = GREATEST(amount_outstanding - $1, 0), updated_at = NOW()
-			WHERE invoice_id = $3 AND tenant_id = $4`, allocation, newStatus, invoiceID, tenantID)
+			SET amount_paid = $1, amount_outstanding = $2, status = $3,
+			    paid_at = CASE WHEN $1 >= $4 THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
+			    updated_at = NOW()
+			WHERE invoice_id = $5 AND tenant_id = $6`,
+			newPaid, newOutstanding, nextState, invTotal, invoiceID, tenantID)
 		if err != nil {
 			return err
 		}

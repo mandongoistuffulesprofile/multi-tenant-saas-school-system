@@ -205,19 +205,21 @@ func (h *MpesaHandler) HandleSTKCallback(c *gin.Context) {
 
 		// Update STK request status with transID
 		_, _ = h.db.ExecContext(c.Request.Context(),
-			`UPDATE mpesa_stk_requests SET status = $1, callback_received_at = NOW(), callback_payload = $2, mpesa_trans_id = $3 WHERE checkout_request_id = $4`,
+			`UPDATE mpesa_stk_requests SET status = $1, callback_received_at = NOW(), callback_payload = $2, mpesa_trans_id = $3 WHERE checkout_request_id = $4 AND tenant_id = $5`,
 			"COMPLETED",
 			rawBody,
 			transID,
 			checkoutRequestID,
+			tenantID,
 		)
 	} else {
 		// Update STK request status for failed payments
 		_, _ = h.db.ExecContext(c.Request.Context(),
-			`UPDATE mpesa_stk_requests SET status = $1, callback_received_at = NOW(), callback_payload = $2 WHERE checkout_request_id = $3`,
+			`UPDATE mpesa_stk_requests SET status = $1, callback_received_at = NOW(), callback_payload = $2 WHERE checkout_request_id = $3 AND tenant_id = $4`,
 			"FAILED",
 			rawBody,
 			checkoutRequestID,
+			tenantID,
 		)
 	}
 
