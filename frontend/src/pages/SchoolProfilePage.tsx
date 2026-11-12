@@ -1,30 +1,61 @@
 import { useState, useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
+import Button from "../components/atoms/Button";
+
+// Institutional identity printed on CBC report cards, leaving certificates and
+// M-Pesa receipts. MoE registration and KNEC centre code are what make those
+// documents valid outside the school gate.
+const PROFILE_FIELDS: { key: string; label: string; placeholder?: string; mono?: boolean }[] = [
+  { key: "school_name", label: "School Name" },
+  { key: "moe_registration_number", label: "MoE Registration Number", placeholder: "e.g. MOE/PRI/12839/2018", mono: true },
+  { key: "knec_code", label: "KNEC Centre Code (KPSEA / KJSEA)", placeholder: "e.g. 20401021", mono: true },
+  { key: "nemis_code", label: "NEMIS School Code", placeholder: "e.g. 01012001", mono: true },
+  { key: "kemis_code", label: "KEMIS School Code", mono: true },
+  { key: "county", label: "County", placeholder: "e.g. Nairobi" },
+  { key: "sub_county", label: "Sub-County", placeholder: "e.g. Westlands" },
+  { key: "zone_ward", label: "Zone / Ward" },
+  { key: "kra_pin", label: "KRA PIN (eTIMS receipts)", placeholder: "e.g. P051234567Z", mono: true },
+  { key: "mpesa_account_format", label: "M-Pesa Account Format", placeholder: "STUDENT_ADM_NO", mono: true },
+];
 
 export default function SchoolProfilePage() {
-  const handleSaveProfile = async (updates: any) => {
-    try {
-      await api.patch("/school", updates);
-      toast("School profile saved successfully!", { type: "success" });
-    } catch {
-      toast("Failed to update school profile", { type: "error" });
-    }
-  };
-
   const [school, setSchool] = useState<any>(null);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const { t } = useTranslation();
   const { toast } = useToast();
 
+  const applySchool = (data: any) => {
+    setSchool(data);
+    const next: Record<string, string> = {};
+    PROFILE_FIELDS.forEach((f) => { next[f.key] = data?.[f.key] ?? ""; });
+    next.school_motto = data?.school_motto ?? "";
+    setForm(next);
+  };
+
   useEffect(() => {
-    api.get("/school").then((res) => {
-      setSchool(res.data);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    api.get("/school")
+      .then((res) => applySchool(res.data))
+      .catch(() => toast("Failed to load school profile", { type: "error" }))
+      .finally(() => setLoading(false));
   }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.patch("/school", form);
+      const refreshed = await api.get("/school");
+      applySchool(refreshed.data);
+      toast("Institutional details updated for official MoE / KNEC documents", { type: "success" });
+    } catch (err: any) {
+      toast(err?.response?.data?.message || "Failed to update school profile", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) return (
     <ErrorBoundary>
@@ -51,7 +82,6 @@ export default function SchoolProfilePage() {
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-3xl mx-auto">
           <div className="card p-8 text-center">
-            <span className="text-4xl"></span>
             <p className="text-body mt-4">School not found</p>
           </div>
         </div>
@@ -63,41 +93,47 @@ export default function SchoolProfilePage() {
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-heading mb-6">School Profile</h2>
-          <div className="card p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <h2 className="text-heading mb-2">School Profile</h2>
+          <p className="text-caption text-muted mb-6">
+            These details appear on official CBC report cards, leaving certificates and M-Pesa receipts.
+          </p>
+          <form onSubmit={handleSave} className="card p-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {PROFILE_FIELDS.map((field) => (
+                <div key={field.key}>
+                  <label className="label">{field.label}</label>
+                  <input
+                    className={`input-field ${field.mono ? "font-mono" : ""}`}
+                    placeholder={field.placeholder}
+                    value={form[field.key] ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, [field.key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+            <div>
+              <label className="label">School Motto</label>
+              <input
+                className="input-field italic"
+                placeholder="e.g. Strive for Excellence"
+                value={form.school_motto ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, school_motto: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-caption text-muted pt-2">
               <div>
-                <span className="text-caption uppercase tracking-wide">School Name</span>
-                <p className="text-gray-900 mt-1">{school.school_name}</p>
+                Subdomain: <span className="text-gray-900">{school.subdomain}.skulapp.ke</span>
               </div>
               <div>
-                <span className="text-caption uppercase tracking-wide">Subdomain</span>
-                <p className="text-gray-900 mt-1">{school.subdomain}.skulapp.ke</p>
-              </div>
-              <div>
-                <span className="text-caption uppercase tracking-wide">School Type</span>
-                <p className="text-gray-900 mt-1">{school.school_type || "—"}</p>
-              </div>
-              <div>
-                <span className="text-caption uppercase tracking-wide">Funding Mode</span>
-                <p className="text-gray-900 mt-1">{school.funding_mode || "—"}</p>
-              </div>
-              <div>
-                <span className="text-caption uppercase tracking-wide">County</span>
-                <p className="text-gray-900 mt-1">{school.county || "—"}</p>
-              </div>
-              <div>
-                <span className="text-caption uppercase tracking-wide">License Tier</span>
-                <p className="text-gray-900 mt-1">{school?.license_tier ?? "—"}</p>
-              </div>
-              <div>
-                <span className="text-caption uppercase tracking-wide">Status</span>
-                <p className={`mt-1 font-medium ${school?.status === "ACTIVE" ? "text-kenyan-green" : "text-kenyan-red"}`}>
-                  {school?.status ?? "—"}
-                </p>
+                Status: <span className="text-gray-900">{school.status ?? "—"}</span>
               </div>
             </div>
-          </div>
+            <div className="flex justify-end pt-4">
+              <Button variant="primary" type="submit" loading={saving}>
+                Save Institutional Settings
+              </Button>
+            </div>
+          </form>
         </div>
       </div>
     </ErrorBoundary>

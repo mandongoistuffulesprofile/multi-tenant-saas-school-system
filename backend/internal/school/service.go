@@ -39,6 +39,14 @@ type GetSchoolResponse struct {
 	UpdatedAt        string  `json:"updated_at"`
 	IsDemo           bool    `json:"is_demo"`
 	NEMISCode        *string `json:"nemis_code"`
+	// Institutional identity used on report cards, leaving certificates and
+	// M-Pesa receipts. KNEC/KEMIS/NEMIS codes, county and logo/stamp refs
+	// already live on schools; these are the remaining MoE/payment fields.
+	MoERegistrationNumber *string `json:"moe_registration_number"`
+	ZoneWard              *string `json:"zone_ward"`
+	KRAPin                *string `json:"kra_pin"`
+	MPesaAccountFormat    *string `json:"mpesa_account_format"`
+	SchoolMotto           *string `json:"school_motto"`
 }
 
 func nullStringPtr(ns sql.NullString) *string {
@@ -93,12 +101,14 @@ func (s *Service) GetSchool(ctx context.Context, tenantID string) (*GetSchoolRes
 	var updatedAt string
 	var isDemo bool
 	var nisCode sql.NullString
+	var moeRegNo, zoneWard, kraPin, mpesaFormat, motto sql.NullString
 
 	err := q.QueryRow(
 		`SELECT tenant_id, school_name, subdomain, knec_code, kemis_code, school_type,
 			funding_mode, county, sub_county, address, logo_ref, stamp_ref,
 			head_signature_ref, default_locale, hosts_junior, license_tier, status,
-			created_at, updated_at, is_demo, nemis_code
+			created_at, updated_at, is_demo, nemis_code,
+			moe_registration_number, zone_ward, kra_pin, mpesa_account_format, school_motto
 		 FROM schools WHERE tenant_id = $1`,
 		tenantID,
 	).Scan(
@@ -107,53 +117,66 @@ func (s *Service) GetSchool(ctx context.Context, tenantID string) (*GetSchoolRes
 		&logoRef, &stampRef, &headSignatureRef, &defaultLocale, &hostsJunior,
 		&licenseTier, &status, &createdAt, &updatedAt,
 		&isDemo, &nisCode,
+		&moeRegNo, &zoneWard, &kraPin, &mpesaFormat, &motto,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &GetSchoolResponse{
-		TenantID:         tid,
-		SchoolName:       schoolName,
-		Subdomain:        subdomain,
-		KNECCODE:         nullStringPtr(knecCode),
-		KEMISCode:        nullStringPtr(kemisCode),
-		SchoolType:       schoolType,
-		FundingMode:      fundingMode,
-		County:           nullStringPtr(county),
-		SubCounty:        nullStringPtr(subCounty),
-		Address:          nullStringPtr(address),
-		LogoRef:          nullStringPtr(logoRef),
-		StampRef:         nullStringPtr(stampRef),
-		HeadSignatureRef: nullStringPtr(headSignatureRef),
-		DefaultLocale:    defaultLocale,
-		HostsJunior:      hostsJunior,
-		LicenseTier:      licenseTier,
-		Status:           status,
-		CreatedAt:        createdAt,
-		UpdatedAt:        updatedAt,
-		IsDemo:           isDemo,
-		NEMISCode:        nullStringPtr(nisCode),
+		TenantID:              tid,
+		SchoolName:            schoolName,
+		Subdomain:             subdomain,
+		KNECCODE:              nullStringPtr(knecCode),
+		KEMISCode:             nullStringPtr(kemisCode),
+		SchoolType:            schoolType,
+		FundingMode:           fundingMode,
+		County:                nullStringPtr(county),
+		SubCounty:             nullStringPtr(subCounty),
+		Address:               nullStringPtr(address),
+		LogoRef:               nullStringPtr(logoRef),
+		StampRef:              nullStringPtr(stampRef),
+		HeadSignatureRef:      nullStringPtr(headSignatureRef),
+		DefaultLocale:         defaultLocale,
+		HostsJunior:           hostsJunior,
+		LicenseTier:           licenseTier,
+		Status:                status,
+		CreatedAt:             createdAt,
+		UpdatedAt:             updatedAt,
+		IsDemo:                isDemo,
+		NEMISCode:             nullStringPtr(nisCode),
+		MoERegistrationNumber: nullStringPtr(moeRegNo),
+		ZoneWard:              nullStringPtr(zoneWard),
+		KRAPin:                nullStringPtr(kraPin),
+		MPesaAccountFormat:    nullStringPtr(mpesaFormat),
+		SchoolMotto:           nullStringPtr(motto),
 	}, nil
 }
 
 var updatableSchoolFields = map[string]struct{}{
-	"school_name":        {},
-	"subdomain":          {},
-	"school_type":        {},
-	"funding_mode":       {},
-	"county":             {},
-	"sub_county":         {},
-	"address":            {},
-	"logo_ref":           {},
-	"stamp_ref":          {},
-	"head_signature_ref": {},
-	"default_locale":     {},
-	"hosts_junior":       {},
-	"license_tier":       {},
-	"status":             {},
-	"is_demo":            {},
-	"nemis_code":         {},
+	"school_name":             {},
+	"subdomain":               {},
+	"school_type":             {},
+	"funding_mode":            {},
+	"county":                  {},
+	"sub_county":              {},
+	"address":                 {},
+	"logo_ref":                {},
+	"stamp_ref":               {},
+	"head_signature_ref":      {},
+	"default_locale":          {},
+	"hosts_junior":            {},
+	"license_tier":            {},
+	"status":                  {},
+	"is_demo":                 {},
+	"nemis_code":              {},
+	"knec_code":               {},
+	"kemis_code":              {},
+	"moe_registration_number": {},
+	"zone_ward":               {},
+	"kra_pin":                 {},
+	"mpesa_account_format":    {},
+	"school_motto":            {},
 }
 
 // normalizeNEMIS trims, uppercases and strips spaces so the partial unique

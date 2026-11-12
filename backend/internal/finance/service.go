@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
@@ -160,11 +160,14 @@ func nullableInvoiceString(s string) interface{} {
 // ============ Fee Structures (tenant-scoped) ============
 
 type FeeStructure struct {
-	StructureID      string  `json:"structure_id"`
-	TenantID         string  `json:"tenant_id"`
-	AcademicYearID   string  `json:"academic_year_id"`
-	GradeID          string  `json:"grade_id"`
-	CategoryID       string  `json:"category_id"`
+	StructureID    string `json:"structure_id"`
+	TenantID       string `json:"tenant_id"`
+	AcademicYearID string `json:"academic_year_id"`
+	GradeID        string `json:"grade_id"`
+	CategoryID     string `json:"category_id"`
+	// ResidenceType narrows a structure to one learner mode. "ALL" (stored as
+	// NULL) keeps the legacy school-wide behaviour.
+	ResidenceType    string  `json:"residence_type"`
 	CategoryCode     string  `json:"category_code,omitempty"`
 	CategoryName     string  `json:"category_name,omitempty"`
 	AmountPerTerm    float64 `json:"amount_per_term"`
@@ -188,12 +191,13 @@ func (s *Service) ListFeeStructures(ctx context.Context, tenantID string, limit,
 	}
 	rows, err := q.Query(
 		`SELECT fs.structure_id, fs.tenant_id, fs.academic_year_id, fs.grade_id,
-			fs.category_id, fc.code, fc.name, fs.amount_per_term, fs.amount_per_year,
+			fs.category_id, COALESCE(fs.residence_type, 'ALL'), fc.code, fc.name,
+			fs.amount_per_term, fs.amount_per_year,
 			fs.currency, fs.is_mandatory, fs.payment_frequency, fs.due_day,
 			COALESCE(fs.created_by::text, ''), fs.created_at, fs.updated_at
 		 FROM fee_structures fs
 		 JOIN fee_categories fc ON fs.category_id = fc.category_id
-		 WHERE fs.tenant_id = $1 ORDER BY fs.grade_id, fc.code
+		 WHERE fs.tenant_id = $1 ORDER BY fs.grade_id, fc.code, fs.residence_type NULLS FIRST
 		 LIMIT $2 OFFSET $3`,
 		tenantID, limit, offset,
 	)
@@ -207,7 +211,7 @@ func (s *Service) ListFeeStructures(ctx context.Context, tenantID string, limit,
 		var fs FeeStructure
 		if err := rows.Scan(
 			&fs.StructureID, &fs.TenantID, &fs.AcademicYearID, &fs.GradeID,
-			&fs.CategoryID, &fs.CategoryCode, &fs.CategoryName,
+			&fs.CategoryID, &fs.ResidenceType, &fs.CategoryCode, &fs.CategoryName,
 			&fs.AmountPerTerm, &fs.AmountPerYear, &fs.Currency,
 			&fs.IsMandatory, &fs.PaymentFrequency, &fs.DueDay,
 			&fs.CreatedBy, &fs.CreatedAt, &fs.UpdatedAt,
@@ -219,17 +223,67 @@ func (s *Service) ListFeeStructures(ctx context.Context, tenantID string, limit,
 	return structures, nil
 }
 
+// validResidenceTypes mirrors the learner residence vocabulary. Empty and
+// "ALL" both mean a school-wide structure (stored as NULL).
+var validResidenceTypes = map[string]struct{}{
+	"ALL": {}, "DAY_SCHOLAR_NO_LUNCH": {}, "DAY_SCHOLAR_WITH_LUNCH": {},
+	"BOARDER_FULL": {}, "BOARDER_WEEKLY": {},
+}
+
+// CreateFeeStructure upserts the (year, grade, category, residence) cell so a
+// school re-saving the fee matrix does not create duplicate charges.
 func (s *Service) CreateFeeStructure(ctx context.Context, tenantID string, fs FeeStructure) (*FeeStructure, error) {
 	q := middleware.TxFromContext(ctx)
+	residence := strings.ToUpper(strings.TrimSpace(fs.ResidenceType))
+	if residence == "" {
+		residence = "ALL"
+	}
+	var residenceArg interface{}
+	if residence != "ALL" {
+		residenceArg = residence
+	}
+	fs.ResidenceType = residence
+
+	// Update the existing cell when present; otherwise insert.
+	var existingID string
 	err := q.QueryRow(
+		`SELECT structure_id FROM fee_structures
+		 WHERE tenant_id = $1 AND academic_year_id = $2 AND grade_id = $3
+		   AND category_id = $4 AND residence_type IS NOT DISTINCT FROM $5
+		 LIMIT 1`,
+		tenantID, fs.AcademicYearID, fs.GradeID, fs.CategoryID, residenceArg,
+	).Scan(&existingID)
+
+	if err == nil {
+		err = q.QueryRow(
+			`UPDATE fee_structures
+			 SET amount_per_term = $1, amount_per_year = $2, currency = $3,
+			     is_mandatory = $4, payment_frequency = $5, due_day = $6,
+			     residence_type = $7, updated_at = now()
+			 WHERE structure_id = $8 AND tenant_id = $9
+			 RETURNING structure_id, created_at`,
+			fs.AmountPerTerm, fs.AmountPerYear, fs.Currency, fs.IsMandatory,
+			fs.PaymentFrequency, fs.DueDay, residenceArg, existingID, tenantID,
+		).Scan(&fs.StructureID, &fs.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		fs.TenantID = tenantID
+		return &fs, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	err = q.QueryRow(
 		`INSERT INTO fee_structures (tenant_id, academic_year_id, grade_id, category_id,
 			amount_per_term, amount_per_year, currency, is_mandatory,
-			payment_frequency, due_day, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			payment_frequency, due_day, created_by, residence_type)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 RETURNING structure_id, created_at`,
 		tenantID, fs.AcademicYearID, fs.GradeID, fs.CategoryID,
 		fs.AmountPerTerm, fs.AmountPerYear, fs.Currency, fs.IsMandatory,
-		fs.PaymentFrequency, fs.DueDay, fs.CreatedBy,
+		fs.PaymentFrequency, fs.DueDay, fs.CreatedBy, residenceArg,
 	).Scan(&fs.StructureID, &fs.CreatedAt)
 	if err != nil {
 		return nil, err
@@ -1525,6 +1579,17 @@ func (h *Handler) CreateFeeStructure(c *gin.Context) {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
+	residence := strings.ToUpper(strings.TrimSpace(fs.ResidenceType))
+	if residence == "" {
+		residence = "ALL"
+	}
+	if _, ok := validResidenceTypes[residence]; !ok {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "residence_type", Code: "INVALID_VALUE", Message: "'residence_type' must be ALL, DAY_SCHOLAR_NO_LUNCH, DAY_SCHOLAR_WITH_LUNCH, BOARDER_FULL or BOARDER_WEEKLY"},
+		})
+		return
+	}
+	fs.ResidenceType = residence
 	created, err := h.service.CreateFeeStructure(c.Request.Context(), tenantID, fs)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -1912,11 +1977,11 @@ func (h *Handler) CreateParentMPESASTKRequest(c *gin.Context) {
 	// open (no HTTP-in-tx). The client polls ParentMPESASTKStatus for the
 	// checkout_request_id once the push completes.
 	c.JSON(http.StatusCreated, gin.H{
-		"stk_id":             created.STKID,
-		"status":             "PENDING",
-		"amount":             amount,
-		"account_reference":  admissionNo,
-		"daraja_pushed":      false,
+		"stk_id":              created.STKID,
+		"status":              "PENDING",
+		"amount":              amount,
+		"account_reference":   admissionNo,
+		"daraja_pushed":       false,
 		"checkout_request_id": "",
 	})
 	return

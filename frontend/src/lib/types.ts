@@ -261,6 +261,12 @@ export interface Learner {
   grade_label?: string | null;
   stream_name?: string | null;
   guardian_phone?: string | null;
+  residence_type?: string | null;
+  kemis_upi?: string | null;
+  knec_assessment_no?: string | null;
+  sne_category?: string | null;
+  transport_zone_id?: ID | null;
+  transport_trip_type?: string | null;
 }
 
 export interface LearnerCreateRequest {
@@ -275,6 +281,13 @@ export interface LearnerCreateRequest {
   admitted_on?: string;
   /** DAY = day scholar, BOARDING = boarding */
   boarding_type?: string;
+  /** DAY_SCHOLAR_NO_LUNCH | DAY_SCHOLAR_WITH_LUNCH | BOARDER_FULL | BOARDER_WEEKLY */
+  residence_type?: string;
+  kemis_upi?: string;
+  knec_assessment_no?: string;
+  sne_category?: string;
+  transport_zone_id?: string;
+  transport_trip_type?: string;
 }
 
 /* ============ Curriculum ============ */

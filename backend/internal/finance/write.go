@@ -55,13 +55,20 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	// Collect the learners in scope with the fee structures that apply.
+	// Only structures that match the learner's residence type apply: a NULL
+	// residence_type is the legacy school-wide charge and still applies to all.
 	query := `
-		SELECT l.learner_id, l.admission_number, fs.category_id, fs.amount_per_term, fc.name
+		SELECT l.learner_id, l.admission_number, fs.category_id, fs.amount_per_term, fc.name,
+			COALESCE(l.transport_trip_type, 'NONE'), COALESCE(tz.zone_name, ''),
+			COALESCE(tz.one_way_fee, 0), COALESCE(tz.two_way_fee, 0)
 		FROM learners l
 		JOIN enrolments e ON e.learner_id = l.learner_id AND e.status = 'ACTIVE'
 		JOIN class_groups cg ON cg.class_group_id = e.class_group_id
-		JOIN fee_structures fs ON fs.grade_id = cg.grade_id AND fs.academic_year_id = $2 AND fs.tenant_id = l.tenant_id
+		JOIN fee_structures fs ON fs.grade_id = cg.grade_id AND fs.academic_year_id = $2
+			AND fs.tenant_id = l.tenant_id
+			AND (fs.residence_type IS NULL OR fs.residence_type = l.residence_type)
 		JOIN fee_categories fc ON fc.category_id = fs.category_id
+		LEFT JOIN transport_zones tz ON tz.tenant_id = l.tenant_id AND tz.id = l.transport_zone_id
 		WHERE l.tenant_id = $1 AND l.status = 'ACTIVE'`
 	args := []interface{}{tenantID, req.AcademicYearID}
 	if len(req.GradeIDs) > 0 {
@@ -80,16 +87,21 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 		return
 	}
 	type feeLine struct {
-		learnerID   string
-		admissionNo string
-		categoryID  string
-		amount      float64
-		description string
+		learnerID     string
+		admissionNo   string
+		categoryID    string
+		amount        float64
+		description   string
+		transportTrip string
+		zoneName      string
+		oneWayFee     float64
+		twoWayFee     float64
 	}
 	lines := make([]feeLine, 0)
 	for rows.Next() {
 		var f feeLine
-		if err := rows.Scan(&f.learnerID, &f.admissionNo, &f.categoryID, &f.amount, &f.description); err != nil {
+		if err := rows.Scan(&f.learnerID, &f.admissionNo, &f.categoryID, &f.amount, &f.description,
+			&f.transportTrip, &f.zoneName, &f.oneWayFee, &f.twoWayFee); err != nil {
 			rows.Close()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
@@ -98,7 +110,16 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 	}
 	rows.Close()
 
-	// Group the lines per learner.
+	// A transport charge still needs a fee category because invoice lines are
+	// categorised. TRANSPORT may be a global default or a school's own row.
+	var transportCategoryID string
+	_ = tx.QueryRow(
+		`SELECT category_id FROM fee_categories
+		 WHERE code = 'TRANSPORT' AND (tenant_id = $1 OR tenant_id IS NULL)
+		 ORDER BY tenant_id NULLS LAST LIMIT 1`, tenantID,
+	).Scan(&transportCategoryID)
+
+	// Group the lines per learner and add the transport charge once per learner.
 	drafts := make([]invoiceDraft, 0)
 	index := map[string]int{}
 	for _, l := range lines {
@@ -107,16 +128,52 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 			drafts = append(drafts, invoiceDraft{learnerID: l.learnerID, admissionNo: l.admissionNo})
 			i = len(drafts) - 1
 			index[l.learnerID] = i
+
+			// Day-scholar transport is zoned and priced per trip pattern.
+			if l.transportTrip != "" && l.transportTrip != "NONE" {
+				transportCost := l.twoWayFee
+				if l.transportTrip == "ONE_WAY_AM" || l.transportTrip == "ONE_WAY_PM" {
+					transportCost = l.oneWayFee
+				}
+				if transportCost > 0 {
+					if transportCategoryID == "" {
+						c.JSON(http.StatusBadRequest, gin.H{
+							"code":    "TRANSPORT_CATEGORY_MISSING",
+							"message": "Create a fee category with code TRANSPORT before billing learner transport",
+						})
+						return
+					}
+					drafts[i].lines = append(drafts[i].lines, feeLineDraft{
+						learnerID:   l.learnerID,
+						admissionNo: l.admissionNo,
+						categoryID:  transportCategoryID,
+						amount:      transportCost,
+						description: fmt.Sprintf("Transport (%s - %s)", l.zoneName, l.transportTrip),
+					})
+					drafts[i].total += transportCost
+				}
+			}
 		}
-		drafts[i].lines = append(drafts[i].lines, feeLineDraft(l))
+		drafts[i].lines = append(drafts[i].lines, feeLineDraft{
+			learnerID:   l.learnerID,
+			admissionNo: l.admissionNo,
+			categoryID:  l.categoryID,
+			amount:      l.amount,
+			description: l.description,
+		})
 		drafts[i].total += l.amount
+	}
+
+	lineCount := 0
+	for _, d := range drafts {
+		lineCount += len(d.lines)
 	}
 
 	if c.Query("dry_run") == "true" {
 		c.JSON(http.StatusOK, gin.H{
 			"dry_run":       true,
 			"invoice_count": len(drafts),
-			"line_count":    len(lines),
+			"line_count":    lineCount,
 			"total_amount":  sumAmounts(drafts),
 		})
 		return

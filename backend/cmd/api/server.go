@@ -25,6 +25,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/compliance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/config"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/curriculum"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/customization"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
@@ -108,6 +109,9 @@ func Run() error {
 
 	curriculumService := curriculum.NewService(database)
 	curriculumHandler := curriculum.NewHandler(curriculumService)
+
+	customizationService := customization.NewService()
+	customizationHandler := customization.NewHandler(customizationService)
 
 	assessmentService := assessment.NewService(database)
 	assessmentHandler := assessment.NewHandler(assessmentService)
@@ -210,8 +214,8 @@ func Run() error {
 					continue
 				}
 				type stkReq struct {
-                    id, tenant, phone, ref string
-                    amount                 float64
+					id, tenant, phone, ref string
+					amount                 float64
 				}
 				var reqs []stkReq
 				for rows.Next() {
@@ -580,6 +584,23 @@ func Run() error {
 		currGroup.GET("/sub-strands", middleware.RequireRole(currReadRoles...), curriculumHandler.ListSubStrands)
 		currGroup.GET("/pin", middleware.RequireRole(currReadRoles...), curriculumHandler.GetTenantCurriculumPin)
 		currGroup.POST("/pin", middleware.RequireRole(middleware.RoleSchoolAdministrators...), curriculumHandler.SetTenantCurriculumPin)
+
+		// School-owned additions to the CBC catalogue (electives such as
+		// French, Coding or Music). Published areas stay in /curriculum/areas.
+		currGroup.GET("/tenant-areas", middleware.RequireRole(currReadRoles...), customizationHandler.ListTenantLearningAreas)
+		currGroup.POST("/tenant-areas", middleware.RequireRole(middleware.RoleSchoolAdministrators...), customizationHandler.CreateTenantLearningArea)
+		currGroup.PATCH("/tenant-areas/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), customizationHandler.UpdateTenantLearningArea)
+		currGroup.DELETE("/tenant-areas/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), customizationHandler.DeleteTenantLearningArea)
+	}
+
+	// Transport zones: tiered day-scholar routes, priced one-way or two-way.
+	transportGroup := apiV1.Group("/transport")
+	transportGroup.Use(middleware.RequireAuthGin(jwtManager))
+	{
+		transportGroup.GET("/zones", middleware.RequireRole(middleware.RoleAcademicStaff...), customizationHandler.ListTransportZones)
+		transportGroup.POST("/zones", middleware.RequireRole(middleware.RoleSchoolAdministrators...), customizationHandler.CreateTransportZone)
+		transportGroup.PATCH("/zones/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), customizationHandler.UpdateTransportZone)
+		transportGroup.DELETE("/zones/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), customizationHandler.DeleteTransportZone)
 	}
 
 	// Assessment routes (M6)

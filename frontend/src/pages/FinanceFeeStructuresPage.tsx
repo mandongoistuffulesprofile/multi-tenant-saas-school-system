@@ -22,11 +22,11 @@ export default function FinanceFeeStructuresPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    academic_year_id: "", grade_id: "", category_id: "",
-    amount_per_term: "", amount_per_year: "", currency: "KES",
-    is_mandatory: true, payment_frequency: "PER_TERM", due_day: "5",
-  });
+  	  const [form, setForm] = useState({
+	    academic_year_id: "", grade_id: "", category_id: "", residence_type: "ALL",
+	    amount_per_term: "", amount_per_year: "", currency: "KES",
+	    is_mandatory: true, payment_frequency: "PER_TERM", due_day: "5",
+	  });
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -69,8 +69,22 @@ export default function FinanceFeeStructuresPage() {
                 data={structures}
                 emptyMessage="No fee structures found"
                 columns={[
-                  { key: "grade_id", header: "Grade" },
-                  { key: "category_code", header: "Category" },
+                  	                  { key: "grade_id", header: "Grade" },
+	                  { key: "category_code", header: "Category" },
+	                  {
+	                    key: "residence_type",
+	                    header: "Applies To",
+	                    render: (r) => {
+	                      const labels: Record<string, string> = {
+	                        ALL: "All learners",
+	                        DAY_SCHOLAR_WITH_LUNCH: "Day scholar (lunch)",
+	                        DAY_SCHOLAR_NO_LUNCH: "Day scholar (no lunch)",
+	                        BOARDER_FULL: "Full boarder",
+	                        BOARDER_WEEKLY: "Weekly boarder",
+	                      };
+	                      return labels[r.residence_type] ?? r.residence_type ?? "All learners";
+	                    },
+	                  },
                   { key: "amount_per_term", header: "Per Term", render: (r) => r.amount_per_term != null ? `KES ${r.amount_per_term}` : "—" },
                   { key: "amount_per_year", header: "Per Year", render: (r) => r.amount_per_year != null ? `KES ${r.amount_per_year}` : "—" },
                   { key: "payment_frequency", header: "Frequency", render: (r) => r.payment_frequency || "—" },
@@ -79,13 +93,23 @@ export default function FinanceFeeStructuresPage() {
               />
               <Dialog open={open} onClose={() => setOpen(false)} title="Add Fee Structure" className="max-w-lg">
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div>
-                    <label className="label">Category</label>
-                    <select className="input-field" value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
-                      <option value="">Select category…</option>
-                      {categories.map((c) => <option key={c.category_id} value={c.category_id}>{c.name} ({c.code})</option>)}
-                    </select>
-                  </div>
+                  	                  <div>
+	                    <label className="label">Category</label>
+	                    <select className="input-field" value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
+	                      <option value="">Select category…</option>
+	                      {categories.map((c) => <option key={c.category_id} value={c.category_id}>{c.name} ({c.code})</option>)}
+	                    </select>
+	                  </div>
+	                  <div>
+	                    <label className="label">Applies To</label>
+	                    <select className="input-field" value={form.residence_type} onChange={(e) => setForm({ ...form, residence_type: e.target.value })}>
+	                      <option value="ALL">All learners (school-wide)</option>
+	                      <option value="DAY_SCHOLAR_WITH_LUNCH">Day scholar (with lunch)</option>
+	                      <option value="DAY_SCHOLAR_NO_LUNCH">Day scholar (no lunch)</option>
+	                      <option value="BOARDER_FULL">Full boarder</option>
+	                      <option value="BOARDER_WEEKLY">Weekly boarder</option>
+	                    </select>
+	                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="label">Grade ID</label>

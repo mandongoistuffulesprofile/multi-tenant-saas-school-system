@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -46,10 +47,19 @@ type Learner struct {
 	Status          string `json:"status"`
 	AdmittedOn      string `json:"admitted_on"`
 	BoardingType    string `json:"boarding_type"`
-	ClassGroupID    string `json:"class_group_id,omitempty"`
-	GradeLabel      string `json:"grade_label,omitempty"`
-	StreamName      string `json:"stream_name,omitempty"`
-	GuardianPhone   string `json:"guardian_phone,omitempty"`
+	// Kenyan enrolment dimensions. ResidenceType is more precise than the
+	// legacy DAY/BOARDING pair (day scholar with or without lunch, full or
+	// weekly boarder) and drives which fee structures apply.
+	ResidenceType     string `json:"residence_type"`
+	KEMISUPI          string `json:"kemis_upi"`
+	KNECAssessmentNo  string `json:"knec_assessment_no"`
+	SNECategory       string `json:"sne_category"`
+	TransportZoneID   string `json:"transport_zone_id,omitempty"`
+	TransportTripType string `json:"transport_trip_type"`
+	ClassGroupID      string `json:"class_group_id,omitempty"`
+	GradeLabel        string `json:"grade_label,omitempty"`
+	StreamName        string `json:"stream_name,omitempty"`
+	GuardianPhone     string `json:"guardian_phone,omitempty"`
 }
 
 // scanLearner reads a learner row, tolerating NULLs in optional columns.
@@ -57,11 +67,13 @@ func scanLearner(rows interface{ Scan(...interface{}) error }, l *Learner,
 	classGroupID, gradeLabel, streamName, guardianPhone *sql.NullString,
 ) error {
 	var upi, middle, dob, gender, photo, status, admittedOn, boarding sql.NullString
+	var residence, kemis, knec, sne, transportZone, transportTrip sql.NullString
 
 	if err := rows.Scan(
 		&l.LearnerID, &l.TenantID, &l.AdmissionNumber, &upi,
 		&l.FirstName, &middle, &l.LastName, &dob, &gender,
 		&photo, &status, &admittedOn, &boarding,
+		&residence, &kemis, &knec, &sne, &transportZone, &transportTrip,
 		classGroupID, gradeLabel, streamName, guardianPhone,
 	); err != nil {
 		return err
@@ -75,7 +87,43 @@ func scanLearner(rows interface{ Scan(...interface{}) error }, l *Learner,
 	l.Status = status.String
 	l.AdmittedOn = admittedOn.String
 	l.BoardingType = boarding.String
+	l.ResidenceType = residence.String
+	l.KEMISUPI = kemis.String
+	l.KNECAssessmentNo = knec.String
+	l.SNECategory = sne.String
+	l.TransportZoneID = transportZone.String
+	l.TransportTripType = transportTrip.String
 	return nil
+}
+
+var (
+	validResidenceTypes = map[string]struct{}{
+		"DAY_SCHOLAR_NO_LUNCH":   {},
+		"DAY_SCHOLAR_WITH_LUNCH": {},
+		"BOARDER_FULL":           {},
+		"BOARDER_WEEKLY":         {},
+	}
+	validTransportTrips = map[string]struct{}{
+		"NONE": {}, "ONE_WAY_AM": {}, "ONE_WAY_PM": {}, "TWO_WAY": {},
+	}
+	validSNECategories = map[string]struct{}{
+		"NONE": {}, "GIFTED": {}, "VISUAL": {}, "HEARING": {},
+		"PHYSICAL": {}, "NEURODIVERSE": {}, "MULTIPLE": {},
+	}
+	// KNEC CBA numbers are usually [centre]/[index], but early-grade
+	// school-based assessment numbering varies, so only characters are
+	// constrained — not the shape.
+	knecAssessmentPattern = regexp.MustCompile(`^[A-Za-z0-9/\-]{1,30}$`)
+	nationalUPIPattern    = regexp.MustCompile(`^[A-Za-z0-9]{1,20}$`)
+)
+
+// boardingFromResidence keeps the legacy two-value column consistent with the
+// richer residence type the school selected.
+func boardingFromResidence(residence string) string {
+	if strings.HasPrefix(residence, "BOARDER") {
+		return "BOARDING"
+	}
+	return "DAY"
 }
 
 func (h *Handler) ListLearners(c *gin.Context) {
@@ -107,6 +155,8 @@ func (h *Handler) ListLearners(c *gin.Context) {
 		SELECT l.learner_id, l.tenant_id, l.admission_number, l.upi_nemis_number,
 			l.first_name, l.middle_name, l.last_name, l.date_of_birth, l.gender,
 			l.photo_ref, l.status, l.admitted_on, l.boarding_type,
+			l.residence_type, l.kemis_upi, l.knec_assessment_no, l.sne_category,
+			l.transport_zone_id, l.transport_trip_type,
 			cg.class_group_id, g.grade_label, s.stream_name,
 			gd.phone_number AS guardian_phone
 		FROM learners l
@@ -198,19 +248,25 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 		Relationship string `json:"relationship"`
 	}
 	type CreateRequest struct {
-		AdmissionNumber string          `json:"admission_number" binding:"required"`
-		UPINEMISNumber  string          `json:"upi_nemis_number"`
-		FirstName       string          `json:"first_name" binding:"required"`
-		MiddleName      string          `json:"middle_name"`
-		LastName        string          `json:"last_name" binding:"required"`
-		DateOfBirth     string          `json:"date_of_birth"`
-		Gender          string          `json:"gender"`
-		Status          string          `json:"status"`
-		AdmittedOn      string          `json:"admitted_on"`
-		BoardingType    string          `json:"boarding_type"`
-		GradeLabel      string          `json:"grade_label"`
-		StreamName      string          `json:"stream_name"`
-		Guardians       []GuardianInput `json:"guardians"`
+		AdmissionNumber   string          `json:"admission_number" binding:"required"`
+		UPINEMISNumber    string          `json:"upi_nemis_number"`
+		FirstName         string          `json:"first_name" binding:"required"`
+		MiddleName        string          `json:"middle_name"`
+		LastName          string          `json:"last_name" binding:"required"`
+		DateOfBirth       string          `json:"date_of_birth"`
+		Gender            string          `json:"gender"`
+		Status            string          `json:"status"`
+		AdmittedOn        string          `json:"admitted_on"`
+		BoardingType      string          `json:"boarding_type"`
+		ResidenceType     string          `json:"residence_type"`
+		KEMISUPI          string          `json:"kemis_upi"`
+		KNECAssessmentNo  string          `json:"knec_assessment_no"`
+		SNECategory       string          `json:"sne_category"`
+		TransportZoneID   string          `json:"transport_zone_id"`
+		TransportTripType string          `json:"transport_trip_type"`
+		GradeLabel        string          `json:"grade_label"`
+		StreamName        string          `json:"stream_name"`
+		Guardians         []GuardianInput `json:"guardians"`
 	}
 	var req CreateRequest
 	if errs := validation.BindJSON(c, &req); errs != nil {
@@ -227,11 +283,70 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
 		return
 	}
-	switch req.BoardingType {
-	case "", "DAY", "BOARDING":
-	default:
+	residence := strings.ToUpper(strings.TrimSpace(req.ResidenceType))
+	if residence == "" {
+		if strings.EqualFold(req.BoardingType, "BOARDING") {
+			residence = "BOARDER_FULL"
+		} else {
+			residence = "DAY_SCHOLAR_WITH_LUNCH"
+		}
+	}
+	if _, ok := validResidenceTypes[residence]; !ok {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
-			{Field: "boarding_type", Code: "INVALID_VALUE", Message: "'boarding_type' must be DAY or BOARDING"},
+			{Field: "residence_type", Code: "INVALID_VALUE", Message: "'residence_type' must be DAY_SCHOLAR_NO_LUNCH, DAY_SCHOLAR_WITH_LUNCH, BOARDER_FULL or BOARDER_WEEKLY"},
+		})
+		return
+	}
+	boarding := boardingFromResidence(residence)
+
+	trip := strings.ToUpper(strings.TrimSpace(req.TransportTripType))
+	if trip == "" {
+		trip = "NONE"
+	}
+	if _, ok := validTransportTrips[trip]; !ok {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "transport_trip_type", Code: "INVALID_VALUE", Message: "'transport_trip_type' must be NONE, ONE_WAY_AM, ONE_WAY_PM or TWO_WAY"},
+		})
+		return
+	}
+	transportZoneID := strings.TrimSpace(req.TransportZoneID)
+	if trip != "NONE" && transportZoneID == "" {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "transport_zone_id", Code: "REQUIRED", Message: "'transport_zone_id' is required when a trip type is selected"},
+		})
+		return
+	}
+	if transportZoneID != "" {
+		var exists bool
+		if err := tx.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM transport_zones WHERE id = $1 AND tenant_id = $2 AND is_active = true)`,
+			transportZoneID, tenantID).Scan(&exists); err != nil || !exists {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "transport_zone_id", Code: "INVALID_VALUE", Message: "transport zone not found for this school"},
+			})
+			return
+		}
+	}
+
+	sne := strings.ToUpper(strings.TrimSpace(req.SNECategory))
+	if sne == "" {
+		sne = "NONE"
+	}
+	if _, ok := validSNECategories[sne]; !ok {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "sne_category", Code: "INVALID_VALUE", Message: "unknown 'sne_category'"},
+		})
+		return
+	}
+	if knec := strings.TrimSpace(req.KNECAssessmentNo); knec != "" && !knecAssessmentPattern.MatchString(knec) {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "knec_assessment_no", Code: "INVALID_VALUE", Message: "'knec_assessment_no' must be at most 30 letters, digits, '/' or '-'"},
+		})
+		return
+	}
+	if kemis := strings.TrimSpace(req.KEMISUPI); kemis != "" && !nationalUPIPattern.MatchString(kemis) {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "kemis_upi", Code: "INVALID_VALUE", Message: "'kemis_upi' must be alphanumeric and at most 20 characters"},
 		})
 		return
 	}
@@ -273,12 +388,16 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 	var learnerID string
 	err := tx.QueryRow(
 		`INSERT INTO learners (tenant_id, admission_number, upi_nemis_number, first_name,
-			middle_name, last_name, date_of_birth, gender, status, admitted_on, boarding_type)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, 'ACTIVE'), $10, COALESCE($11, 'DAY'))
+			middle_name, last_name, date_of_birth, gender, status, admitted_on, boarding_type,
+			residence_type, kemis_upi, knec_assessment_no, sne_category,
+			transport_zone_id, transport_trip_type)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, 'ACTIVE'), $10, $11,
+			$12, $13, $14, $15, $16, $17)
 		 RETURNING learner_id`,
 		tenantID, req.AdmissionNumber, nullIfEmpty(req.UPINEMISNumber), req.FirstName, nullIfEmpty(req.MiddleName),
 		req.LastName, nullIfEmpty(req.DateOfBirth), nullIfEmpty(req.Gender), nullIfEmpty(req.Status),
-		nullIfEmpty(req.AdmittedOn), nullIfEmpty(req.BoardingType),
+		nullIfEmpty(req.AdmittedOn), boarding, residence, nullIfEmpty(req.KEMISUPI),
+		nullIfEmpty(req.KNECAssessmentNo), sne, nullIfEmpty(transportZoneID), trip,
 	).Scan(&learnerID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -376,9 +495,15 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 
 	var req struct {
-		GradeLabel string `json:"grade_label"`
-		StreamName string `json:"stream_name"`
-		Status     string `json:"status"`
+		GradeLabel        string `json:"grade_label"`
+		StreamName        string `json:"stream_name"`
+		Status            string `json:"status"`
+		ResidenceType     string `json:"residence_type"`
+		KEMISUPI          string `json:"kemis_upi"`
+		KNECAssessmentNo  string `json:"knec_assessment_no"`
+		SNECategory       string `json:"sne_category"`
+		TransportZoneID   string `json:"transport_zone_id"`
+		TransportTripType string `json:"transport_trip_type"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -387,9 +512,56 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 	gradeLabel := strings.TrimSpace(req.GradeLabel)
 	streamName := strings.TrimSpace(req.StreamName)
 	status := strings.ToUpper(strings.TrimSpace(req.Status))
-	if gradeLabel == "" && streamName == "" && status == "" {
+	residence := strings.ToUpper(strings.TrimSpace(req.ResidenceType))
+	sne := strings.ToUpper(strings.TrimSpace(req.SNECategory))
+	trip := strings.ToUpper(strings.TrimSpace(req.TransportTripType))
+	transportZoneID := strings.TrimSpace(req.TransportZoneID)
+	if residence != "" {
+		if _, ok := validResidenceTypes[residence]; !ok {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "residence_type", Code: "INVALID_VALUE", Message: "unknown 'residence_type'"},
+			})
+			return
+		}
+	}
+	if sne != "" {
+		if _, ok := validSNECategories[sne]; !ok {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "sne_category", Code: "INVALID_VALUE", Message: "unknown 'sne_category'"},
+			})
+			return
+		}
+	}
+	if trip != "" {
+		if _, ok := validTransportTrips[trip]; !ok {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "transport_trip_type", Code: "INVALID_VALUE", Message: "unknown 'transport_trip_type'"},
+			})
+			return
+		}
+	}
+	if transportZoneID != "" {
+		var exists bool
+		if err := tx.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM transport_zones WHERE id = $1 AND tenant_id = $2)`,
+			transportZoneID, tenantID).Scan(&exists); err != nil || !exists {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "transport_zone_id", Code: "INVALID_VALUE", Message: "transport zone not found for this school"},
+			})
+			return
+		}
+	}
+	if knec := strings.TrimSpace(req.KNECAssessmentNo); knec != "" && !knecAssessmentPattern.MatchString(knec) {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
-			{Field: "body", Code: "REQUIRED", Message: "provide grade_label, stream_name or status"},
+			{Field: "knec_assessment_no", Code: "INVALID_VALUE", Message: "'knec_assessment_no' must be at most 30 letters, digits, '/' or '-'"},
+		})
+		return
+	}
+	if gradeLabel == "" && streamName == "" && status == "" && residence == "" &&
+		sne == "" && trip == "" && transportZoneID == "" &&
+		strings.TrimSpace(req.KEMISUPI) == "" && strings.TrimSpace(req.KNECAssessmentNo) == "" {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "body", Code: "REQUIRED", Message: "provide at least one field to update"},
 		})
 		return
 	}
@@ -414,6 +586,48 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 		return
 	}
 
+	if residence != "" {
+		if _, err := tx.Exec(
+			`UPDATE learners SET residence_type = $1, boarding_type = $2, updated_at = now()
+			 WHERE learner_id = $3 AND tenant_id = $4`,
+			residence, boardingFromResidence(residence), learnerID, tenantID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+	if sne != "" {
+		if _, err := tx.Exec(
+			`UPDATE learners SET sne_category = $1, updated_at = now()
+			 WHERE learner_id = $2 AND tenant_id = $3`, sne, learnerID, tenantID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+	if strings.TrimSpace(req.KEMISUPI) != "" || strings.TrimSpace(req.KNECAssessmentNo) != "" {
+		if _, err := tx.Exec(
+			`UPDATE learners SET
+			   kemis_upi = COALESCE(NULLIF($1, ''), kemis_upi),
+			   knec_assessment_no = COALESCE(NULLIF($2, ''), knec_assessment_no),
+			   updated_at = now()
+			 WHERE learner_id = $3 AND tenant_id = $4`,
+			strings.TrimSpace(req.KEMISUPI), strings.TrimSpace(req.KNECAssessmentNo),
+			learnerID, tenantID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+	if trip != "" || transportZoneID != "" {
+		if _, err := tx.Exec(
+			`UPDATE learners SET
+			   transport_zone_id = COALESCE($1, transport_zone_id),
+			   transport_trip_type = COALESCE(NULLIF($2, ''), transport_trip_type),
+			   updated_at = now()
+			 WHERE learner_id = $3 AND tenant_id = $4`,
+			nullIfEmpty(transportZoneID), trip, learnerID, tenantID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
 	if status != "" {
 		if _, err := tx.Exec(
 			`UPDATE learners SET status = $1 WHERE learner_id = $2 AND tenant_id = $3`,
@@ -544,15 +758,18 @@ func (h *Handler) GetLearner(c *gin.Context) {
 
 	var l Learner
 	var upi, middle, dob, gender, photo, status, admittedOn, boarding sql.NullString
+	var residence, kemis, knec, sne, transportZone, transportTrip sql.NullString
 	err := tx.QueryRow(
 		`SELECT learner_id, tenant_id, admission_number, upi_nemis_number, first_name,
 			middle_name, last_name, date_of_birth, gender, photo_ref, status,
-			admitted_on, boarding_type
+			admitted_on, boarding_type, residence_type, kemis_upi,
+			knec_assessment_no, sne_category, transport_zone_id, transport_trip_type
 		 FROM learners WHERE learner_id = $1 AND tenant_id = $2`,
 		learnerID, tenantID,
 	).Scan(&l.LearnerID, &l.TenantID, &l.AdmissionNumber, &upi,
 		&l.FirstName, &middle, &l.LastName, &dob, &gender,
-		&photo, &status, &admittedOn, &boarding)
+		&photo, &status, &admittedOn, &boarding,
+		&residence, &kemis, &knec, &sne, &transportZone, &transportTrip)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": "LEARNER_NOT_FOUND", "message": "Learner not found"})
 		return
@@ -565,6 +782,12 @@ func (h *Handler) GetLearner(c *gin.Context) {
 	l.Status = status.String
 	l.AdmittedOn = admittedOn.String
 	l.BoardingType = boarding.String
+	l.ResidenceType = residence.String
+	l.KEMISUPI = kemis.String
+	l.KNECAssessmentNo = knec.String
+	l.SNECategory = sne.String
+	l.TransportZoneID = transportZone.String
+	l.TransportTripType = transportTrip.String
 	c.JSON(http.StatusOK, l)
 }
 
