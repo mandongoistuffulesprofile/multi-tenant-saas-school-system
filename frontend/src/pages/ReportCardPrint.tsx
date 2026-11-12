@@ -9,7 +9,6 @@ export const ReportCardPrint: React.FC = () => {
   const [card, setCard] = useState<any>(null);
   const [school, setSchool] = useState<any>(null);
   const [learner, setLearner] = useState<any>(null);
-  const [comments, setComments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -27,13 +26,11 @@ export const ReportCardPrint: React.FC = () => {
         setCard(c);
         setSchool(sRes.data);
         try {
-          const [lRes, cmRes] = await Promise.all([
-            c?.learner_id ? api.get(`/learners/${c.learner_id}`).catch(() => ({ data: null })) : Promise.resolve({ data: null }),
-            api.get(`/reports/cards/${card_id}/comments`).catch(() => ({ data: [] })),
-          ]);
+          const lRes = c?.learner_id
+            ? await api.get(`/learners/${c.learner_id}`).catch(() => ({ data: null }))
+            : { data: null };
           if (!alive) return;
           setLearner(lRes.data);
-          setComments(Array.isArray(cmRes.data) ? cmRes.data : []);
         } catch { /* non-fatal */ }
       } catch (e: any) {
         if (alive) setError(e?.response?.data?.message || "Failed to load report card");
@@ -59,11 +56,19 @@ export const ReportCardPrint: React.FC = () => {
 
   const learnerName = learner ? `${learner.first_name || ""} ${learner.last_name || ""}`.trim() : (card.learner_name || card.learner_id);
   const adm = learner?.admission_number || "—";
-  const grade = learner?.grade_label || card.grade_id || "—";
+  const gradeLabels: Record<string, string> = {
+    PP1: "PP1", PP2: "PP2",
+    G1: "Grade 1", G2: "Grade 2", G3: "Grade 3", G4: "Grade 4",
+    G5: "Grade 5", G6: "Grade 6", G7: "Grade 7", G8: "Grade 8", G9: "Grade 9",
+  };
+  const grade = learner?.grade_label || gradeLabels[card.grade_id] || card.grade_id || "—";
   const stream = learner?.stream_name ? ` ${learner.stream_name}` : "";
   const schoolName = school?.school_name || school?.name || "School";
   const moe = school?.moe_reg_number || school?.nemis_code || "—";
-  const address = [school?.po_box, school?.county, "Kenya"].filter(Boolean).join(", ") || "—";
+  const address = school?.address || [school?.po_box, school?.county, "Kenya"].filter(Boolean).join(", ") || "—";
+  const academicYear = card.academic_year_label || card.academic_year_id || "—";
+  const term = card.term_label || card.term_id || "—";
+  const published = card.published_at ? new Date(card.published_at).toLocaleString() : "—";
   const pct = card.percentage != null ? Number(card.percentage).toFixed(1) : "—";
 
   return (
@@ -119,11 +124,39 @@ export const ReportCardPrint: React.FC = () => {
               </div>
               <div>
                 <p><strong>Grade/Stream:</strong> {grade}{stream}</p>
-                <p><strong>Academic Year:</strong> {card.academic_year_id || "—"}</p>
-                <p><strong>Term:</strong> {card.term_id || "—"}</p>
+                <p><strong>Academic Year:</strong> {academicYear}</p>
+                <p><strong>Term:</strong> {term}</p>
                 <p><strong>Status:</strong> {card.status}</p>
               </div>
             </div>
+
+            {card.results?.length > 0 && (
+              <div>
+                <h4 className="font-bold text-slate-800 uppercase text-[11px] mb-1">Learning Area Performance</h4>
+                <table className="w-full text-left border border-slate-400">
+                  <thead className="bg-slate-100 border-b border-slate-400 text-[11px] font-bold">
+                    <tr>
+                      <th className="p-2 border-r border-slate-400">Learning Area</th>
+                      <th className="p-2 border-r border-slate-400">Assessment</th>
+                      <th className="p-2 border-r border-slate-400">Score</th>
+                      <th className="p-2 border-r border-slate-400">Level</th>
+                      <th className="p-2">Teacher Remark</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-300">
+                    {card.results.map((r: any, i: number) => (
+                      <tr key={r.learning_area_code || i}>
+                        <td className="p-2 border-r border-slate-300 font-medium">{r.learning_area_name || r.learning_area_code}</td>
+                        <td className="p-2 border-r border-slate-300">{r.assessment_type}{r.assessment_window ? ` · ${r.assessment_window}` : ""}</td>
+                        <td className="p-2 border-r border-slate-300">{r.raw_score} / {r.max_score}</td>
+                        <td className="p-2 border-r border-slate-300 font-bold">{r.level_code || "—"}</td>
+                        <td className="p-2">{r.comment || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <table className="w-full text-left border border-slate-400">
               <thead className="bg-slate-100 border-b border-slate-400 text-[11px] font-bold">
@@ -137,7 +170,7 @@ export const ReportCardPrint: React.FC = () => {
                 <tr><td className="p-2 border-r border-slate-300 font-medium">Total Score</td><td className="p-2">{card.total_score ?? "—"} / {card.max_score ?? "—"}</td></tr>
                 <tr><td className="p-2 border-r border-slate-300 font-medium">Percentage</td><td className="p-2">{pct}{pct !== "—" ? "%" : ""}</td></tr>
                 <tr><td className="p-2 border-r border-slate-300 font-medium">Position</td><td className="p-2">{card.position ?? "—"}</td></tr>
-                <tr><td className="p-2 border-r border-slate-300 font-medium">Published</td><td className="p-2">{card.published_at || "—"}</td></tr>
+                <tr><td className="p-2 border-r border-slate-300 font-medium">Published</td><td className="p-2">{published}</td></tr>
               </tbody>
             </table>
 
@@ -145,17 +178,6 @@ export const ReportCardPrint: React.FC = () => {
               <div className="p-3 bg-slate-50 border border-slate-300 rounded space-y-2">
                 {card.comment && <p><strong>Class/Teacher Comment:</strong> {card.comment}</p>}
                 {card.head_teacher_comment && <p><strong>Head Teacher Comment:</strong> {card.head_teacher_comment}</p>}
-              </div>
-            )}
-
-            {comments.length > 0 && (
-              <div>
-                <h4 className="font-bold text-slate-800 uppercase text-[11px] mb-1">Learning Area Comments</h4>
-                <ul className="list-disc pl-5 space-y-1">
-                  {comments.map((cm: any, i: number) => (
-                    <li key={cm.comment_id || i}>{cm.comment_text || cm.comment || JSON.stringify(cm)}</li>
-                  ))}
-                </ul>
               </div>
             )}
 
