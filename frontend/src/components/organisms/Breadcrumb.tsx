@@ -122,6 +122,9 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 
   const items: BreadcrumbItem[] = [{ label: "dashboard", path: "/" }];
 
+  // The dashboard is already the root crumb; do not repeat it for /dashboard.
+  if (pathnames.length === 1 && pathnames[0] === "dashboard") return items;
+
   let currentPath = "";
   for (const segment of pathnames) {
     currentPath += `/${segment}`;

@@ -207,7 +207,7 @@ export default function Layout({ children }: LayoutProps) {
   // On phones the navigation is an overlay, so it starts closed. Desktop keeps
   // the persistent sidebar; crossing the breakpoint resets it either way.
   const [collapsed, setCollapsed] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < 768 : false,
+    typeof window !== "undefined" ? window.innerWidth < 1024 : false,
   );
   const location = useLocation();
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("app_lang") || "en"; } catch { return "en"; } });
@@ -217,7 +217,7 @@ export default function Layout({ children }: LayoutProps) {
   const [showRecoveryHint, setShowRecoveryHint] = useState(false);
 
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px)");
+    const mq = window.matchMedia("(min-width: 1024px)");
     const sync = () => setCollapsed(!mq.matches);
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
@@ -226,7 +226,7 @@ export default function Layout({ children }: LayoutProps) {
   // Navigating from the mobile drawer should reveal the page, not leave the
   // overlay covering it.
   useEffect(() => {
-    if (window.innerWidth < 768) setCollapsed(true);
+    if (window.innerWidth < 1024) setCollapsed(true);
     setPalette((p) => (p.open ? { ...p, open: false } : p));
     window.scrollTo(0, 0);
   }, [location.pathname]);
@@ -393,13 +393,13 @@ export default function Layout({ children }: LayoutProps) {
           <>
             <button
               type="button"
-              className="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100"
+              className="lg:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100"
               aria-label="Toggle navigation"
               onClick={() => setCollapsed((c) => !c)}
             >
               ≡
             </button>
-            <span className="font-display font-bold text-kenyan-red text-lg">SkulApp</span>
+            <span className="font-display font-semibold tracking-tight text-kenyan-red text-lg">Shule Yetu</span>
           </>
         }
         center={
@@ -412,7 +412,7 @@ export default function Layout({ children }: LayoutProps) {
           }
         right={
           <div className="flex items-center gap-3">
-            <div className="hidden md:flex flex-col items-end">
+            <div className="hidden lg:flex flex-col items-end">
               <span className="text-sm font-medium text-gray-900">{t("role")}</span>
               <span className="text-xs text-gray-500 capitalize">{formatRoles(roles)}</span>
             </div>
@@ -439,7 +439,7 @@ export default function Layout({ children }: LayoutProps) {
       <div className="flex">
         {!collapsed && (
           <div
-            className="fixed inset-0 z-40 bg-black/40 md:hidden print:hidden"
+            className="fixed inset-0 z-40 bg-black/40 lg:hidden print:hidden"
             onClick={() => setCollapsed(true)}
             aria-hidden="true"
           />
@@ -447,10 +447,10 @@ export default function Layout({ children }: LayoutProps) {
         <aside
           className={`fixed inset-y-0 left-0 z-50 w-64 shrink-0 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out print:hidden ${
             collapsed ? "-translate-x-full" : "translate-x-0"
-          } md:relative md:translate-x-0`}
+          } lg:relative lg:translate-x-0`}
         >
           <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between px-4 pt-4 pb-1 md:hidden">
+            <div className="flex items-center justify-between px-4 pt-4 pb-1 lg:hidden">
               <span className="text-sm font-bold text-slate-700">Menu</span>
               <button
                 type="button"
@@ -561,7 +561,7 @@ export default function Layout({ children }: LayoutProps) {
                 </div>
               )}
             </nav>
-            <div className="p-3 border-t border-gray-100 md:hidden">
+            <div className="p-3 border-t border-gray-100 lg:hidden">
               <Button variant="ghost" fullWidth onClick={handleLogout} size="sm">
                 {t("sign_out")}
               </Button>

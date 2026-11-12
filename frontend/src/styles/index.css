@@ -4,20 +4,26 @@
 
 @layer base {
   :root {
-    --kenyan-red: #CE1126;
-    --kenyan-green: #008751;
-    --kenyan-black: #000000;
-    --kenyan-masai: #D3A625;
-    --color-bg: #F9FAFB;
+    /* Institutional palette: ink navy primary, brass accent, restrained
+       semantic colours. Legacy variable names remain for compatibility. */
+    --brand-900: #0F1F2E;
+    --brand-800: #16283A;
+    --brand-700: #1D3550;
+    --accent-500: #A67C52;
+    --kenyan-red: #16283A;
+    --kenyan-green: #2E6B57;
+    --kenyan-black: #0F1F2E;
+    --kenyan-masai: #A67C52;
+    --color-bg: #F5F7FA;
     --color-surface: #FFFFFF;
-    --color-border: #E5E7EB;
-    --color-text-primary: #111827;
-    --color-text-secondary: #4B5563;
-    --color-text-muted: #6B7280;
-    --color-accent: #CE1126;
-    --color-success: #008751;
-    --color-warning: #D3A625;
-    --color-danger: #DC2626;
+    --color-border: #E2E8F0;
+    --color-text-primary: #17202A;
+    --color-text-secondary: #475467;
+    --color-text-muted: #667085;
+    --color-accent: #16283A;
+    --color-success: #2E6B57;
+    --color-warning: #A66A1F;
+    --color-danger: #A33A3A;
   }
 
   html {
@@ -25,13 +31,14 @@
   }
 
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-slate-50 text-slate-900 antialiased;
+    letter-spacing: -0.006em;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center px-6 py-3 bg-kenyan-red text-white font-medium rounded-xl transition-all duration-200 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-kenyan-red focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none;
+    @apply inline-flex items-center justify-center px-5 py-2.5 bg-brand-800 text-white text-sm font-medium rounded-lg transition-colors duration-150 hover:bg-brand-900 focus:outline-none focus:ring-2 focus:ring-brand-700 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none;
   }
 
   .btn-secondary {
@@ -39,23 +46,23 @@
   }
 
   .input-field {
-    @apply block w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-kenyan-red focus:border-transparent transition-all duration-200;
+    @apply block w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-700/20 focus:border-brand-700 transition-colors duration-150;
   }
 
   .card {
-    @apply bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden transition-all duration-200 hover:shadow-md;
+    @apply bg-white rounded-xl border border-slate-200 shadow-card overflow-hidden transition-shadow duration-200 hover:shadow-md;
   }
 
   .label {
-    @apply block text-sm font-medium text-gray-700 mb-1.5;
+    @apply block text-sm font-medium text-slate-700 mb-1.5;
   }
 
   /* Type scale — replaces raw Tailwind utility classes in markup */
   .text-display {
-    @apply text-3xl font-bold text-gray-900 tracking-tight;
+    @apply text-2xl md:text-3xl font-semibold text-slate-900 tracking-tight;
   }
   .text-heading {
-    @apply text-xl font-bold text-gray-900;
+    @apply text-lg font-semibold text-slate-900 tracking-tight;
   }
   .text-body {
     @apply text-sm text-gray-600;
