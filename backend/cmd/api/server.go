@@ -244,6 +244,8 @@ func Run() error {
 	router.POST("/webhooks/mpesa/stk", mpesaHandler.HandleSTKCallback)
 
 	// Outbound SMS dispatcher: drains QUEUED outbound_messages (SMS) with retries.
+	// Follows the outbox pattern: claim inside tx, commit, dispatch outside tx,
+	// then resolve status. Never performs HTTP inside an open transaction.
 	go func(ctx context.Context) {
 		svc := sms.NewSMSService()
 		ticker := time.NewTicker(15 * time.Second)
@@ -282,47 +284,66 @@ func Run() error {
 					}
 				}
 				rows.Close()
+
+				// Mark claimed messages as SENDING so they are not reclaimed.
 				for _, m := range msgs {
-					if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", m.tenant); err != nil {
+					_, _ = tx.ExecContext(ctx, `
+						UPDATE outbound_messages SET status = 'SENDING', updated_at = now()
+						WHERE message_id = $1 AND tenant_id = $2`, m.id, m.tenant)
+				}
+				if err := tx.Commit(); err != nil {
+					slog.Warn("outbound_sms: commit failed", "error", err)
+					continue
+				}
+
+				// Dispatch SMS outside the transaction (no HTTP-in-tx).
+				for _, m := range msgs {
+					dispatchTx, err := database.BeginTxx(ctx, nil)
+					if err != nil {
+						continue
+					}
+					if _, err := dispatchTx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", m.tenant); err != nil {
+						dispatchTx.Rollback()
 						continue
 					}
 					// Respect SMS opt-outs (guardian/user linked by phone).
 					var optedOut int
-					_ = tx.QueryRowContext(ctx, `
+					_ = dispatchTx.QueryRowContext(ctx, `
 						SELECT COUNT(*) FROM opt_outs o
 						 JOIN guardians g ON g.user_id = o.user_id AND g.tenant_id = $1
 						WHERE o.tenant_id = $1 AND o.channel = 'SMS' AND o.is_active = true
 						  AND g.phone_number = $2`, m.tenant, m.to).Scan(&optedOut)
 					if optedOut == 0 {
-						// Also honor opt-outs where user record stores the same phone.
-						_ = tx.QueryRowContext(ctx, `
+						_ = dispatchTx.QueryRowContext(ctx, `
 							SELECT COUNT(*) FROM opt_outs o
 							 JOIN users u ON u.user_id = o.user_id
 							WHERE o.tenant_id = $1 AND o.channel = 'SMS' AND o.is_active = true
 							  AND u.phone_number = $2`, m.tenant, m.to).Scan(&optedOut)
 					}
 					if optedOut > 0 {
-						_, _ = tx.ExecContext(ctx, `
+						_, _ = dispatchTx.ExecContext(ctx, `
 							UPDATE outbound_messages SET status = 'SKIPPED', error_message = 'opted_out', updated_at = now()
 							WHERE message_id = $1 AND tenant_id = $2`, m.id, m.tenant)
+						dispatchTx.Commit()
 						continue
 					}
 					sendErr := svc.SendSMS(ctx, m.to, m.body)
 					if sendErr != nil {
-						_, _ = tx.ExecContext(ctx, `
+						_, _ = dispatchTx.ExecContext(ctx, `
 							UPDATE outbound_messages
-							SET status = CASE WHEN COALESCE((provider_response->>'attempts')::int,0) + 1 >= 5 THEN 'FAILED' ELSE 'QUEUED' END,
-							    provider_response = jsonb_set(COALESCE(provider_response,'{}'::jsonb), '{attempts}', to_jsonb(COALESCE((provider_response->>'attempts')::int,0)+1), true),
+							SET status = 'FAILED',
+							    provider_response = jsonb_set(COALESCE(provider_response,'{}'::jsonb), '{attempts}', to_jsonb(1), true),
 							    error_message = $2, updated_at = now()
 							WHERE message_id = $1 AND tenant_id = $3`, m.id, sendErr.Error(), m.tenant)
+						dispatchTx.Commit()
 						continue
 					}
-					_, _ = tx.ExecContext(ctx, `
+					_, _ = dispatchTx.ExecContext(ctx, `
 						UPDATE outbound_messages
 						SET status = 'SENT', sent_at = now(), error_message = NULL, updated_at = now()
 						WHERE message_id = $1 AND tenant_id = $2`, m.id, m.tenant)
+					dispatchTx.Commit()
 				}
-				_ = tx.Commit()
 			}
 		}
 	}(allocCtx)
