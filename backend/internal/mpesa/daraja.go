@@ -125,7 +125,7 @@ func (s *Service) HandleC2B(c *gin.Context) {
 
 	// Cross-tenant fallback: no tenant context on the request, so resolve the
 	// tenant from the shortcode and persist in its own tenant-scoped tx.
-	tenantID, err := s.resolveTenant(ctx, payload.BusinessShortCode)
+	tenantID, err := s.resolveTenant(ctx, payload.BusinessShortCode, payload.BillRefNumber)
 	if err != nil {
 		// Unknown shortcode: accept and park it for manual review rather than
 		// making Safaricom retry forever.
@@ -178,16 +178,44 @@ func (s *Service) authorised(c *gin.Context) bool {
 	return true
 }
 
-func (s *Service) resolveTenant(ctx context.Context, shortcode string) (string, error) {
+func (s *Service) resolveTenant(ctx context.Context, shortcode, billRefNumber string) (string, error) {
+	// First try exact match on shortcode (for dedicated shortcodes per tenant)
 	var tenantID string
 	err := s.database.QueryRowContext(ctx,
 		`SELECT tenant_id FROM school_payment_channels
 		 WHERE shortcode_or_account = $1 AND status = 'ACTIVE'
-		 LIMIT 2`, shortcode).Scan(&tenantID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("no active channel for shortcode %s", shortcode)
+		 LIMIT 1`, shortcode).Scan(&tenantID)
+	if err == nil {
+		return tenantID, nil
 	}
-	return tenantID, err
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+
+	// If no exact match or multiple tenants share the shortcode,
+	// disambiguate using the BillRefNumber prefix.
+	// Convention: BillRefNumber format is "<TENANT_PREFIX>-<REFERENCE>"
+	// e.g., "MND-1042" where "MND" is the tenant prefix (subdomain).
+	if billRefNumber != "" {
+		// Extract prefix before first hyphen
+		prefix := billRefNumber
+		if idx := strings.Index(billRefNumber, "-"); idx > 0 {
+			prefix = billRefNumber[:idx]
+		}
+		// Look up tenant by subdomain prefix
+		err = s.database.QueryRowContext(ctx,
+			`SELECT tenant_id FROM schools
+			 WHERE status = 'ACTIVE' AND subdomain = $1
+			 LIMIT 1`, strings.ToLower(prefix)).Scan(&tenantID)
+		if err == nil {
+			return tenantID, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	}
+
+	return "", fmt.Errorf("no active channel for shortcode %s (ref: %s)", shortcode, billRefNumber)
 }
 
 // ProcessInbox allocates pending callbacks. It is safe to run repeatedly and
@@ -235,29 +263,34 @@ func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 
 	processed := 0
 	for _, it := range items {
-		if _, err := tx.ExecContext(ctx,
-			"SELECT set_config('app.current_tenant_id', $1, true)", it.tenantID); err != nil {
-			return processed, err
-		}
+		// Each tenant's allocation runs in its own isolated transaction
+		// to prevent cross-tenant context leakage within a single tx.
+		err := s.database.WithTenant(ctx, it.tenantID, "", func(tenantTx *db.Tx) error {
+			status, processErr := s.allocate(ctx, tenantTx.Tx, it.tenantID, it.transID, it.ref, it.amount)
+			if processErr != nil {
+				status = "FAILED"
+				_, _ = tenantTx.ExecContext(ctx, `
+					UPDATE mpesa_raw_inbox
+					SET attempts = attempts + 1,
+					    error_log = $1,
+					    next_attempt_at = now() + (LEAST(3600, power(2, attempts)) || ' seconds')::interval,
+					    processing_status = CASE WHEN attempts + 1 >= 10 THEN 'MANUAL_REVIEW' ELSE 'PENDING' END
+					WHERE inbox_id = $2`, processErr.Error(), it.id)
+				log.Printf("mpesa: allocation failed for %s: %v", it.transID, processErr)
+				return nil // don't fail the whole batch
+			}
 
-		status, processErr := s.allocate(ctx, tx, it.tenantID, it.transID, it.ref, it.amount)
-		if processErr != nil {
-			status = "FAILED"
-			_, _ = tx.ExecContext(ctx, `
+			_, _ = tenantTx.ExecContext(ctx, `
 				UPDATE mpesa_raw_inbox
-				SET attempts = attempts + 1,
-				    error_log = $1,
-				    next_attempt_at = now() + (LEAST(3600, power(2, attempts)) || ' seconds')::interval,
-				    processing_status = CASE WHEN attempts + 1 >= 10 THEN 'MANUAL_REVIEW' ELSE 'PENDING' END
-				WHERE inbox_id = $2`, processErr.Error(), it.id)
-			log.Printf("mpesa: allocation failed for %s: %v", it.transID, processErr)
+				SET processing_status = $1, processed_at = now(), error_log = NULL
+				WHERE inbox_id = $2`, status, it.id)
+			return nil
+		})
+		if err != nil {
+			// Log error but continue processing other tenants
+			log.Printf("mpesa: tenant tx failed for %s: %v", it.tenantID, err)
 			continue
 		}
-
-		_, _ = tx.ExecContext(ctx, `
-			UPDATE mpesa_raw_inbox
-			SET processing_status = $1, processed_at = now(), error_log = NULL
-			WHERE inbox_id = $2`, status, it.id)
 		processed++
 	}
 

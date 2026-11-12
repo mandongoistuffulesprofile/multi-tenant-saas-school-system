@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
@@ -131,6 +133,41 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 		}
 	}
 
+	// Parents and guardians may only view attendance marks for learners
+	// linked to them via learner_guardians.
+	userID := c.GetString("user_id")
+	rolesVal, _ := c.Get(middleware.ContextRoles)
+	isParentOrGuardian := false
+	if roleList, ok := rolesVal.([]string); ok {
+		for _, r := range roleList {
+			if r == middleware.RoleParent || r == middleware.RoleGuardian {
+				isParentOrGuardian = true
+				break
+			}
+		}
+	}
+
+	var linkedLearnerIDs map[string]bool
+	if isParentOrGuardian {
+		var err error
+		linkedLearnerIDs, err = h.getLinkedLearnerIDs(tx, userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load linked learners"})
+			return
+		}
+		// If a specific learner_id is requested, verify it's linked
+		if learnerID != "" {
+			if !linkedLearnerIDs[learnerID] {
+				c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Learner is not linked to this guardian"})
+				return
+			}
+		} else if len(linkedLearnerIDs) == 0 {
+			// No linked learners - return empty result
+			c.JSON(http.StatusOK, []AttendanceMark{})
+			return
+		}
+	}
+
 	query := `
 		SELECT mark_id, tenant_id, register_id, learner_id, status,
 			marked_by, marked_at, notes
@@ -146,6 +183,14 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 	if learnerID != "" {
 		query += fmt.Sprintf(" AND learner_id = $%d", argIndex)
 		args = append(args, learnerID)
+		argIndex++
+	} else if isParentOrGuardian {
+		ids := make([]string, 0, len(linkedLearnerIDs))
+		for id := range linkedLearnerIDs {
+			ids = append(ids, id)
+		}
+		query += fmt.Sprintf(" AND learner_id = ANY($%d)", argIndex)
+		args = append(args, pq.Array(ids))
 		argIndex++
 	}
 
@@ -174,6 +219,30 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 		marks = append(marks, m)
 	}
 	c.JSON(http.StatusOK, marks)
+}
+
+func (h *Handler) getLinkedLearnerIDs(tx *sqlx.Tx, userID string) (map[string]bool, error) {
+	rows, err := tx.Query(
+		`SELECT lg.learner_id
+		 FROM guardians gd
+		 JOIN learner_guardians lg ON lg.guardian_id = gd.guardian_id
+		 WHERE gd.user_id = $1`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	linked := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		linked[id] = true
+	}
+	return linked, rows.Err()
 }
 
 // GateDevice
