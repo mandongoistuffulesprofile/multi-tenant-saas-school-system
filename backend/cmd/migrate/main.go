@@ -23,19 +23,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	_ "github.com/lib/pq"
 )
 
 // repairedChecksums maps a migration that had to be corrected in place to the
-// checksum of its historical content. A database that recorded that exact
-// content is adopted (checksum updated) instead of aborting deployment.
+// checksums of its historical content. A database that recorded any of those
+// exact versions is adopted (checksum updated) instead of aborting deployment.
 // 0001 never executed anywhere (its statements ended in '.'), so adoption can
 // only come from -baseline. 0029 was executable; 0039 applies its index delta.
-var repairedChecksums = map[string]string{
-	"0001_baseline.sql":   "65be7a029b50ac61a95e9bcd09c0e237bc414ae86a25139786bf904a0e9e5e6c",
-	"0029_seed_plans.sql": "08e09becd1db397b858cf39126a28346116e4cf1faf0ca3d52114adfd2f97462",
+//
+// 0001 has two historical versions in the wild: the compact 2026-11-12 rewrite
+// and the pg_dump-style baseline that preceded it. The dump version is a
+// superset of the rewrite (the extra tables now live in 0000 and the extra
+// indexes are not required), so adopting either is safe.
+var repairedChecksums = map[string][]string{
+	"0001_baseline.sql": {
+		"65be7a029b50ac61a95e9bcd09c0e237bc414ae86a25139786bf904a0e9e5e6c",
+		"fc5d534942291a0e39bc8921d53d276ae7f69c21dfba61ab1cc38572a4a8b7b4",
+	},
+	"0029_seed_plans.sql": {
+		"08e09becd1db397b858cf39126a28346116e4cf1faf0ca3d52114adfd2f97462",
+	},
 }
 
 func main() {
@@ -150,7 +161,7 @@ func run(db *sql.DB, dir string, seed, dryRun bool, baseline string) error {
 		case err == nil && existing == checksum:
 			continue
 		case err == nil && existing != checksum:
-			if repaired, ok := repairedChecksums[name]; ok && existing == repaired {
+			if repaired, ok := repairedChecksums[name]; ok && slices.Contains(repaired, existing) {
 				if _, uerr := db.Exec(`UPDATE schema_migrations SET checksum = $1 WHERE filename = $2`, checksum, name); uerr != nil {
 					return fmt.Errorf("adopt repaired checksum for %s: %w", name, uerr)
 				}
