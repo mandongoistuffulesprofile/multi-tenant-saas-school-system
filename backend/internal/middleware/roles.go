@@ -52,6 +52,12 @@ var RoleAdministrationStaff = []string{
 // RolePortalUsers are the parent and guardian portal roles.
 var RolePortalUsers = []string{RoleParent, RoleGuardian}
 
+// RoleComplianceReaders can read consent records: school administrators manage
+// the whole school, while parents and guardians see only their own records.
+var RoleComplianceReaders = []string{
+	RoleSchoolAdmin, RoleHead, RoleDeputy, RoleParent, RoleGuardian,
+}
+
 // RoleAllStaff is every role that works inside a school.
 var RoleAllStaff = []string{
 	RoleSchoolAdmin, RoleHead, RoleDeputy, RoleBursar, RoleClerk, RoleTeacher,

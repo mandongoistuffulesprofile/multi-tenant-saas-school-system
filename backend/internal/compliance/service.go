@@ -88,11 +88,32 @@ type ConsentRecord struct {
 	UserID        string `json:"user_id"`
 	NoticeID      string `json:"notice_id"`
 	NoticeVersion int    `json:"notice_version"`
+	Purpose       string `json:"purpose,omitempty"`
 	Granted       bool   `json:"granted"`
 	GrantedAt     string `json:"granted_at,omitempty"`
 	RevokedAt     string `json:"revoked_at,omitempty"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
+}
+
+// portalOnly reports whether the session belongs to a parent/guardian and not
+// to any staff role. Portal users may only see and change their own consents.
+func portalOnly(c *gin.Context) bool {
+	roles := c.GetStringSlice(middleware.ContextRoles)
+	if len(roles) == 0 {
+		roles = []string{c.GetString(middleware.ContextRole)}
+	}
+	isPortal, isStaff := false, false
+	for _, role := range roles {
+		switch role {
+		case middleware.RoleParent, middleware.RoleGuardian:
+			isPortal = true
+		case "":
+		default:
+			isStaff = true
+		}
+	}
+	return isPortal && !isStaff
 }
 
 func (h *Handler) ListConsentRecords(c *gin.Context) {
@@ -101,27 +122,38 @@ func (h *Handler) ListConsentRecords(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
-	rows, err := tx.Query(
-		`SELECT consent_id, tenant_id, user_id, notice_id, notice_version,
-			granted, granted_at, revoked_at, created_at, updated_at
-		 FROM consent_records WHERE tenant_id = $1 ORDER BY created_at DESC`,
-		tenantID,
-	)
+	query := `SELECT cr.consent_id, cr.tenant_id, cr.user_id, cr.notice_id, cr.notice_version,
+			cr.granted, cr.granted_at, cr.revoked_at, cr.created_at, cr.updated_at,
+			COALESCE(cn.title, cr.notice_id::text)
+		 FROM consent_records cr
+		 LEFT JOIN consent_notices cn ON cn.notice_id = cr.notice_id
+		 WHERE cr.tenant_id = $1`
+	args := []interface{}{tenantID}
+	if portalOnly(c) {
+		query += " AND cr.user_id = $2"
+		args = append(args, c.GetString("user_id"))
+	}
+	query += " ORDER BY cr.created_at DESC"
+
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
 	defer rows.Close()
 
-	var records []ConsentRecord
+	records := make([]ConsentRecord, 0)
 	for rows.Next() {
 		var r ConsentRecord
+		var grantedAt, revokedAt sql.NullString
 		if err := rows.Scan(&r.ConsentID, &r.TenantID, &r.UserID, &r.NoticeID,
-			&r.NoticeVersion, &r.Granted, &r.GrantedAt, &r.RevokedAt,
-			&r.CreatedAt, &r.UpdatedAt); err != nil {
+			&r.NoticeVersion, &r.Granted, &grantedAt, &revokedAt,
+			&r.CreatedAt, &r.UpdatedAt, &r.Purpose); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		r.GrantedAt = grantedAt.String
+		r.RevokedAt = revokedAt.String
 		records = append(records, r)
 	}
 	c.JSON(http.StatusOK, records)

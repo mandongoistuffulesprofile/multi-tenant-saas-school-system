@@ -221,6 +221,62 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 	c.JSON(http.StatusOK, marks)
 }
 
+// ParentAttendance returns recent attendance marks for the learners linked to
+// the calling parent or guardian. The portal table expects one row per mark.
+func (h *Handler) ParentAttendance(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+
+	rows, err := tx.Query(
+		`SELECT to_char(am.marked_at, 'YYYY-MM-DD'),
+			l.first_name || ' ' || l.last_name,
+			COALESCE((
+				SELECT g.grade_label || COALESCE(' ' || s.stream_name, '')
+				FROM enrolments e
+				JOIN class_groups cg ON cg.class_group_id = e.class_group_id
+				JOIN grades g ON g.grade_id = cg.grade_id
+				LEFT JOIN streams s ON s.stream_id = cg.stream_id
+				WHERE e.learner_id = l.learner_id AND e.status = 'ACTIVE'
+				ORDER BY e.started_on DESC LIMIT 1
+			), ''),
+			am.status
+		 FROM attendance_marks am
+		 JOIN learners l ON l.learner_id = am.learner_id
+		 JOIN guardians gd ON gd.user_id = $2 AND gd.tenant_id = $1
+		 JOIN learner_guardians lg ON lg.guardian_id = gd.guardian_id AND lg.learner_id = am.learner_id
+		 WHERE am.tenant_id = $1
+		 ORDER BY am.marked_at DESC
+		 LIMIT 100`,
+		tenantID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type parentMark struct {
+		Date      string `json:"date"`
+		Learner   string `json:"learner"`
+		ClassName string `json:"class_name"`
+		Status    string `json:"status"`
+	}
+	marks := make([]parentMark, 0)
+	for rows.Next() {
+		var m parentMark
+		if err := rows.Scan(&m.Date, &m.Learner, &m.ClassName, &m.Status); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		marks = append(marks, m)
+	}
+	c.JSON(http.StatusOK, marks)
+}
+
 func (h *Handler) getLinkedLearnerIDs(tx *sqlx.Tx, userID string) (map[string]bool, error) {
 	rows, err := tx.Query(
 		`SELECT lg.learner_id

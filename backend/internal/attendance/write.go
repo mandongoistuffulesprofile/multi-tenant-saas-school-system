@@ -1,11 +1,11 @@
 package attendance
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
-	"fmt"
 	"encoding/json"
-	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -543,6 +543,98 @@ func (h *Handler) RecordGateEvents(c *gin.Context) {
 		accepted++
 	}
 	c.JSON(http.StatusOK, gin.H{"accepted": accepted, "received": len(req.Events)})
+}
+
+// ScanGate verifies a kiosk passcode (an RFID tag UID or a learner admission
+// number), records the gate event and tells the terminal whether to open.
+func (h *Handler) ScanGate(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	var req struct {
+		Passcode string `json:"passcode" binding:"required"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+	passcode := strings.TrimSpace(req.Passcode)
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+
+	var q queryer = tx
+	var tagID, holderType, holderID, holderName sql.NullString
+
+	err := q.QueryRow(
+		`SELECT rt.tag_id::text, rt.holder_type, rt.holder_id::text,
+			CASE WHEN upper(rt.holder_type) = 'LEARNER'
+				THEN (SELECT l.first_name || ' ' || l.last_name FROM learners l WHERE l.learner_id = rt.holder_id)
+			END
+		 FROM rfid_tags rt
+		 WHERE rt.tenant_id = $1 AND rt.tag_uid = $2 AND rt.is_active = true
+		 LIMIT 1`, tenantID, passcode).Scan(&tagID, &holderType, &holderID, &holderName)
+	if err == sql.ErrNoRows {
+		err = q.QueryRow(
+			`SELECT learner_id::text, first_name || ' ' || last_name
+			 FROM learners
+			 WHERE tenant_id = $1 AND admission_number = $2 AND status = 'ACTIVE'
+			 LIMIT 1`, tenantID, passcode).Scan(&holderID, &holderName)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusOK, gin.H{"verified": false, "message": "Unknown passcode"})
+			return
+		}
+		holderType = sql.NullString{String: "LEARNER", Valid: true}
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	// Gate events require a device row. Reuse the tenant's terminal, creating
+	// an unpaired placeholder the first time so scans still record.
+	var deviceID string
+	err = q.QueryRow(
+		`SELECT device_id FROM gate_devices
+		 WHERE tenant_id = $1 AND status = 'ACTIVE'
+		 ORDER BY is_paired DESC, created_at LIMIT 1`, tenantID).Scan(&deviceID)
+	if err == sql.ErrNoRows {
+		err = q.QueryRow(
+			`INSERT INTO gate_devices (tenant_id, device_name, device_type, pairing_code, is_paired)
+			 VALUES ($1, 'Kiosk Terminal', 'KIOSK', $2, false) RETURNING device_id`,
+			tenantID, randomPairingCode()).Scan(&deviceID)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	var tagArg interface{}
+	if tagID.Valid {
+		tagArg = tagID.String
+	}
+	var verifiedBy interface{}
+	if strings.TrimSpace(userID) != "" {
+		verifiedBy = userID
+	}
+	_, err = q.Exec(
+		`INSERT INTO gate_events (tenant_id, device_id, tag_id, holder_type, holder_id,
+			event_type, verified, verified_by, verified_at)
+		 VALUES ($1, $2, $3, $4, $5, 'ENTRY', true, $6, now())`,
+		tenantID, deviceID, tagArg, holderType.String, holderID.String, verifiedBy)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"verified":    true,
+		"event_type":  "ENTRY",
+		"holder_type": holderType.String,
+		"holder_id":   holderID.String,
+		"name":        holderName.String,
+	})
 }
 
 // OverrideGate records a manual gate entry made by a clerk.

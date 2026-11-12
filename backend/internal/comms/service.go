@@ -248,3 +248,47 @@ func (h *Handler) ListOptOuts(c *gin.Context) {
 
 var _ = http.StatusOK
 var _ = sql.ErrNoRows
+
+// ParentNotice is one sent school broadcast as shown in the parent portal.
+type ParentNotice struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Body    string `json:"body"`
+	Date    string `json:"date"`
+	Read    bool   `json:"read"`
+	Channel string `json:"channel"`
+}
+
+// ParentNotices lists broadcasts addressed to parents/guardians or the whole
+// school. Read state is not tracked per parent yet, so items are unread.
+func (h *Handler) ParentNotices(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	rows, err := tx.Query(
+		`SELECT broadcast_id, COALESCE(NULLIF(subject, ''), broadcast_name), body_text,
+			COALESCE(sent_at, created_at)::text, channel
+		 FROM broadcasts
+		 WHERE tenant_id = $1 AND status = 'SENT'
+		   AND upper(COALESCE(target_audience, 'ALL')) IN ('ALL', 'PARENT', 'PARENTS', 'GUARDIAN', 'GUARDIANS')
+		 ORDER BY COALESCE(sent_at, created_at) DESC
+		 LIMIT 100`, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	notices := make([]ParentNotice, 0)
+	for rows.Next() {
+		var n ParentNotice
+		if err := rows.Scan(&n.ID, &n.Title, &n.Body, &n.Date, &n.Channel); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		notices = append(notices, n)
+	}
+	c.JSON(http.StatusOK, notices)
+}

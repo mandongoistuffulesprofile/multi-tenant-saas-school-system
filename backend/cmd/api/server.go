@@ -682,7 +682,7 @@ func Run() error {
 	complianceGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
 		complianceGroup.GET("/consent-notices", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListConsentNotices)
-		complianceGroup.GET("/consent-records", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListConsentRecords)
+		complianceGroup.GET("/consent-records", middleware.RequireRole(middleware.RoleComplianceReaders...), complianceHandler.ListConsentRecords)
 		complianceGroup.GET("/access-logs", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListAccessLogs)
 		complianceGroup.GET("/dsr-requests", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListDSRRequests)
 		complianceGroup.GET("/breach-register", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListBreachRegister)
@@ -691,6 +691,7 @@ func Run() error {
 		complianceGroup.POST("/consent-notices", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.CreateConsentNotice)
 		complianceGroup.PATCH("/consent-notices/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.UpdateConsentNotice)
 		complianceGroup.POST("/consent-records", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.RecordConsent)
+		complianceGroup.PATCH("/consent-records/:id", middleware.RequireRole(middleware.RoleComplianceReaders...), complianceHandler.UpdateConsentRecord)
 		complianceGroup.POST("/consent-records/:id/revoke", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.RevokeConsent)
 		complianceGroup.POST("/dsr-requests", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.CreateDSRRequest)
 		complianceGroup.PATCH("/dsr-requests/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.UpdateDSRRequest)
@@ -733,7 +734,19 @@ func Run() error {
 		gateGroup.POST("/tags/:id/deactivate", middleware.RequireRole(middleware.RoleSchoolAdministrators...), attendanceHandler.DeactivateTag)
 		gateGroup.POST("/events", middleware.RequireRole(middleware.RoleSchoolAdministrators...), attendanceHandler.RecordGateEvents)
 		gateGroup.POST("/override", middleware.RequireRole(middleware.RoleSchoolAdministrators...), attendanceHandler.OverrideGate)
+		gateGroup.POST("/scan", middleware.RequireRole(middleware.RoleAllStaff...), attendanceHandler.ScanGate)
 	}
+
+	// Parent / guardian portal routes
+	parentGroup := apiV1.Group("/parent")
+	parentGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian))
+	{
+		parentGroup.GET("/attendance", attendanceHandler.ParentAttendance)
+	}
+	apiV1.GET("/notices/parent",
+		middleware.RequireAuthGin(jwtManager),
+		middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian),
+		commsHandler.ParentNotices)
 
 	// Platform routes (M13, M15) — tenant-scoped billing and usage
 	platformGroup := apiV1.Group("/platform")

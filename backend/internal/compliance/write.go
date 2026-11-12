@@ -174,6 +174,45 @@ func (h *Handler) RevokeConsent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"consent_id": consentID, "granted": false})
 }
 
+// UpdateConsentRecord grants or withdraws an existing consent. School
+// administrators may update any record in the tenant; parents and guardians may
+// only update their own.
+func (h *Handler) UpdateConsentRecord(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
+	consentID := c.Param("id")
+	var req struct {
+		Granted *bool `json:"granted" binding:"required"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	query := `UPDATE consent_records SET granted = $1,
+			granted_at = CASE WHEN $1 THEN now() ELSE granted_at END,
+			revoked_at = CASE WHEN $1 THEN NULL ELSE now() END,
+			updated_at = now()
+		 WHERE consent_id = $2 AND tenant_id = $3`
+	args := []interface{}{*req.Granted, consentID, tenantID}
+	if portalOnly(c) {
+		query += " AND user_id = $4"
+		args = append(args, c.GetString("user_id"))
+	}
+	result, err := tx.Exec(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		validation.NotFound(c, "Consent record not found")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"consent_id": consentID, "granted": *req.Granted})
+}
+
 // CreateDSRRequest opens a data-subject request.
 func (h *Handler) CreateDSRRequest(c *gin.Context) {
 	tx := h.tx(c)
