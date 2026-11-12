@@ -38,6 +38,10 @@ export default function LearnersPage() {
     fee_category: "TUITION", fee_agreed: true
   });
   const [categories, setCategories] = useState<{ category_id: string; name: string; is_tuition?: boolean }[]>([]);
+  const [structures, setStructures] = useState<any[]>([]);
+  const [gradeOptions, setGradeOptions] = useState<string[]>(GRADES);
+  const [streamOptions, setStreamOptions] = useState<string[]>(STREAMS);
+  const [gradeIdByLabel, setGradeIdByLabel] = useState<Record<string, string>>({});
   const [feeChecks, setFeeChecks] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
@@ -53,19 +57,41 @@ export default function LearnersPage() {
     return () => clearTimeout(safety);
   }, []);
 
-  // Load the school's real fee categories once on mount so step 2 of the
-  // wizard offers live categories (upserted into fee-options after creation).
+  // Load the school's real structure + fee categories so the wizard offers
+  // only the categories that actually have a fee structure for the selected
+  // grade. The fee-option API stores a structure_id, not just a category.
   useEffect(() => {
-    api
-      .get("/finance/fee-categories")
-      .then((r) => {
-        const list = Array.isArray(r.data) ? r.data : [];
-        setCategories(list.map((c: any) => ({ category_id: c.category_id, name: c.name || c.code, is_tuition: c.is_tuition })));
-        const defaults: Record<string, boolean> = {};
-        list.forEach((c: any) => { defaults[c.category_id] = Boolean(c.is_tuition); });
-        setFeeChecks(defaults);
-      })
-      .catch(() => { /* step 2 falls back to tuition-free messaging if unavailable */ });
+    const safe = (p: string) => api.get(p).then((r) => r.data).catch(() => null);
+    Promise.all([
+      safe("/finance/fee-categories"),
+      safe("/finance/fee-structures"),
+      safe("/structure/grades"),
+      safe("/structure/streams"),
+    ]).then(([cats, structs, grades, streams]) => {
+      const list = Array.isArray(cats) ? cats : [];
+      setCategories(list.map((c: any) => ({ category_id: c.category_id, name: c.name || c.code, is_tuition: c.is_tuition })));
+      const defaults: Record<string, boolean> = {};
+      list.forEach((c: any) => { defaults[c.category_id] = Boolean(c.is_tuition); });
+      setFeeChecks(defaults);
+      if (Array.isArray(structs)) setStructures(structs);
+      if (Array.isArray(grades) && grades.length > 0) {
+        const labels = grades.map((g: any) => g.grade_label).filter(Boolean);
+        const map: Record<string, string> = {};
+        grades.forEach((g: any) => { if (g.grade_label && g.grade_id) map[g.grade_label] = g.grade_id; });
+        setGradeIdByLabel(map);
+        if (labels.length) {
+          setGradeOptions(labels);
+          setForm((f: any) => (labels.includes(f.grade_label) ? f : { ...f, grade_label: labels[0] }));
+        }
+      }
+      if (Array.isArray(streams) && streams.length > 0) {
+        const names = streams.map((s: any) => s.stream_name).filter(Boolean);
+        if (names.length) {
+          setStreamOptions(names);
+          setForm((f: any) => (names.includes(f.stream_name) ? f : { ...f, stream_name: names[0] }));
+        }
+      }
+    });
   }, []);
 
   const toggleSelect = (id: string) => {
@@ -102,6 +128,13 @@ export default function LearnersPage() {
   const nextStep = () => setStep((s) => (s < 2 ? s + 1 : s));
   const prevStep = () => setStep((s) => (s > 0 ? s - 1 : s));
 
+  const structureForCategory = (categoryId: string) => {
+    const gradeId = gradeIdByLabel[form.grade_label];
+    if (!gradeId) return null;
+    return structures.find((s: any) => s.category_id === categoryId && s.grade_id === gradeId) || null;
+  };
+  const availableCategories = categories.filter((c) => Boolean(structureForCategory(c.category_id)));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -129,16 +162,36 @@ export default function LearnersPage() {
     try {
       const res = await api.post("/learners", payload);
       // Persist opted-in fee categories from step 2 onto the new learner.
+      // The API stores a structure_id, so only send categories that have a
+      // matching structure for the selected grade. A failed fee option must
+      // not make the learner look like it was not admitted.
       const learnerId = res?.data?.learner_id;
-      const optedIn = Object.entries(feeChecks).filter(([, v]) => v);
-      if (learnerId && optedIn.length > 0) {
-        for (const [categoryId] of optedIn) {
-          await api.post(`/learners/${learnerId}/fee-options`, { category_id: categoryId, opted_in: true });
+      let savedOptions = 0;
+      let skippedOptions = 0;
+      if (learnerId) {
+        for (const [categoryId, checked] of Object.entries(feeChecks)) {
+          if (!checked) continue;
+          const structure = structureForCategory(categoryId);
+          if (!structure) { skippedOptions++; continue; }
+          try {
+            await api.post(`/finance/learners/${learnerId}/fee-options`, {
+              category_id: categoryId,
+              structure_id: structure.structure_id,
+              opted_in: true,
+            });
+            savedOptions++;
+          } catch {
+            skippedOptions++;
+          }
         }
       }
       setOpen(false);
       setStep(0);
-      toast("Learner admitted" + (optedIn.length ? ` with ${optedIn.length} fee category(ies)` : ""), { type: "success" });
+      const skippedNote = skippedOptions ? ` · ${skippedOptions} fee option(s) skipped (no fee structure configured)` : "";
+      toast(
+        `Learner admitted${savedOptions ? ` with ${savedOptions} fee category(ies)` : ""}${skippedNote}`,
+        { type: skippedOptions ? "info" : "success" },
+      );
       const r = await api.get<Learner[]>("/learners");
       setLearners(Array.isArray(r.data) ? r.data : []);
     } catch (err: any) {
@@ -287,6 +340,18 @@ export default function LearnersPage() {
                   {BOARDING_OPTIONS.map((o) => <option key={o.value} value={o.value}>{t(o.labelKey)}</option>)}
                 </select>
               </FormField>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label={t("grade")}>
+                  <select className="input-field" value={form.grade_label} onChange={(e) => setForm({ ...form, grade_label: e.target.value })}>
+                    {gradeOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </FormField>
+                <FormField label={t("stream")}>
+                  <select className="input-field" value={form.stream_name} onChange={(e) => setForm({ ...form, stream_name: e.target.value })}>
+                    {streamOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </FormField>
+              </div>
               <div className="flex justify-end pt-4">
                 <Button variant="secondary" onClick={() => { setOpen(false); setStep(0); }}>{t("cancel")}</Button>
                 <Button variant="primary" onClick={nextStep}>{t("next")} →</Button>
@@ -331,8 +396,12 @@ export default function LearnersPage() {
                     <p className="text-xs text-gray-500">
                       No fee categories configured yet — fees can be assigned after admission via Finance → Fee Categories.
                     </p>
+                  ) : availableCategories.length === 0 ? (
+                    <p className="text-xs text-gray-500">
+                      No fee structure is configured for {form.grade_label} yet. Add one via Finance → Fee Structures, or admit the learner now and assign fees later.
+                    </p>
                   ) : (
-                    categories.map((c) => (
+                    availableCategories.map((c) => (
                       <label key={c.category_id} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
