@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/assessment"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/attendance"
@@ -25,7 +23,6 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/compliance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/config"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/curriculum"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
@@ -35,9 +32,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/knec"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/learner"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/mpesa"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/openingbalance"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/outbox"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/platform"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/reports"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/school"
@@ -167,50 +162,17 @@ func Run() error {
 			return fmt.Errorf("MPESA_WEBHOOK_TOKEN or MPESA_ALLOWED_IPS must be set in production")
 		}
 	}
-	mpesaService := mpesa.NewService(database)
-	mpesaCtx, stopMpesa := context.WithCancel(context.Background())
-	defer stopMpesa()
-	go mpesaService.StartWorker(mpesaCtx, 15*time.Second)
+	mpesaHandler := finance.NewMpesaHandler(database.DB.DB)
+	allocationWorker := finance.NewAllocationWorker(database.DB.DB, slog.Default())
+	allocCtx, stopAlloc := context.WithCancel(context.Background())
+	defer stopAlloc()
+	go allocationWorker.Start(allocCtx, 15*time.Second)
 
 	// Outbox worker: deliver SMS/receipt/alert events idempotently with retries.
-	// Unknown event types are acknowledged to avoid queue buildup; add consumers
-	// as new event types are introduced.
-	outboxService := outbox.NewService(database)
+	// Uses the new robust worker with lease timeouts and exponential backoff.
 	smsSvc := sms.NewSMSService()
-	go outboxService.StartWorker(mpesaCtx, 10*time.Second, func(ctx context.Context, event outbox.OutboxEvent) error {
-		payload := event.Payload
-		if payload == nil {
-			payload = map[string]interface{}{}
-		}
-		getStr := func(keys ...string) string {
-			for _, k := range keys {
-				if v, ok := payload[k]; ok {
-					if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-						return strings.TrimSpace(s)
-					}
-				}
-			}
-			return ""
-		}
-		eventType := strings.ToUpper(strings.TrimSpace(event.EventType))
-		channel := strings.ToUpper(getStr("channel", "Channel"))
-
-		// SMS-like events: payload may carry phone/to and message/body/text.
-		phone := getStr("phone", "phone_number", "to", "recipient_phone", "msisdn")
-		message := getStr("message", "body", "body_text", "text", "sms_text")
-		if (channel == "SMS" || strings.Contains(eventType, "SMS") || strings.Contains(eventType, "RECEIPT") || strings.Contains(eventType, "ALERT") || strings.Contains(eventType, "NOTICE")) && phone != "" && message != "" {
-			if err := smsSvc.SendSMS(ctx, phone, message); err != nil {
-				return err
-			}
-			slog.Info("outbox_sms_sent", "event_type", event.EventType, "aggregate_type", event.AggregateType, "tenant_id", event.TenantID)
-			return nil
-		}
-
-		// Acknowledge unhandled events (logged for observability) so queue drains.
-		slog.Info("outbox_event_ignored", "event_type", event.EventType, "aggregate_type", event.AggregateType,
-			"aggregate_id", event.AggregateID, "tenant_id", event.TenantID)
-		return nil
-	})
+	outboxWorker := newOutboxWorker(database.DB.DB, smsSvc, slog.Default())
+	go outboxWorker.Run(allocCtx)
 
 	router := gin.New()
 	router.SetTrustedProxies([]string{"127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"})
@@ -273,7 +235,8 @@ func Run() error {
 
 	// Public Safaricom callbacks. Authentication is the shared webhook token/IP,
 	// not a user JWT; they must stay outside authenticated groups.
-	router.POST("/webhooks/mpesa/c2b", mpesaService.HandleC2B)
+	router.POST("/webhooks/mpesa/c2b", mpesaHandler.HandleC2BConfirmation)
+	router.POST("/webhooks/mpesa/stk", mpesaHandler.HandleSTKCallback)
 
 	// Outbound SMS dispatcher: drains QUEUED outbound_messages (SMS) with retries.
 	go func(ctx context.Context) {
@@ -357,51 +320,7 @@ func Run() error {
 				_ = tx.Commit()
 			}
 		}
-	}(mpesaCtx)
-
-	router.POST("/webhooks/mpesa/stk", func(c *gin.Context) {
-		want := strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN"))
-		allow := strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS"))
-		if want == "" && allow == "" {
-			c.JSON(401, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
-			return
-		}
-		if want != "" && c.GetHeader("X-Webhook-Token") != want {
-			c.JSON(401, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
-			return
-		}
-		if allow != "" {
-			client := c.ClientIP()
-			ok := false
-			for _, ip := range strings.Split(allow, ",") {
-				if strings.TrimSpace(ip) == client {
-					ok = true
-					break
-				}
-			}
-			if !ok {
-				c.JSON(401, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
-				return
-			}
-		}
-		tenantIDStr := c.Query("tenant_id")
-		tenantUUID, err := uuid.Parse(tenantIDStr)
-		if err != nil {
-			c.JSON(400, gin.H{"ResultCode": 1, "ResultDesc": "Invalid tenant"})
-			return
-		}
-		body, err := io.ReadAll(c.Request.Body)
-		if err != nil {
-			c.JSON(400, gin.H{"ResultCode": 1, "ResultDesc": "Invalid body"})
-			return
-		}
-		stkSvc := daraja.NewMpesaService(database.DB.DB)
-		if err := stkSvc.ProcessSTKCallback(c.Request.Context(), tenantUUID, body, sms.NewSMSService()); err != nil {
-			c.JSON(500, gin.H{"ResultCode": 1, "ResultDesc": "Temporary failure"})
-			return
-		}
-		c.JSON(200, gin.H{"ResultCode": 0, "ResultDesc": "Success"})
-	})
+	}(allocCtx)
 
 	apiV1 := router.Group("/api/v1")
 
@@ -899,7 +818,7 @@ func Run() error {
 	<-quit
 
 	log.Println("Shutting down server...")
-	stopMpesa()
+	stopAlloc()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

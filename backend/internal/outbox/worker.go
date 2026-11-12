@@ -2,141 +2,124 @@ package outbox
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"time"
 )
 
-// Handler processes one event. Returning an error schedules a retry with
-// exponential backoff; after maxAttempts the row becomes FAILED and is left for
-// an operator instead of blocking the queue.
-type Handler func(context.Context, OutboxEvent) error
-
-const maxAttempts = 8
-
-// Drain claims up to limit due events with FOR UPDATE SKIP LOCKED. The handler
-// runs while the rows are locked, so two API instances cannot process the same
-// event. Keep handlers short and idempotent.
-// For worker usage, we need to handle all tenants - worker runs outside request scope
-func (s *Service) Drain(ctx context.Context, limit int, handler Handler) (int, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-
-	tx, err := s.database.BeginTxx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("outbox drain begin: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Worker runs cross-tenant; opt into RLS bypass for outbox processing.
-	if _, err := tx.ExecContext(ctx, "SET LOCAL app.worker = 'on'"); err != nil {
-		return 0, fmt.Errorf("outbox worker context: %w", err)
-	}
-
-	rows, err := tx.QueryContext(ctx, `
-		SELECT outbox_id, aggregate_type, aggregate_id, event_type, event_id,
-		       payload, tenant_id, status, created_at, attempt_count
-		FROM outbox
-		WHERE status = 'PENDING' AND next_attempt_at <= CURRENT_TIMESTAMP
-		ORDER BY next_attempt_at, created_at
-		LIMIT $1
-		FOR UPDATE SKIP LOCKED`, limit)
-	if err != nil {
-		return 0, fmt.Errorf("outbox claim: %w", err)
-	}
-
-	events := make([]OutboxEvent, 0, limit)
-	for rows.Next() {
-		var e OutboxEvent
-		var payload []byte
-		if err := rows.Scan(&e.OutboxID, &e.AggregateType, &e.AggregateID, &e.EventType,
-			&e.EventID, &payload, &e.TenantID, &e.Status, &e.CreatedAt, &e.AttemptCount); err != nil {
-			rows.Close()
-			return 0, fmt.Errorf("outbox scan: %w", err)
-		}
-		if len(payload) > 0 {
-			e.Payload = map[string]interface{}{}
-			_ = jsonUnmarshal(payload, &e.Payload)
-		}
-		events = append(events, e)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-
-	for _, event := range events {
-		if handler != nil {
-			err = handler(ctx, event)
-		}
-		if err == nil {
-			_, err = tx.ExecContext(ctx, `
-				UPDATE outbox
-				SET status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP, last_error = NULL
-				WHERE outbox_id = $1 AND tenant_id = $2`, event.OutboxID, event.TenantID)
-			if err != nil {
-				return 0, err
-			}
-			continue
-		}
-
-		attempts := event.AttemptCount + 1
-		if attempts >= maxAttempts {
-			_, err = tx.ExecContext(ctx, `
-				UPDATE outbox
-				SET status = 'FAILED', attempt_count = attempt_count + 1, last_error = $2
-				WHERE outbox_id = $1 AND tenant_id = $3`, event.OutboxID, err.Error(), event.TenantID)
-		} else {
-			backoff := time.Duration(1<<uint(attempts)) * time.Minute
-			_, err = tx.ExecContext(ctx, `
-				UPDATE outbox
-				SET attempt_count = attempt_count + 1,
-				    next_attempt_at = CURRENT_TIMESTAMP + $2::interval,
-				    last_error = $3
-				WHERE outbox_id = $1 AND tenant_id = $4`, event.OutboxID, backoff.String(), err.Error(), event.TenantID)
-		}
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("outbox commit: %w", err)
-	}
-	return len(events), nil
+type Event struct {
+	ID         string          `json:"id"`
+	TenantID   string          `json:"tenant_id"`
+	Topic      string          `json:"topic"`
+	Payload    json.RawMessage `json:"payload"`
+	Attempts   int             `json:"attempts"`
+	AggregateType string       `json:"aggregate_type"`
+	AggregateID string         `json:"aggregate_id"`
 }
 
-// StartWorker drains until ctx is cancelled. It is deliberately serial: one
-// API instance owns the queue at this scale, and SKIP LOCKED makes a second
-// instance safe if it is ever added.
-func (s *Service) StartWorker(ctx context.Context, interval time.Duration, handler Handler) {
-	if interval <= 0 {
-		interval = 10 * time.Second
-	}
-	ticker := time.NewTicker(interval)
+type Dispatcher interface {
+	Dispatch(ctx context.Context, topic string, payload []byte) error
+}
+
+type OutboxWorker struct {
+	db         *sql.DB
+	dispatcher Dispatcher
+	logger     *slog.Logger
+}
+
+func NewOutboxWorker(db *sql.DB, d Dispatcher, l *slog.Logger) *OutboxWorker {
+	return &OutboxWorker{db: db, dispatcher: d, logger: l}
+}
+
+func (w *OutboxWorker) Run(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			n, err := s.Drain(ctx, 100, handler)
-			if err != nil {
-				slog.Error("outbox_drain_failed", "error", err)
-				continue
-			}
-			if n > 0 {
-				slog.Info("outbox_drained", "events", n)
-			}
+			w.flush(ctx)
 		}
 	}
 }
 
-// jsonUnmarshal is a tiny indirection so worker.go does not import encoding/json
-// only for one call; it keeps the error intentionally ignored because a bad
-// payload should not stop the queue (the handler sees an empty map).
-func jsonUnmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
+func (w *OutboxWorker) flush(ctx context.Context) {
+	tx, err := w.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		w.logger.Error("Could not start outbox transaction", "error", err)
+		return
+	}
+	defer tx.Rollback()
+
+	// Claim records with lease timeout (5 minutes) for stranded records
+	query := `
+		SELECT outbox_id, tenant_id, aggregate_type, aggregate_id, event_type, event_id, payload, attempt_count
+		FROM correlation_outbox
+		WHERE status IN ('PENDING', 'FAILED') 
+		  AND attempts < 5 
+		  AND (locked_until IS NULL OR locked_until < NOW())
+		ORDER BY created_at ASC
+		LIMIT 25
+		FOR UPDATE SKIP LOCKED;
+	`
+
+	rows, err := tx.QueryContext(ctx, query)
+	if err != nil {
+		w.logger.Error("Querying outbox failed", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	var events []Event
+	for rows.Next() {
+		var e Event
+		var payload []byte
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.AggregateType, &e.AggregateID, &e.Topic, &e.Attempts, &payload, &e.Attempts); err == nil {
+			e.Payload = payload
+			events = append(events, e)
+		}
+	}
+	rows.Close()
+
+	if len(events) == 0 {
+		return
+	}
+
+	// Mark in-flight with a lock lease (2 minutes)
+	lockQuery := `UPDATE correlation_outbox SET locked_until = NOW() + INTERVAL '2 minutes' WHERE outbox_id = $1`
+	for _, e := range events {
+		_, _ = tx.ExecContext(ctx, lockQuery, e.ID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return
+	}
+
+	// Process deliveries outside transaction lock
+	for _, e := range events {
+		err := w.dispatcher.Dispatch(ctx, e.Topic, e.Payload)
+		w.resolveEvent(ctx, e.ID, e.Attempts, err)
+	}
+}
+
+func (w *OutboxWorker) resolveEvent(ctx context.Context, eventID string, attempts int, err error) {
+	if err == nil {
+		_, _ = w.db.ExecContext(ctx, `
+			UPDATE correlation_outbox 
+			SET status = 'SENT', processed_at = NOW(), locked_until = NULL 
+			WHERE outbox_id = $1`, eventID)
+	} else {
+		nextAttempt := attempts + 1
+		backoffSeconds := nextAttempt * nextAttempt * 10
+		_, _ = w.db.ExecContext(ctx, `
+			UPDATE correlation_outbox 
+			SET attempts = $1, 
+			    status = CASE WHEN $1 >= 5 THEN 'DEAD_LETTER' ELSE 'FAILED' END,
+			    locked_until = NOW() + ($2 || ' seconds')::INTERVAL,
+			    last_error = $3
+			WHERE outbox_id = $4`, nextAttempt, backoffSeconds, err.Error(), eventID)
+	}
 }
