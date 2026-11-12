@@ -6,6 +6,10 @@
 -- newly provisioned school had no subscription. Keep these codes in sync with
 -- frontend/src/pages/saas/TenantOnboardingPage.tsx.
 
+-- plan_code is the natural key used by onboarding and by the seed below;
+-- the baseline never declared it unique, which broke ON CONFLICT on a fresh DB.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_plans_plan_code ON plans (plan_code);
+
 INSERT INTO plans (
     plan_code, name, description, price_monthly, price_yearly, currency,
     max_learners, max_staff, features, is_active

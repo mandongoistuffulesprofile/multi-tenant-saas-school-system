@@ -531,7 +531,7 @@ ALTER TABLE dpia_records ALTER COLUMN processing_activity SET NOT NULL;
 ALTER TABLE dpia_records ALTER COLUMN risk_level SET NOT NULL;
 ALTER TABLE dpia_records ALTER COLUMN status SET NOT NULL;
 ALTER TABLE dpia_records ADD CONSTRAINT chk_dpia_records_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
-ALTER TABLE dpia_records VALIDATE CONSTRAINT chk_dpia_records_tenant_not_null.
+ALTER TABLE dpia_records VALIDATE CONSTRAINT chk_dpia_records_tenant_not_null;
 
 -- dsr_requests
 CREATE TABLE IF NOT EXISTS public.dsr_requests (
@@ -554,7 +554,7 @@ ALTER TABLE dsr_requests ALTER COLUMN user_id SET NOT NULL;
 ALTER TABLE dsr_requests ALTER COLUMN request_type SET NOT NULL;
 ALTER TABLE dsr_requests ALTER COLUMN status SET NOT NULL;
 ALTER TABLE dsr_requests ADD CONSTRAINT chk_dsr_requests_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
-ALTER TABLE dsr_requests VALIDATE CONSTRAINT chk_dsr_requests_tenant_not_null.
+ALTER TABLE dsr_requests VALIDATE CONSTRAINT chk_dsr_requests_tenant_not_null;
 
 -- email_log
 CREATE TABLE IF NOT EXISTS public.email_log (
@@ -590,7 +590,7 @@ ALTER TABLE enrolments ALTER COLUMN learner_id SET NOT NULL;
 ALTER TABLE enrolments ALTER COLUMN class_group_id SET NOT NULL;
 ALTER TABLE enrolments ALTER COLUMN year_id SET NOT NULL;
 ALTER TABLE enrolments ADD CONSTRAINT chk_enrolments_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
-ALTER TABLE enrolments VALIDATE CONSTRAINT chk_enrolments_tenant_not_null.
+ALTER TABLE enrolments VALIDATE CONSTRAINT chk_enrolments_tenant_not_null;
 
 -- evidence_files
 CREATE TABLE IF NOT EXISTS public.evidence_files (
@@ -606,13 +606,13 @@ CREATE TABLE IF NOT EXISTS public.evidence_files (
 );
 ALTER TABLE evidence_files ADD CONSTRAINT pk_evidence_files PRIMARY KEY (evidence_id);
 ALTER TABLE evidence_files ALTER COLUMN tenant_id SET NOT NULL;
-ALTER TABLE evidence_files ALTER COLUMN result_id SET NOT NULL.
-ALTER TABLE evidence_files ALTER COLUMN file_ref SET NOT NULL.
-ALTER TABLE evidence_files ALTER COLUMN file_name SET NOT NULL.
-ALTER TABLE evidence_files ALTER COLUMN mime_type SET NOT NULL.
-ALTER TABLE evidence_files ALTER COLUMN file_size SET NOT NULL.
-ALTER TABLE evidence_files ADD CONSTRAINT chk_evidence_files_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE evidence_files VALIDATE CONSTRAINT chk_evidence_files_tenant_not_null.
+ALTER TABLE evidence_files ALTER COLUMN result_id SET NOT NULL;
+ALTER TABLE evidence_files ALTER COLUMN file_ref SET NOT NULL;
+ALTER TABLE evidence_files ALTER COLUMN file_name SET NOT NULL;
+ALTER TABLE evidence_files ALTER COLUMN mime_type SET NOT NULL;
+ALTER TABLE evidence_files ALTER COLUMN file_size SET NOT NULL;
+ALTER TABLE evidence_files ADD CONSTRAINT chk_evidence_files_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE evidence_files VALIDATE CONSTRAINT chk_evidence_files_tenant_not_null;
 
 -- exam_windows
 CREATE TABLE IF NOT EXISTS public.exam_windows (
@@ -625,13 +625,13 @@ CREATE TABLE IF NOT EXISTS public.exam_windows (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE exam_windows ADD CONSTRAINT pk_exam_windows PRIMARY KEY (window_id);
-ALTER TABLE exam_windows ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE exam_windows ALTER COLUMN exam_type SET NOT NULL.
-ALTER TABLE exam_windows ALTER COLUMN window_label SET NOT NULL.
-ALTER TABLE exam_windows ALTER COLUMN start_date SET NOT NULL.
-ALTER TABLE exam_windows ALTER COLUMN end_date SET NOT NULL.
-ALTER TABLE exam_windows ADD CONSTRAINT chk_exam_windows_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE exam_windows VALIDATE CONSTRAINT chk_exam_windows_tenant_not_null.
+ALTER TABLE exam_windows ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE exam_windows ALTER COLUMN exam_type SET NOT NULL;
+ALTER TABLE exam_windows ALTER COLUMN window_label SET NOT NULL;
+ALTER TABLE exam_windows ALTER COLUMN start_date SET NOT NULL;
+ALTER TABLE exam_windows ALTER COLUMN end_date SET NOT NULL;
+ALTER TABLE exam_windows ADD CONSTRAINT chk_exam_windows_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE exam_windows VALIDATE CONSTRAINT chk_exam_windows_tenant_not_null;
 
 -- exports
 CREATE TABLE IF NOT EXISTS public.exports (
@@ -651,11 +651,11 @@ CREATE TABLE IF NOT EXISTS public.exports (
     expires_at timestamp with time zone
 );
 ALTER TABLE exports ADD CONSTRAINT pk_exports PRIMARY KEY (export_id);
-ALTER TABLE exports ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE exports ALTER COLUMN export_type SET NOT NULL.
-ALTER TABLE exports ALTER COLUMN status SET NOT NULL.
-ALTER TABLE exports ADD CONSTRAINT chk_exports_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE exports VALIDATE CONSTRAINT chk_exports_tenant_not_null.
+ALTER TABLE exports ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE exports ALTER COLUMN export_type SET NOT NULL;
+ALTER TABLE exports ALTER COLUMN status SET NOT NULL;
+ALTER TABLE exports ADD CONSTRAINT chk_exports_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE exports VALIDATE CONSTRAINT chk_exports_tenant_not_null;
 
 -- fee_categories
 CREATE TABLE IF NOT EXISTS public.fee_categories (
@@ -672,11 +672,11 @@ CREATE TABLE IF NOT EXISTS public.fee_categories (
     is_active boolean DEFAULT true NOT NULL
 );
 ALTER TABLE fee_categories ADD CONSTRAINT pk_fee_categories PRIMARY KEY (category_id);
-ALTER TABLE fee_categories ALTER COLUMN code SET NOT NULL.
-ALTER TABLE fee_categories ALTER COLUMN name SET NOT NULL.
-ALTER TABLE fee_categories ALTER COLUMN is_active SET NOT NULL.
-ALTER TABLE fee_categories ADD CONSTRAINT chk_fee_categories_code_not_null CHECK (code IS NOT NULL) NOT VALID.
-ALTER TABLE fee_categories VALIDATE CONSTRAINT chk_fee_categories_code_not_null.
+ALTER TABLE fee_categories ALTER COLUMN code SET NOT NULL;
+ALTER TABLE fee_categories ALTER COLUMN name SET NOT NULL;
+ALTER TABLE fee_categories ALTER COLUMN is_active SET NOT NULL;
+ALTER TABLE fee_categories ADD CONSTRAINT chk_fee_categories_code_not_null CHECK (code IS NOT NULL) NOT VALID;
+ALTER TABLE fee_categories VALIDATE CONSTRAINT chk_fee_categories_code_not_null;
 
 -- fee_structures
 CREATE TABLE IF NOT EXISTS public.fee_structures (
@@ -696,12 +696,12 @@ CREATE TABLE IF NOT EXISTS public.fee_structures (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE fee_structures ADD CONSTRAINT pk_fee_structures PRIMARY KEY (structure_id);
-ALTER TABLE fee_structures ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE fee_structures ALTER COLUMN academic_year_id SET NOT NULL.
-ALTER TABLE fee_structures ALTER COLUMN grade_id SET NOT NULL.
-ALTER TABLE fee_structures ALTER COLUMN category_id SET NOT NULL.
-ALTER TABLE fee_structures ADD CONSTRAINT chk_fee_structures_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE fee_structures VALIDATE CONSTRAINT chk_fee_structures_tenant_not_null.
+ALTER TABLE fee_structures ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE fee_structures ALTER COLUMN academic_year_id SET NOT NULL;
+ALTER TABLE fee_structures ALTER COLUMN grade_id SET NOT NULL;
+ALTER TABLE fee_structures ALTER COLUMN category_id SET NOT NULL;
+ALTER TABLE fee_structures ADD CONSTRAINT chk_fee_structures_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE fee_structures VALIDATE CONSTRAINT chk_fee_structures_tenant_not_null;
 
 -- gate_devices
 CREATE TABLE IF NOT EXISTS public.gate_devices (
@@ -720,13 +720,13 @@ CREATE TABLE IF NOT EXISTS public.gate_devices (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE gate_devices ADD CONSTRAINT pk_gate_devices PRIMARY KEY (device_id);
-ALTER TABLE gate_devices ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE gate_devices ALTER COLUMN device_name SET NOT NULL.
-ALTER TABLE gate_devices ALTER COLUMN device_type SET NOT NULL.
-ALTER TABLE gate_devices ALTER COLUMN pairing_code SET NOT NULL.
-ALTER TABLE gate_devices ALTER COLUMN status SET NOT NULL.
-ALTER TABLE gate_devices ADD CONSTRAINT chk_gate_devices_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE gate_devices VALIDATE CONSTRAINT chk_gate_devices_tenant_not_null.
+ALTER TABLE gate_devices ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE gate_devices ALTER COLUMN device_name SET NOT NULL;
+ALTER TABLE gate_devices ALTER COLUMN device_type SET NOT NULL;
+ALTER TABLE gate_devices ALTER COLUMN pairing_code SET NOT NULL;
+ALTER TABLE gate_devices ALTER COLUMN status SET NOT NULL;
+ALTER TABLE gate_devices ADD CONSTRAINT chk_gate_devices_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE gate_devices VALIDATE CONSTRAINT chk_gate_devices_tenant_not_null;
 
 -- gate_events
 CREATE TABLE IF NOT EXISTS public.gate_events (
@@ -745,11 +745,11 @@ CREATE TABLE IF NOT EXISTS public.gate_events (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE gate_events ADD CONSTRAINT pk_gate_events PRIMARY KEY (event_id);
-ALTER TABLE gate_events ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE gate_events ALTER COLUMN device_id SET NOT NULL.
-ALTER TABLE gate_events ALTER COLUMN event_type SET NOT NULL.
-ALTER TABLE gate_events ADD CONSTRAINT chk_gate_events_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE gate_events VALIDATE CONSTRAINT chk_gate_events_tenant_not_null.
+ALTER TABLE gate_events ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE gate_events ALTER COLUMN device_id SET NOT NULL;
+ALTER TABLE gate_events ALTER COLUMN event_type SET NOT NULL;
+ALTER TABLE gate_events ADD CONSTRAINT chk_gate_events_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE gate_events VALIDATE CONSTRAINT chk_gate_events_tenant_not_null;
 
 -- grades
 CREATE TABLE IF NOT EXISTS public.grades (
@@ -759,9 +759,9 @@ CREATE TABLE IF NOT EXISTS public.grades (
     lessons_per_week integer NOT NULL
 );
 ALTER TABLE grades ADD CONSTRAINT pk_grades PRIMARY KEY (grade_id);
-ALTER TABLE grades ALTER COLUMN grade_label SET NOT NULL.
-ALTER TABLE grades ALTER COLUMN level_band SET NOT NULL.
-ALTER TABLE grades ALTER COLUMN lessons_per_week SET NOT NULL.
+ALTER TABLE grades ALTER COLUMN grade_label SET NOT NULL;
+ALTER TABLE grades ALTER COLUMN level_band SET NOT NULL;
+ALTER TABLE grades ALTER COLUMN lessons_per_week SET NOT NULL;
 
 -- guardian_claim_codes
 CREATE TABLE IF NOT EXISTS public.guardian_claim_codes (
@@ -774,8 +774,8 @@ CREATE TABLE IF NOT EXISTS public.guardian_claim_codes (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE guardian_claim_codes ADD CONSTRAINT pk_guardian_claim_codes PRIMARY KEY (claim_code_id);
-ALTER TABLE guardian_claim_codes ALTER COLUMN code_hash SET NOT NULL.
-ALTER TABLE guardian_claim_codes ALTER COLUMN expires_at SET NOT NULL.
+ALTER TABLE guardian_claim_codes ALTER COLUMN code_hash SET NOT NULL;
+ALTER TABLE guardian_claim_codes ALTER COLUMN expires_at SET NOT NULL;
 
 -- guardians
 CREATE TABLE IF NOT EXISTS public.guardians (
@@ -793,12 +793,12 @@ CREATE TABLE IF NOT EXISTS public.guardians (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE guardians ADD CONSTRAINT pk_guardians PRIMARY KEY (guardian_id);
-ALTER TABLE guardians ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE guardians ALTER COLUMN first_name SET NOT NULL.
-ALTER TABLE guardians ALTER COLUMN last_name SET NOT NULL.
-ALTER TABLE guardians ALTER COLUMN phone_number SET NOT NULL.
-ALTER TABLE guardians ADD CONSTRAINT chk_guardians_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE guardians VALIDATE CONSTRAINT chk_guardians_tenant_not_null.
+ALTER TABLE guardians ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE guardians ALTER COLUMN first_name SET NOT NULL;
+ALTER TABLE guardians ALTER COLUMN last_name SET NOT NULL;
+ALTER TABLE guardians ALTER COLUMN phone_number SET NOT NULL;
+ALTER TABLE guardians ADD CONSTRAINT chk_guardians_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE guardians VALIDATE CONSTRAINT chk_guardians_tenant_not_null;
 
 -- impersonation_sessions
 CREATE TABLE IF NOT EXISTS public.impersonation_sessions (
@@ -812,11 +812,11 @@ CREATE TABLE IF NOT EXISTS public.impersonation_sessions (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE impersonation_sessions ADD CONSTRAINT pk_impersonation_sessions PRIMARY KEY (session_id);
-ALTER TABLE impersonation_sessions ALTER COLUMN admin_user_id SET NOT NULL.
-ALTER TABLE impersonation_sessions ALTER COLUMN target_user_id SET NOT NULL.
-ALTER TABLE impersonation_sessions ALTER COLUMN target_tenant_id SET NOT NULL.
-ALTER TABLE impersonation_sessions ALTER COLUMN reason SET NOT NULL.
-ALTER TABLE impersonation_sessions ALTER COLUMN expires_at SET NOT NULL.
+ALTER TABLE impersonation_sessions ALTER COLUMN admin_user_id SET NOT NULL;
+ALTER TABLE impersonation_sessions ALTER COLUMN target_user_id SET NOT NULL;
+ALTER TABLE impersonation_sessions ALTER COLUMN target_tenant_id SET NOT NULL;
+ALTER TABLE impersonation_sessions ALTER COLUMN reason SET NOT NULL;
+ALTER TABLE impersonation_sessions ALTER COLUMN expires_at SET NOT NULL;
 
 -- import_batches
 CREATE TABLE IF NOT EXISTS public.import_batches (
@@ -834,11 +834,11 @@ CREATE TABLE IF NOT EXISTS public.import_batches (
     committed_at timestamp with time zone
 );
 ALTER TABLE import_batches ADD CONSTRAINT pk_import_batches PRIMARY KEY (batch_id);
-ALTER TABLE import_batches ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE import_batches ALTER COLUMN import_type SET NOT NULL.
-ALTER TABLE import_batches ALTER COLUMN file_name SET NOT NULL.
-ALTER TABLE import_batches ADD CONSTRAINT chk_import_batches_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE import_batches VALIDATE CONSTRAINT chk_import_batches_tenant_not_null.
+ALTER TABLE import_batches ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE import_batches ALTER COLUMN import_type SET NOT NULL;
+ALTER TABLE import_batches ALTER COLUMN file_name SET NOT NULL;
+ALTER TABLE import_batches ADD CONSTRAINT chk_import_batches_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE import_batches VALIDATE CONSTRAINT chk_import_batches_tenant_not_null;
 
 -- import_rows
 CREATE TABLE IF NOT EXISTS public.import_rows (
@@ -851,9 +851,9 @@ CREATE TABLE IF NOT EXISTS public.import_rows (
     committed boolean DEFAULT false
 );
 ALTER TABLE import_rows ADD CONSTRAINT pk_import_rows PRIMARY KEY (row_id);
-ALTER TABLE import_rows ALTER COLUMN batch_id SET NOT NULL.
-ALTER TABLE import_rows ALTER COLUMN row_number SET NOT NULL.
-ALTER TABLE import_rows ALTER COLUMN raw_data SET NOT NULL.
+ALTER TABLE import_rows ALTER COLUMN batch_id SET NOT NULL;
+ALTER TABLE import_rows ALTER COLUMN row_number SET NOT NULL;
+ALTER TABLE import_rows ALTER COLUMN raw_data SET NOT NULL;
 
 -- invoice_lines
 CREATE TABLE IF NOT EXISTS public.invoice_lines (
@@ -871,15 +871,15 @@ CREATE TABLE IF NOT EXISTS public.invoice_lines (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE invoice_lines ADD CONSTRAINT pk_invoice_lines PRIMARY KEY (line_id);
-ALTER TABLE invoice_lines ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE invoice_lines ALTER COLUMN invoice_id SET NOT NULL.
-ALTER TABLE invoice_lines ALTER COLUMN category_id SET NOT NULL.
-ALTER TABLE invoice_lines ALTER COLUMN description SET NOT NULL.
-ALTER TABLE invoice_lines ALTER COLUMN quantity SET NOT NULL.
-ALTER TABLE invoice_lines ALTER COLUMN unit_amount SET NOT NULL.
-ALTER TABLE invoice_lines ALTER COLUMN line_amount SET NOT NULL.
-ALTER TABLE invoice_lines ADD CONSTRAINT chk_invoice_lines_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE invoice_lines VALIDATE CONSTRAINT chk_invoice_lines_tenant_not_null.
+ALTER TABLE invoice_lines ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE invoice_lines ALTER COLUMN invoice_id SET NOT NULL;
+ALTER TABLE invoice_lines ALTER COLUMN category_id SET NOT NULL;
+ALTER TABLE invoice_lines ALTER COLUMN description SET NOT NULL;
+ALTER TABLE invoice_lines ALTER COLUMN quantity SET NOT NULL;
+ALTER TABLE invoice_lines ALTER COLUMN unit_amount SET NOT NULL;
+ALTER TABLE invoice_lines ALTER COLUMN line_amount SET NOT NULL;
+ALTER TABLE invoice_lines ADD CONSTRAINT chk_invoice_lines_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE invoice_lines VALIDATE CONSTRAINT chk_invoice_lines_tenant_not_null;
 
 -- invoices
 CREATE TABLE IF NOT EXISTS public.invoices (
@@ -904,16 +904,16 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE invoices ADD CONSTRAINT pk_invoices PRIMARY KEY (invoice_id);
-ALTER TABLE invoices ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE invoices ALTER COLUMN invoice_number SET NOT NULL.
-ALTER TABLE invoices ALTER COLUMN learner_id SET NOT NULL.
-ALTER TABLE invoices ALTER COLUMN academic_year_id SET NOT NULL.
-ALTER TABLE invoices ALTER COLUMN status SET NOT NULL.
-ALTER TABLE invoices ALTER COLUMN total_amount SET NOT NULL.
-ALTER TABLE invoices ALTER COLUMN amount_paid SET NOT NULL.
-ALTER TABLE invoices ALTER COLUMN amount_outstanding SET NOT NULL.
-ALTER TABLE invoices ADD CONSTRAINT chk_invoices_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE invoices VALIDATE CONSTRAINT chk_invoices_tenant_not_null.
+ALTER TABLE invoices ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE invoices ALTER COLUMN invoice_number SET NOT NULL;
+ALTER TABLE invoices ALTER COLUMN learner_id SET NOT NULL;
+ALTER TABLE invoices ALTER COLUMN academic_year_id SET NOT NULL;
+ALTER TABLE invoices ALTER COLUMN status SET NOT NULL;
+ALTER TABLE invoices ALTER COLUMN total_amount SET NOT NULL;
+ALTER TABLE invoices ALTER COLUMN amount_paid SET NOT NULL;
+ALTER TABLE invoices ALTER COLUMN amount_outstanding SET NOT NULL;
+ALTER TABLE invoices ADD CONSTRAINT chk_invoices_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE invoices VALIDATE CONSTRAINT chk_invoices_tenant_not_null;
 
 -- knec_export_batches
 CREATE TABLE IF NOT EXISTS public.knec_export_batches (
@@ -930,12 +930,12 @@ CREATE TABLE IF NOT EXISTS public.knec_export_batches (
     completed_at timestamp with time zone
 );
 ALTER TABLE knec_export_batches ADD CONSTRAINT pk_knec_export_batches PRIMARY KEY (batch_id);
-ALTER TABLE knec_export_batches ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE knec_export_batches ALTER COLUMN tool_id SET NOT NULL.
-ALTER TABLE knec_export_batches ALTER COLUMN batch_reference SET NOT NULL.
-ALTER TABLE knec_export_batches ALTER COLUMN status SET NOT NULL.
-ALTER TABLE knec_export_batches ADD CONSTRAINT chk_knec_export_batches_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE knec_export_batches VALIDATE CONSTRAINT chk_knec_export_batches_tenant_not_null.
+ALTER TABLE knec_export_batches ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE knec_export_batches ALTER COLUMN tool_id SET NOT NULL;
+ALTER TABLE knec_export_batches ALTER COLUMN batch_reference SET NOT NULL;
+ALTER TABLE knec_export_batches ALTER COLUMN status SET NOT NULL;
+ALTER TABLE knec_export_batches ADD CONSTRAINT chk_knec_export_batches_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE knec_export_batches VALIDATE CONSTRAINT chk_knec_export_batches_tenant_not_null;
 
 -- knec_submission_status
 CREATE TABLE IF NOT EXISTS public.knec_submission_status (
@@ -955,13 +955,13 @@ CREATE TABLE IF NOT EXISTS public.knec_submission_status (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE knec_submission_status ADD CONSTRAINT pk_knec_submission_status PRIMARY KEY (submission_id);
-ALTER TABLE knec_submission_status ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE knec_submission_status ALTER COLUMN tool_id SET NOT NULL.
-ALTER TABLE knec_submission_status ALTER COLUMN academic_year_id SET NOT NULL.
-ALTER TABLE knec_submission_status ALTER COLUMN grade_id SET NOT NULL.
-ALTER TABLE knec_submission_status ALTER COLUMN status SET NOT NULL.
-ALTER TABLE knec_submission_status ADD CONSTRAINT chk_knec_submission_status_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE knec_submission_status VALIDATE CONSTRAINT chk_knec_submission_status_tenant_not_null.
+ALTER TABLE knec_submission_status ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE knec_submission_status ALTER COLUMN tool_id SET NOT NULL;
+ALTER TABLE knec_submission_status ALTER COLUMN academic_year_id SET NOT NULL;
+ALTER TABLE knec_submission_status ALTER COLUMN grade_id SET NOT NULL;
+ALTER TABLE knec_submission_status ALTER COLUMN status SET NOT NULL;
+ALTER TABLE knec_submission_status ADD CONSTRAINT chk_knec_submission_status_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE knec_submission_status VALIDATE CONSTRAINT chk_knec_submission_status_tenant_not_null;
 
 -- knec_tools
 CREATE TABLE IF NOT EXISTS public.knec_tools (
@@ -976,10 +976,10 @@ CREATE TABLE IF NOT EXISTS public.knec_tools (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE knec_tools ADD CONSTRAINT pk_knec_tools PRIMARY KEY (tool_id);
-ALTER TABLE knec_tools ALTER COLUMN tool_code SET NOT NULL.
-ALTER TABLE knec_tools ALTER COLUMN name SET NOT NULL.
-ALTER TABLE knec_tools ALTER COLUMN grade_id SET NOT NULL.
-ALTER TABLE knec_tools ALTER COLUMN assessment_year SET NOT NULL.
+ALTER TABLE knec_tools ALTER COLUMN tool_code SET NOT NULL;
+ALTER TABLE knec_tools ALTER COLUMN name SET NOT NULL;
+ALTER TABLE knec_tools ALTER COLUMN grade_id SET NOT NULL;
+ALTER TABLE knec_tools ALTER COLUMN assessment_year SET NOT NULL;
 
 -- learner_fee_options
 CREATE TABLE IF NOT EXISTS public.learner_fee_options (
@@ -995,12 +995,12 @@ CREATE TABLE IF NOT EXISTS public.learner_fee_options (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE learner_fee_options ADD CONSTRAINT pk_learner_fee_options PRIMARY KEY (option_id);
-ALTER TABLE learner_fee_options ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE learner_fee_options ALTER COLUMN learner_id SET NOT NULL.
-ALTER TABLE learner_fee_options ALTER COLUMN category_id SET NOT NULL.
-ALTER TABLE learner_fee_options ALTER COLUMN structure_id SET NOT NULL.
-ALTER TABLE learner_fee_options ADD CONSTRAINT chk_learner_fee_options_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE learner_fee_options VALIDATE CONSTRAINT chk_learner_fee_options_tenant_not_null.
+ALTER TABLE learner_fee_options ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE learner_fee_options ALTER COLUMN learner_id SET NOT NULL;
+ALTER TABLE learner_fee_options ALTER COLUMN category_id SET NOT NULL;
+ALTER TABLE learner_fee_options ALTER COLUMN structure_id SET NOT NULL;
+ALTER TABLE learner_fee_options ADD CONSTRAINT chk_learner_fee_options_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE learner_fee_options VALIDATE CONSTRAINT chk_learner_fee_options_tenant_not_null;
 
 -- learner_guardians
 CREATE TABLE IF NOT EXISTS public.learner_guardians (
@@ -1015,9 +1015,9 @@ CREATE TABLE IF NOT EXISTS public.learner_guardians (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE learner_guardians ADD CONSTRAINT pk_learner_guardians PRIMARY KEY (link_id);
-ALTER TABLE learner_guardians ALTER COLUMN learner_id SET NOT NULL.
-ALTER TABLE learner_guardians ALTER COLUMN guardian_id SET NOT NULL.
-ALTER TABLE learner_guardians ALTER COLUMN relationship SET NOT NULL.
+ALTER TABLE learner_guardians ALTER COLUMN learner_id SET NOT NULL;
+ALTER TABLE learner_guardians ALTER COLUMN guardian_id SET NOT NULL;
+ALTER TABLE learner_guardians ALTER COLUMN relationship SET NOT NULL;
 
 -- learner_remarks
 CREATE TABLE IF NOT EXISTS public.learner_remarks (
@@ -1032,13 +1032,13 @@ CREATE TABLE IF NOT EXISTS public.learner_remarks (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE learner_remarks ADD CONSTRAINT pk_learner_remarks PRIMARY KEY (remark_id);
-ALTER TABLE learner_remarks ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE learner_remarks ALTER COLUMN event_id SET NOT NULL.
-ALTER TABLE learner_remarks ALTER COLUMN learner_id SET NOT NULL.
-ALTER TABLE learner_remarks ALTER COLUMN remark_text SET NOT NULL.
-ALTER TABLE learner_remarks ALTER COLUMN remark_type SET NOT NULL.
-ALTER TABLE learner_remarks ADD CONSTRAINT chk_learner_remarks_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE learner_remarks VALIDATE CONSTRAINT chk_learner_remarks_tenant_not_null.
+ALTER TABLE learner_remarks ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE learner_remarks ALTER COLUMN event_id SET NOT NULL;
+ALTER TABLE learner_remarks ALTER COLUMN learner_id SET NOT NULL;
+ALTER TABLE learner_remarks ALTER COLUMN remark_text SET NOT NULL;
+ALTER TABLE learner_remarks ALTER COLUMN remark_type SET NOT NULL;
+ALTER TABLE learner_remarks ADD CONSTRAINT chk_learner_remarks_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE learner_remarks VALIDATE CONSTRAINT chk_learner_remarks_tenant_not_null;
 
 -- learner_status_history
 CREATE TABLE IF NOT EXISTS public.learner_status_history (
@@ -1052,11 +1052,11 @@ CREATE TABLE IF NOT EXISTS public.learner_status_history (
     changed_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE learner_status_history ADD CONSTRAINT pk_learner_status_history PRIMARY KEY (history_id);
-ALTER TABLE learner_status_history ALTER COLUMN learner_id SET NOT NULL.
-ALTER TABLE learner_status_history ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE learner_status_history ALTER COLUMN new_status SET NOT NULL.
-ALTER TABLE learner_status_history ADD CONSTRAINT chk_learner_status_history_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE learner_status_history VALIDATE CONSTRAINT chk_learner_status_history_tenant_not_null.
+ALTER TABLE learner_status_history ALTER COLUMN learner_id SET NOT NULL;
+ALTER TABLE learner_status_history ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE learner_status_history ALTER COLUMN new_status SET NOT NULL;
+ALTER TABLE learner_status_history ADD CONSTRAINT chk_learner_status_history_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE learner_status_history VALIDATE CONSTRAINT chk_learner_status_history_tenant_not_null;
 
 -- learners
 CREATE TABLE IF NOT EXISTS public.learners (
@@ -1080,12 +1080,12 @@ CREATE TABLE IF NOT EXISTS public.learners (
     CONSTRAINT learners_boarding_type_check CHECK (((boarding_type)::text = ANY ((ARRAY['DAY'::character varying, 'BOARDING'::character varying])::text[])))
 );
 ALTER TABLE learners ADD CONSTRAINT pk_learners PRIMARY KEY (learner_id);
-ALTER TABLE learners ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE learners ALTER COLUMN admission_number SET NOT NULL.
-ALTER TABLE learners ALTER COLUMN first_name SET NOT NULL.
-ALTER TABLE learners ALTER COLUMN last_name SET NOT NULL.
-ALTER TABLE learners ADD CONSTRAINT chk_learners_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE learners VALIDATE CONSTRAINT chk_learners_tenant_not_null.
+ALTER TABLE learners ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE learners ALTER COLUMN admission_number SET NOT NULL;
+ALTER TABLE learners ALTER COLUMN first_name SET NOT NULL;
+ALTER TABLE learners ALTER COLUMN last_name SET NOT NULL;
+ALTER TABLE learners ADD CONSTRAINT chk_learners_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE learners VALIDATE CONSTRAINT chk_learners_tenant_not_null;
 
 -- learning_areas
 CREATE TABLE IF NOT EXISTS public.learning_areas (
@@ -1100,9 +1100,9 @@ CREATE TABLE IF NOT EXISTS public.learning_areas (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE learning_areas ADD CONSTRAINT pk_learning_areas PRIMARY KEY (area_id);
-ALTER TABLE learning_areas ALTER COLUMN version_id SET NOT NULL.
-ALTER TABLE learning_areas ALTER COLUMN code SET NOT NULL.
-ALTER TABLE learning_areas ALTER COLUMN name SET NOT NULL.
+ALTER TABLE learning_areas ALTER COLUMN version_id SET NOT NULL;
+ALTER TABLE learning_areas ALTER COLUMN code SET NOT NULL;
+ALTER TABLE learning_areas ALTER COLUMN name SET NOT NULL;
 
 -- login_attempts
 CREATE TABLE IF NOT EXISTS public.login_attempts (
@@ -1116,10 +1116,10 @@ CREATE TABLE IF NOT EXISTS public.login_attempts (
 );
 CREATE SEQUENCE IF NOT EXISTS public.login_attempts_attempt_id_seq START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
 ALTER TABLE login_attempts ALTER COLUMN attempt_id SET DEFAULT nextval('login_attempts_attempt_id_seq');
-ALTER TABLE login_attempts ALTER COLUMN ip SET NOT NULL.
-ALTER TABLE login_attempts ALTER COLUMN success SET NOT NULL.
+ALTER TABLE login_attempts ALTER COLUMN ip SET NOT NULL;
+ALTER TABLE login_attempts ALTER COLUMN success SET NOT NULL;
 ALTER TABLE login_attempts ADD CONSTRAINT pk_login_attempts PRIMARY KEY (attempt_id);
-ALTER SEQUENCE public.login_attempts_attempt_id_seq OWNED BY public.login_attempts.attempt_id.
+ALTER SEQUENCE public.login_attempts_attempt_id_seq OWNED BY public.login_attempts.attempt_id;
 
 -- message_templates
 CREATE TABLE IF NOT EXISTS public.message_templates (
@@ -1137,9 +1137,9 @@ CREATE TABLE IF NOT EXISTS public.message_templates (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE message_templates ADD CONSTRAINT pk_message_templates PRIMARY KEY (template_id);
-ALTER TABLE message_templates ALTER COLUMN template_name SET NOT NULL.
-ALTER TABLE message_templates ALTER COLUMN channel SET NOT NULL.
-ALTER TABLE message_templates ALTER COLUMN body_text SET NOT NULL.
+ALTER TABLE message_templates ALTER COLUMN template_name SET NOT NULL;
+ALTER TABLE message_templates ALTER COLUMN channel SET NOT NULL;
+ALTER TABLE message_templates ALTER COLUMN body_text SET NOT NULL;
 
 -- migration_runs
 CREATE TABLE IF NOT EXISTS public.migration_runs (
@@ -1149,7 +1149,7 @@ CREATE TABLE IF NOT EXISTS public.migration_runs (
     error_message text
 );
 ALTER TABLE migration_runs ADD CONSTRAINT pk_migration_runs PRIMARY KEY (migration_id);
-ALTER TABLE migration_runs ALTER COLUMN migration_id SET NOT NULL.
+ALTER TABLE migration_runs ALTER COLUMN migration_id SET NOT NULL;
 
 -- mpesa_stk_requests
 CREATE TABLE IF NOT EXISTS public.mpesa_stk_requests (
@@ -1172,14 +1172,14 @@ CREATE TABLE IF NOT EXISTS public.mpesa_stk_requests (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE mpesa_stk_requests ADD CONSTRAINT pk_mpesa_stk_requests PRIMARY KEY (stk_id);
-ALTER TABLE mpesa_stk_requests ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE mpesa_stk_requests ALTER COLUMN channel_id SET NOT NULL.
-ALTER TABLE mpesa_stk_requests ALTER COLUMN checkout_request_id SET NOT NULL.
-ALTER TABLE mpesa_stk_requests ALTER COLUMN merchant_request_id SET NOT NULL.
-ALTER TABLE mpesa_stk_requests ALTER COLUMN phone_number SET NOT NULL.
-ALTER TABLE mpesa_stk_requests ALTER COLUMN status SET NOT NULL.
-ALTER TABLE mpesa_stk_requests ADD CONSTRAINT chk_mpesa_stk_requests_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE mpesa_stk_requests VALIDATE CONSTRAINT chk_mpesa_stk_requests_tenant_not_null.
+ALTER TABLE mpesa_stk_requests ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE mpesa_stk_requests ALTER COLUMN channel_id SET NOT NULL;
+ALTER TABLE mpesa_stk_requests ALTER COLUMN checkout_request_id SET NOT NULL;
+ALTER TABLE mpesa_stk_requests ALTER COLUMN merchant_request_id SET NOT NULL;
+ALTER TABLE mpesa_stk_requests ALTER COLUMN phone_number SET NOT NULL;
+ALTER TABLE mpesa_stk_requests ALTER COLUMN status SET NOT NULL;
+ALTER TABLE mpesa_stk_requests ADD CONSTRAINT chk_mpesa_stk_requests_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE mpesa_stk_requests VALIDATE CONSTRAINT chk_mpesa_stk_requests_tenant_not_null;
 
 -- mpesa_transactions
 CREATE TABLE IF NOT EXISTS public.mpesa_transactions (
@@ -1201,16 +1201,16 @@ CREATE TABLE IF NOT EXISTS public.mpesa_transactions (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE mpesa_transactions ADD CONSTRAINT pk_mpesa_transactions PRIMARY KEY (trans_id);
-ALTER TABLE mpesa_transactions ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE mpesa_transactions ALTER COLUMN channel_id SET NOT NULL.
-ALTER TABLE mpesa_transactions ALTER COLUMN external_trans_id SET NOT NULL.
-ALTER TABLE mpesa_transactions ALTER COLUMN shortcode SET NOT NULL.
-ALTER TABLE mpesa_transactions ALTER COLUMN channel_type SET NOT NULL.
-ALTER TABLE mpesa_transactions ALTER COLUMN amount SET NOT NULL.
-ALTER TABLE mpesa_transactions ALTER COLUMN status SET NOT NULL.
-ALTER TABLE mpesa_transactions ALTER COLUMN raw_payload SET NOT NULL.
-ALTER TABLE mpesa_transactions ADD CONSTRAINT chk_mpesa_transactions_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE mpesa_transactions VALIDATE CONSTRAINT chk_mpesa_transactions_tenant_not_null.
+ALTER TABLE mpesa_transactions ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE mpesa_transactions ALTER COLUMN channel_id SET NOT NULL;
+ALTER TABLE mpesa_transactions ALTER COLUMN external_trans_id SET NOT NULL;
+ALTER TABLE mpesa_transactions ALTER COLUMN shortcode SET NOT NULL;
+ALTER TABLE mpesa_transactions ALTER COLUMN channel_type SET NOT NULL;
+ALTER TABLE mpesa_transactions ALTER COLUMN amount SET NOT NULL;
+ALTER TABLE mpesa_transactions ALTER COLUMN status SET NOT NULL;
+ALTER TABLE mpesa_transactions ALTER COLUMN raw_payload SET NOT NULL;
+ALTER TABLE mpesa_transactions ADD CONSTRAINT chk_mpesa_transactions_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE mpesa_transactions VALIDATE CONSTRAINT chk_mpesa_transactions_tenant_not_null;
 
 -- node_mappings
 CREATE TABLE IF NOT EXISTS public.node_mappings (
@@ -1221,9 +1221,9 @@ CREATE TABLE IF NOT EXISTS public.node_mappings (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE node_mappings ADD CONSTRAINT pk_node_mappings PRIMARY KEY (mapping_id);
-ALTER TABLE node_mappings ALTER COLUMN sub_strand_id SET NOT NULL.
-ALTER TABLE node_mappings ALTER COLUMN grade_id SET NOT NULL.
-ALTER TABLE node_mappings ALTER COLUMN academic_year_id SET NOT NULL.
+ALTER TABLE node_mappings ALTER COLUMN sub_strand_id SET NOT NULL;
+ALTER TABLE node_mappings ALTER COLUMN grade_id SET NOT NULL;
+ALTER TABLE node_mappings ALTER COLUMN academic_year_id SET NOT NULL;
 
 -- opt_outs
 CREATE TABLE IF NOT EXISTS public.opt_outs (
@@ -1237,11 +1237,11 @@ CREATE TABLE IF NOT EXISTS public.opt_outs (
     is_active boolean DEFAULT true
 );
 ALTER TABLE opt_outs ADD CONSTRAINT pk_opt_outs PRIMARY KEY (opt_out_id);
-ALTER TABLE opt_outs ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE opt_outs ALTER COLUMN user_id SET NOT NULL.
-ALTER TABLE opt_outs ALTER COLUMN channel SET NOT NULL.
-ALTER TABLE opt_outs ADD CONSTRAINT chk_opt_outs_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE opt_outs VALIDATE CONSTRAINT chk_opt_outs_tenant_not_null.
+ALTER TABLE opt_outs ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE opt_outs ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE opt_outs ALTER COLUMN channel SET NOT NULL;
+ALTER TABLE opt_outs ADD CONSTRAINT chk_opt_outs_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE opt_outs VALIDATE CONSTRAINT chk_opt_outs_tenant_not_null;
 
 -- otp_challenges
 CREATE TABLE IF NOT EXISTS public.otp_challenges (
@@ -1255,10 +1255,10 @@ CREATE TABLE IF NOT EXISTS public.otp_challenges (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE otp_challenges ADD CONSTRAINT pk_otp_challenges PRIMARY KEY (challenge_id);
-ALTER TABLE otp_challenges ALTER COLUMN phone_number SET NOT NULL.
-ALTER TABLE otp_challenges ALTER COLUMN code_hash SET NOT NULL.
-ALTER TABLE otp_challenges ALTER COLUMN purpose SET NOT NULL.
-ALTER TABLE otp_challenges ALTER COLUMN expires_at SET NOT NULL.
+ALTER TABLE otp_challenges ALTER COLUMN phone_number SET NOT NULL;
+ALTER TABLE otp_challenges ALTER COLUMN code_hash SET NOT NULL;
+ALTER TABLE otp_challenges ALTER COLUMN purpose SET NOT NULL;
+ALTER TABLE otp_challenges ALTER COLUMN expires_at SET NOT NULL;
 
 -- outbound_messages
 CREATE TABLE IF NOT EXISTS public.outbound_messages (
@@ -1283,15 +1283,15 @@ CREATE TABLE IF NOT EXISTS public.outbound_messages (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE outbound_messages ADD CONSTRAINT pk_outbound_messages PRIMARY KEY (message_id);
-ALTER TABLE outbound_messages ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE outbound_messages ALTER COLUMN recipient_type SET NOT NULL.
-ALTER TABLE outbound_messages ALTER COLUMN recipient_id SET NOT NULL.
-ALTER TABLE outbound_messages ALTER COLUMN channel SET NOT NULL.
-ALTER TABLE outbound_messages ALTER COLUMN recipient_address SET NOT NULL.
-ALTER TABLE outbound_messages ALTER COLUMN body_text SET NOT NULL.
-ALTER TABLE outbound_messages ALTER COLUMN status SET NOT NULL.
-ALTER TABLE outbound_messages ADD CONSTRAINT chk_outbound_messages_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE outbound_messages VALIDATE CONSTRAINT chk_outbound_messages_tenant_not_null.
+ALTER TABLE outbound_messages ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE outbound_messages ALTER COLUMN recipient_type SET NOT NULL;
+ALTER TABLE outbound_messages ALTER COLUMN recipient_id SET NOT NULL;
+ALTER TABLE outbound_messages ALTER COLUMN channel SET NOT NULL;
+ALTER TABLE outbound_messages ALTER COLUMN recipient_address SET NOT NULL;
+ALTER TABLE outbound_messages ALTER COLUMN body_text SET NOT NULL;
+ALTER TABLE outbound_messages ALTER COLUMN status SET NOT NULL;
+ALTER TABLE outbound_messages ADD CONSTRAINT chk_outbound_messages_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE outbound_messages VALIDATE CONSTRAINT chk_outbound_messages_tenant_not_null;
 
 -- outbox
 CREATE TABLE IF NOT EXISTS public.outbox (
@@ -1308,14 +1308,14 @@ CREATE TABLE IF NOT EXISTS public.outbox (
     attempt_count integer DEFAULT 0
 );
 ALTER TABLE outbox ADD CONSTRAINT pk_outbox PRIMARY KEY (outbox_id);
-ALTER TABLE outbox ALTER COLUMN aggregate_type SET NOT NULL.
-ALTER TABLE outbox ALTER COLUMN aggregate_id SET NOT NULL.
-ALTER TABLE outbox ALTER COLUMN event_type SET NOT NULL.
-ALTER TABLE outbox ALTER COLUMN event_id SET NOT NULL.
-ALTER TABLE outbox ALTER COLUMN payload SET NOT NULL.
-ALTER TABLE outbox ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE outbox ADD CONSTRAINT chk_outbox_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE outbox VALIDATE CONSTRAINT chk_outbox_tenant_not_null.
+ALTER TABLE outbox ALTER COLUMN aggregate_type SET NOT NULL;
+ALTER TABLE outbox ALTER COLUMN aggregate_id SET NOT NULL;
+ALTER TABLE outbox ALTER COLUMN event_type SET NOT NULL;
+ALTER TABLE outbox ALTER COLUMN event_id SET NOT NULL;
+ALTER TABLE outbox ALTER COLUMN payload SET NOT NULL;
+ALTER TABLE outbox ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE outbox ADD CONSTRAINT chk_outbox_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE outbox VALIDATE CONSTRAINT chk_outbox_tenant_not_null;
 
 -- password_reset_tokens
 CREATE TABLE IF NOT EXISTS public.password_reset_tokens (
@@ -1333,11 +1333,11 @@ CREATE TABLE IF NOT EXISTS public.password_reset_tokens (
     request_id text
 );
 ALTER TABLE password_reset_tokens ADD CONSTRAINT pk_password_reset_tokens PRIMARY KEY (reset_id);
-ALTER TABLE password_reset_tokens ALTER COLUMN user_id SET NOT NULL.
-ALTER TABLE password_reset_tokens ALTER COLUMN token_hash SET NOT NULL.
-ALTER TABLE password_reset_tokens ALTER COLUMN token_prefix SET NOT NULL.
-ALTER TABLE password_reset_tokens ALTER COLUMN expires_at SET NOT NULL.
-ALTER TABLE password_reset_tokens ALTER COLUMN invalidated SET NOT NULL.
+ALTER TABLE password_reset_tokens ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE password_reset_tokens ALTER COLUMN token_hash SET NOT NULL;
+ALTER TABLE password_reset_tokens ALTER COLUMN token_prefix SET NOT NULL;
+ALTER TABLE password_reset_tokens ALTER COLUMN expires_at SET NOT NULL;
+ALTER TABLE password_reset_tokens ALTER COLUMN invalidated SET NOT NULL;
 
 -- payment_allocations
 CREATE TABLE IF NOT EXISTS public.payment_allocations (
@@ -1351,12 +1351,12 @@ CREATE TABLE IF NOT EXISTS public.payment_allocations (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE payment_allocations ADD CONSTRAINT pk_payment_allocations PRIMARY KEY (allocation_id);
-ALTER TABLE payment_allocations ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE payment_allocations ALTER COLUMN payment_id SET NOT NULL.
-ALTER TABLE payment_allocations ALTER COLUMN invoice_id SET NOT NULL.
-ALTER TABLE payment_allocations ALTER COLUMN allocated_amount SET NOT NULL.
-ALTER TABLE payment_allocations ADD CONSTRAINT chk_payment_allocations_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE payment_allocations VALIDATE CONSTRAINT chk_payment_allocations_tenant_not_null.
+ALTER TABLE payment_allocations ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE payment_allocations ALTER COLUMN payment_id SET NOT NULL;
+ALTER TABLE payment_allocations ALTER COLUMN invoice_id SET NOT NULL;
+ALTER TABLE payment_allocations ALTER COLUMN allocated_amount SET NOT NULL;
+ALTER TABLE payment_allocations ADD CONSTRAINT chk_payment_allocations_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE payment_allocations VALIDATE CONSTRAINT chk_payment_allocations_tenant_not_null;
 
 -- payments
 CREATE TABLE IF NOT EXISTS public.payments (
@@ -1377,14 +1377,14 @@ CREATE TABLE IF NOT EXISTS public.payments (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE payments ADD CONSTRAINT pk_payments PRIMARY KEY (payment_id);
-ALTER TABLE payments ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE payments ALTER COLUMN payment_reference SET NOT NULL.
-ALTER TABLE payments ALTER COLUMN learner_id SET NOT NULL.
-ALTER TABLE payments ALTER COLUMN source SET NOT NULL.
-ALTER TABLE payments ALTER COLUMN amount SET NOT NULL.
-ALTER TABLE payments ALTER COLUMN status SET NOT NULL.
-ALTER TABLE payments ADD CONSTRAINT chk_payments_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE payments VALIDATE CONSTRAINT chk_payments_tenant_not_null.
+ALTER TABLE payments ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE payments ALTER COLUMN payment_reference SET NOT NULL;
+ALTER TABLE payments ALTER COLUMN learner_id SET NOT NULL;
+ALTER TABLE payments ALTER COLUMN source SET NOT NULL;
+ALTER TABLE payments ALTER COLUMN amount SET NOT NULL;
+ALTER TABLE payments ALTER COLUMN status SET NOT NULL;
+ALTER TABLE payments ADD CONSTRAINT chk_payments_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE payments VALIDATE CONSTRAINT chk_payments_tenant_not_null;
 
 -- plans
 CREATE TABLE IF NOT EXISTS public.plans (
@@ -1403,12 +1403,12 @@ CREATE TABLE IF NOT EXISTS public.plans (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE plans ADD CONSTRAINT pk_plans PRIMARY KEY (plan_id);
-ALTER TABLE plans ALTER COLUMN plan_code SET NOT NULL.
-ALTER TABLE plans ALTER COLUMN name SET NOT NULL.
-ALTER TABLE plans ALTER COLUMN price_monthly SET NOT NULL.
-ALTER TABLE plans ALTER COLUMN price_yearly SET NOT NULL.
-ALTER TABLE plans ALTER COLUMN max_learners SET NOT NULL.
-ALTER TABLE plans ALTER COLUMN max_staff SET NOT NULL.
+ALTER TABLE plans ALTER COLUMN plan_code SET NOT NULL;
+ALTER TABLE plans ALTER COLUMN name SET NOT NULL;
+ALTER TABLE plans ALTER COLUMN price_monthly SET NOT NULL;
+ALTER TABLE plans ALTER COLUMN price_yearly SET NOT NULL;
+ALTER TABLE plans ALTER COLUMN max_learners SET NOT NULL;
+ALTER TABLE plans ALTER COLUMN max_staff SET NOT NULL;
 
 -- platform_invoices
 CREATE TABLE IF NOT EXISTS public.platform_invoices (
@@ -1426,12 +1426,12 @@ CREATE TABLE IF NOT EXISTS public.platform_invoices (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE platform_invoices ADD CONSTRAINT pk_platform_invoices PRIMARY KEY (invoice_id);
-ALTER TABLE platform_invoices ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE platform_invoices ALTER COLUMN invoice_number SET NOT NULL.
-ALTER TABLE platform_invoices ALTER COLUMN amount SET NOT NULL.
-ALTER TABLE platform_invoices ALTER COLUMN status SET NOT NULL.
-ALTER TABLE platform_invoices ADD CONSTRAINT chk_platform_invoices_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE platform_invoices VALIDATE CONSTRAINT chk_platform_invoices_tenant_not_null.
+ALTER TABLE platform_invoices ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE platform_invoices ALTER COLUMN invoice_number SET NOT NULL;
+ALTER TABLE platform_invoices ALTER COLUMN amount SET NOT NULL;
+ALTER TABLE platform_invoices ALTER COLUMN status SET NOT NULL;
+ALTER TABLE platform_invoices ADD CONSTRAINT chk_platform_invoices_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE platform_invoices VALIDATE CONSTRAINT chk_platform_invoices_tenant_not_null;
 
 -- receipt_sequences
 CREATE TABLE IF NOT EXISTS public.receipt_sequences (
@@ -1445,12 +1445,12 @@ CREATE TABLE IF NOT EXISTS public.receipt_sequences (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE receipt_sequences ADD CONSTRAINT pk_receipt_sequences PRIMARY KEY (sequence_id);
-ALTER TABLE receipt_sequences ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE receipt_sequences ALTER COLUMN prefix SET NOT NULL.
-ALTER TABLE receipt_sequences ALTER COLUMN last_number SET NOT NULL.
-ALTER TABLE receipt_sequences ALTER COLUMN current_period SET NOT NULL.
-ALTER TABLE receipt_sequences ADD CONSTRAINT chk_receipt_sequences_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE receipt_sequences VALIDATE CONSTRAINT chk_receipt_sequences_tenant_not_null.
+ALTER TABLE receipt_sequences ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE receipt_sequences ALTER COLUMN prefix SET NOT NULL;
+ALTER TABLE receipt_sequences ALTER COLUMN last_number SET NOT NULL;
+ALTER TABLE receipt_sequences ALTER COLUMN current_period SET NOT NULL;
+ALTER TABLE receipt_sequences ADD CONSTRAINT chk_receipt_sequences_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE receipt_sequences VALIDATE CONSTRAINT chk_receipt_sequences_tenant_not_null;
 
 -- reconciliation_runs
 CREATE TABLE IF NOT EXISTS public.reconciliation_runs (
@@ -1471,16 +1471,16 @@ CREATE TABLE IF NOT EXISTS public.reconciliation_runs (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE reconciliation_runs ADD CONSTRAINT pk_reconciliation_runs PRIMARY KEY (run_id);
-ALTER TABLE reconciliation_runs ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE reconciliation_runs ALTER COLUMN run_date SET NOT NULL.
-ALTER TABLE reconciliation_runs ALTER COLUMN period_start SET NOT NULL.
-ALTER TABLE reconciliation_runs ALTER COLUMN period_end SET NOT NULL.
-ALTER TABLE reconciliation_runs ALTER COLUMN total_expected SET NOT NULL.
-ALTER TABLE reconciliation_runs ALTER COLUMN total_received SET NOT NULL.
-ALTER TABLE reconciliation_runs ALTER COLUMN total_outstanding SET NOT NULL.
-ALTER TABLE reconciliation_runs ALTER COLUMN status SET NOT NULL.
-ALTER TABLE reconciliation_runs ADD CONSTRAINT chk_reconciliation_runs_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE reconciliation_runs VALIDATE CONSTRAINT chk_reconciliation_runs_tenant_not_null.
+ALTER TABLE reconciliation_runs ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE reconciliation_runs ALTER COLUMN run_date SET NOT NULL;
+ALTER TABLE reconciliation_runs ALTER COLUMN period_start SET NOT NULL;
+ALTER TABLE reconciliation_runs ALTER COLUMN period_end SET NOT NULL;
+ALTER TABLE reconciliation_runs ALTER COLUMN total_expected SET NOT NULL;
+ALTER TABLE reconciliation_runs ALTER COLUMN total_received SET NOT NULL;
+ALTER TABLE reconciliation_runs ALTER COLUMN total_outstanding SET NOT NULL;
+ALTER TABLE reconciliation_runs ALTER COLUMN status SET NOT NULL;
+ALTER TABLE reconciliation_runs ADD CONSTRAINT chk_reconciliation_runs_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE reconciliation_runs VALIDATE CONSTRAINT chk_reconciliation_runs_tenant_not_null;
 
 -- refresh_tokens
 CREATE TABLE IF NOT EXISTS public.refresh_tokens (
@@ -1493,9 +1493,9 @@ CREATE TABLE IF NOT EXISTS public.refresh_tokens (
     device_fingerprint character varying(255)
 );
 ALTER TABLE refresh_tokens ADD CONSTRAINT pk_refresh_tokens PRIMARY KEY (token_id);
-ALTER TABLE refresh_tokens ALTER COLUMN user_id SET NOT NULL.
-ALTER TABLE refresh_tokens ALTER COLUMN token_hash SET NOT NULL.
-ALTER TABLE refresh_tokens ALTER COLUMN expires_at SET NOT NULL.
+ALTER TABLE refresh_tokens ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE refresh_tokens ALTER COLUMN token_hash SET NOT NULL;
+ALTER TABLE refresh_tokens ALTER COLUMN expires_at SET NOT NULL;
 
 -- refunds
 CREATE TABLE IF NOT EXISTS public.refunds (
@@ -1514,14 +1514,14 @@ CREATE TABLE IF NOT EXISTS public.refunds (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE refunds ADD CONSTRAINT pk_refunds PRIMARY KEY (refund_id);
-ALTER TABLE refunds ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE refunds ALTER COLUMN payment_id SET NOT NULL.
-ALTER TABLE refunds ALTER COLUMN amount SET NOT NULL.
-ALTER TABLE refunds ALTER COLUMN currency SET NOT NULL.
-ALTER TABLE refunds ALTER COLUMN reason SET NOT NULL.
-ALTER TABLE refunds ALTER COLUMN status SET NOT NULL.
-ALTER TABLE refunds ADD CONSTRAINT chk_refunds_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE refunds VALIDATE CONSTRAINT chk_refunds_tenant_not_null.
+ALTER TABLE refunds ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE refunds ALTER COLUMN payment_id SET NOT NULL;
+ALTER TABLE refunds ALTER COLUMN amount SET NOT NULL;
+ALTER TABLE refunds ALTER COLUMN currency SET NOT NULL;
+ALTER TABLE refunds ALTER COLUMN reason SET NOT NULL;
+ALTER TABLE refunds ALTER COLUMN status SET NOT NULL;
+ALTER TABLE refunds ADD CONSTRAINT chk_refunds_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE refunds VALIDATE CONSTRAINT chk_refunds_tenant_not_null;
 
 -- report_card_comments
 CREATE TABLE IF NOT EXISTS public.report_card_comments (
@@ -1535,12 +1535,12 @@ CREATE TABLE IF NOT EXISTS public.report_card_comments (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE report_card_comments ADD CONSTRAINT pk_report_card_comments PRIMARY KEY (comment_id);
-ALTER TABLE report_card_comments ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE report_card_comments ALTER COLUMN card_id SET NOT NULL.
-ALTER TABLE report_card_comments ALTER COLUMN learning_area_id SET NOT NULL.
-ALTER TABLE report_card_comments ALTER COLUMN comment_text SET NOT NULL.
-ALTER TABLE report_card_comments ADD CONSTRAINT chk_report_card_comments_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE report_card_comments VALIDATE CONSTRAINT chk_report_card_comments_tenant_not_null.
+ALTER TABLE report_card_comments ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE report_card_comments ALTER COLUMN card_id SET NOT NULL;
+ALTER TABLE report_card_comments ALTER COLUMN learning_area_id SET NOT NULL;
+ALTER TABLE report_card_comments ALTER COLUMN comment_text SET NOT NULL;
+ALTER TABLE report_card_comments ADD CONSTRAINT chk_report_card_comments_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE report_card_comments VALIDATE CONSTRAINT chk_report_card_comments_tenant_not_null;
 
 -- report_cards
 CREATE TABLE IF NOT EXISTS public.report_cards (
@@ -1568,15 +1568,15 @@ CREATE TABLE IF NOT EXISTS public.report_cards (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE report_cards ADD CONSTRAINT pk_report_cards PRIMARY KEY (card_id);
-ALTER TABLE report_cards ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE report_cards ALTER COLUMN run_id SET NOT NULL.
-ALTER TABLE report_cards ALTER COLUMN learner_id SET NOT NULL.
-ALTER TABLE report_cards ALTER COLUMN card_number SET NOT NULL.
-ALTER TABLE report_cards ALTER COLUMN academic_year_id SET NOT NULL.
-ALTER TABLE report_cards ALTER COLUMN grade_id SET NOT NULL.
-ALTER TABLE report_cards ALTER COLUMN status SET NOT NULL.
-ALTER TABLE report_cards ADD CONSTRAINT chk_report_cards_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE report_cards VALIDATE CONSTRAINT chk_report_cards_tenant_not_null.
+ALTER TABLE report_cards ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE report_cards ALTER COLUMN run_id SET NOT NULL;
+ALTER TABLE report_cards ALTER COLUMN learner_id SET NOT NULL;
+ALTER TABLE report_cards ALTER COLUMN card_number SET NOT NULL;
+ALTER TABLE report_cards ALTER COLUMN academic_year_id SET NOT NULL;
+ALTER TABLE report_cards ALTER COLUMN grade_id SET NOT NULL;
+ALTER TABLE report_cards ALTER COLUMN status SET NOT NULL;
+ALTER TABLE report_cards ADD CONSTRAINT chk_report_cards_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE report_cards VALIDATE CONSTRAINT chk_report_cards_tenant_not_null;
 
 -- report_runs
 CREATE TABLE IF NOT EXISTS public.report_runs (
@@ -1596,12 +1596,12 @@ CREATE TABLE IF NOT EXISTS public.report_runs (
     completed_at timestamp with time zone
 );
 ALTER TABLE report_runs ADD CONSTRAINT pk_report_runs PRIMARY KEY (run_id);
-ALTER TABLE report_runs ALTER COLUMN tenant_id SET NOT NULL.
-ALTER TABLE report_runs ALTER COLUMN template_id SET NOT NULL.
-ALTER TABLE report_runs ALTER COLUMN academic_year_id SET NOT NULL.
-ALTER TABLE report_runs ALTER COLUMN status SET NOT NULL.
-ALTER TABLE report_runs ADD CONSTRAINT chk_report_runs_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID.
-ALTER TABLE report_runs VALIDATE CONSTRAINT chk_report_runs_tenant_not_null.
+ALTER TABLE report_runs ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE report_runs ALTER COLUMN template_id SET NOT NULL;
+ALTER TABLE report_runs ALTER COLUMN academic_year_id SET NOT NULL;
+ALTER TABLE report_runs ALTER COLUMN status SET NOT NULL;
+ALTER TABLE report_runs ADD CONSTRAINT chk_report_runs_tenant_not_null CHECK (tenant_id IS NOT NULL) NOT VALID;
+ALTER TABLE report_runs VALIDATE CONSTRAINT chk_report_runs_tenant_not_null;
 
 -- report_templates
 CREATE TABLE IF NOT EXISTS public.report_templates (
@@ -1615,9 +1615,9 @@ CREATE TABLE IF NOT EXISTS public.report_templates (
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE report_templates ADD CONSTRAINT pk_report_templates PRIMARY KEY (template_id);
-ALTER TABLE report_templates ALTER COLUMN template_name SET NOT NULL.
-ALTER TABLE report_templates ALTER COLUMN template_type SET NOT NULL.
-ALTER TABLE report_templates ALTER COLUMN grade_band SET NOT NULL.
+ALTER TABLE report_templates ALTER COLUMN template_name SET NOT NULL;
+ALTER TABLE report_templates ALTER COLUMN template_type SET NOT NULL;
+ALTER TABLE report_templates ALTER COLUMN grade_band SET NOT NULL;
 
 -- RLS ENABLE & POLICIES
 -- Enable RLS on all tenant-scoped tables
