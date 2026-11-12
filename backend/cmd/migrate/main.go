@@ -7,7 +7,11 @@
 //	schema_migrations(filename, checksum, applied_at)
 //
 // A changed file that has already been applied aborts the run. Add a new file
-// instead of editing history.
+// instead of editing history. The only exception is repairedChecksums below:
+// migrations whose historical content was syntactically invalid or missing a
+// required index and had to be corrected in place. Those exact old checksums
+// are adopted; the accompanying new migration applies the schema delta, so the
+// corrected file is never re-executed against a live database.
 package main
 
 import (
@@ -23,6 +27,16 @@ import (
 
 	_ "github.com/lib/pq"
 )
+
+// repairedChecksums maps a migration that had to be corrected in place to the
+// checksum of its historical content. A database that recorded that exact
+// content is adopted (checksum updated) instead of aborting deployment.
+// 0001 never executed anywhere (its statements ended in '.'), so adoption can
+// only come from -baseline. 0029 was executable; 0039 applies its index delta.
+var repairedChecksums = map[string]string{
+	"0001_baseline.sql":   "65be7a029b50ac61a95e9bcd09c0e237bc414ae86a25139786bf904a0e9e5e6c",
+	"0029_seed_plans.sql": "08e09becd1db397b858cf39126a28346116e4cf1faf0ca3d52114adfd2f97462",
+}
 
 func main() {
 	dir := flag.String("dir", "migrations", "directory containing *.sql migrations")
@@ -136,6 +150,13 @@ func run(db *sql.DB, dir string, seed, dryRun bool, baseline string) error {
 		case err == nil && existing == checksum:
 			continue
 		case err == nil && existing != checksum:
+			if repaired, ok := repairedChecksums[name]; ok && existing == repaired {
+				if _, uerr := db.Exec(`UPDATE schema_migrations SET checksum = $1 WHERE filename = $2`, checksum, name); uerr != nil {
+					return fmt.Errorf("adopt repaired checksum for %s: %w", name, uerr)
+				}
+				fmt.Printf("adopted repaired checksum: %s\n", name)
+				continue
+			}
 			return fmt.Errorf("%s was already applied with a different checksum; create a new migration instead", name)
 		case !errors.Is(err, sql.ErrNoRows):
 			return fmt.Errorf("check %s: %w", name, err)

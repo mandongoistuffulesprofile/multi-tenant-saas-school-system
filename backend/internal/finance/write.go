@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -894,6 +895,15 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		})
 		return
 	}
+	// The JSON transport is float64; snap to the 2dp currency value once and
+	// use that exact decimal for the payment, allocation and receipt.
+	paymentAmount := money.New(fmt.Sprintf("%.2f", req.Amount))
+	if !paymentAmount.IsPositive() {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "amount", Code: "OUT_OF_RANGE", Message: "'amount' must be at least 0.01"},
+		})
+		return
+	}
 
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
@@ -919,7 +929,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	err = tx.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, recorded_by, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6, $7) RETURNING payment_id`,
-		tenantID, req.PaymentReference, req.LearnerID, source, req.Amount,
+		tenantID, req.PaymentReference, req.LearnerID, source, paymentAmount.StringFixed(2),
 		nullableString(userID), idempotencyKey).Scan(&paymentID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -938,34 +948,35 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	}
 	allocatedAmount := 0.0
 	if allocationInvoice != "" {
-		var outstanding float64
+		var outstandingStr string
 		err := tx.QueryRow(
-			`SELECT amount_outstanding FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
-			allocationInvoice, tenantID).Scan(&outstanding)
-		if err == nil && outstanding > 0 {
-			alloc := req.Amount
-			if alloc > outstanding {
+			`SELECT amount_outstanding::text FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
+			allocationInvoice, tenantID).Scan(&outstandingStr)
+		outstanding := money.New(outstandingStr)
+		if err == nil && outstanding.IsPositive() {
+			alloc := paymentAmount
+			if alloc.GreaterThan(outstanding) {
 				alloc = outstanding
 			}
 			if _, err := tx.Exec(
 				`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 				 VALUES ($1, $2, $3, $4, $5)`,
-				tenantID, paymentID, allocationInvoice, alloc, nullableString(userID)); err == nil {
+				tenantID, paymentID, allocationInvoice, alloc.StringFixed(2), nullableString(userID)); err == nil {
 				_, _ = tx.Exec(
 					`UPDATE invoices SET amount_paid = amount_paid + $1,
 					   amount_outstanding = amount_outstanding - $1,
 					   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
 					   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
 					   updated_at = now()
-					 WHERE invoice_id = $2 AND tenant_id = $3`, alloc, allocationInvoice, tenantID)
-				allocatedAmount = alloc
+					 WHERE invoice_id = $2 AND tenant_id = $3`, alloc.StringFixed(2), allocationInvoice, tenantID)
+				allocatedAmount = alloc.InexactFloat64()
 			}
 		}
 	}
 
 	// Best-effort receipt notification to primary payer guardian (idempotent).
 	idem := "payment-receipt:" + tenantID + ":" + paymentID
-	msg := fmt.Sprintf("Payment received: KES %.2f (Ref %s). Thank you.", req.Amount, req.PaymentReference)
+	msg := fmt.Sprintf("Payment received: KES %s (Ref %s). Thank you.", paymentAmount.StringFixed(2), req.PaymentReference)
 	_, _ = tx.Exec(`
 		INSERT INTO outbound_messages (tenant_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, idempotency_key)
 		SELECT $1, 'GUARDIAN', g.guardian_id, 'SMS',

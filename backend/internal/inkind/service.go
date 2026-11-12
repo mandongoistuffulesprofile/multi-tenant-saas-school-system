@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 )
 
 type queryer interface {
@@ -84,17 +84,17 @@ type InKindIntakeItem struct {
 }
 
 type FeePaymentAllocation struct {
-	ID                  string  `json:"id"`
-	TenantID            string  `json:"tenant_id"`
-	StudentID           string  `json:"student_id"`
-	PaymentType         string  `json:"payment_type"`
-	SourceReference     *string `json:"source_reference,omitempty"`
-	Amount              float64 `json:"amount"`
+	ID                   string  `json:"id"`
+	TenantID             string  `json:"tenant_id"`
+	StudentID            string  `json:"student_id"`
+	PaymentType          string  `json:"payment_type"`
+	SourceReference      *string `json:"source_reference,omitempty"`
+	Amount               float64 `json:"amount"`
 	AllocatedToInvoiceID *string `json:"allocated_to_invoice_id,omitempty"`
-	AllocationDate      string  `json:"allocation_date"`
-	AllocatedBy         *string `json:"allocated_by,omitempty"`
-	Notes               *string `json:"notes,omitempty"`
-	CreatedAt           string  `json:"created_at"`
+	AllocationDate       string  `json:"allocation_date"`
+	AllocatedBy          *string `json:"allocated_by,omitempty"`
+	Notes                *string `json:"notes,omitempty"`
+	CreatedAt            string  `json:"created_at"`
 }
 
 type CreateInKindRateRequest struct {
@@ -103,11 +103,11 @@ type CreateInKindRateRequest struct {
 }
 
 type CreateInventoryItemRequest struct {
-	ItemName     string  `json:"item_name" binding:"required"`
-	ItemType     string  `json:"item_type" binding:"required"`
-	Unit         string  `json:"unit" binding:"required"`
+	ItemName     string   `json:"item_name" binding:"required"`
+	ItemType     string   `json:"item_type" binding:"required"`
+	Unit         string   `json:"unit" binding:"required"`
 	UnitWeightKg *float64 `json:"unit_weight_kg"`
-	Description  *string `json:"description"`
+	Description  *string  `json:"description"`
 }
 
 type CreateIntakeLogRequest struct {
@@ -127,23 +127,23 @@ type CreateIntakeItemRequest struct {
 
 type VerifyIntakeRequest struct {
 	Items []VerifyIntakeItemRequest `json:"items" binding:"required"`
-	Notes *string                    `json:"notes"`
+	Notes *string                   `json:"notes"`
 }
 
 type VerifyIntakeItemRequest struct {
-	IntakeItemID     string   `json:"intake_item_id" binding:"required"`
-	VerifiedQuantity float64  `json:"verified_quantity" binding:"required,gte=0"`
-	QualityGrade     *string  `json:"quality_grade"`
-	Notes            *string  `json:"notes"`
+	IntakeItemID     string  `json:"intake_item_id" binding:"required"`
+	VerifiedQuantity float64 `json:"verified_quantity" binding:"required,gte=0"`
+	QualityGrade     *string `json:"quality_grade"`
+	Notes            *string `json:"notes"`
 }
 
 type CreateAllocationRequest struct {
-	StudentID       string  `json:"student_id" binding:"required"`
-	PaymentType     string  `json:"payment_type" binding:"required"`
-	SourceReference *string `json:"source_reference"`
-	Amount          float64 `json:"amount" binding:"required,gte=0"`
+	StudentID            string  `json:"student_id" binding:"required"`
+	PaymentType          string  `json:"payment_type" binding:"required"`
+	SourceReference      *string `json:"source_reference"`
+	Amount               float64 `json:"amount" binding:"required,gte=0"`
 	AllocatedToInvoiceID *string `json:"allocated_to_invoice_id"`
-	Notes           *string `json:"notes"`
+	Notes                *string `json:"notes"`
 }
 
 // ============ Methods ============
@@ -363,7 +363,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		return nil, err
 	}
 
-	var totalValue float64
+	totalValue := money.Zero()
 	for _, item := range req.Items {
 		// Look up active rate per item per term
 		var ratePerUnit float64
@@ -378,14 +378,17 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 			return nil, errors.New("no active rate for item " + item.InventoryItemID)
 		}
 
-		cashEquivalent := item.Quantity * ratePerUnit
-		totalValue += cashEquivalent
+		// Money is computed and rounded to cents in decimal; only the physical
+		// quantity stays a float. This keeps the item rows and the journal
+		// totals exactly reconciled.
+		cashEquivalent := money.New(item.Quantity).Mul(money.New(ratePerUnit)).Round(2)
+		totalValue = totalValue.Add(cashEquivalent)
 
 		// Insert intake item with rate snapshot
 		_, err = tx.Exec(
 			`INSERT INTO in_kind_intake_items (tenant_id, intake_log_id, inventory_item_id, quantity, unit, rate_per_unit, cash_equivalent, quality_grade, notes)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			tenantID, l.ID, item.InventoryItemID, item.Quantity, unit, ratePerUnit, cashEquivalent, item.QualityGrade, item.Notes,
+			tenantID, l.ID, item.InventoryItemID, item.Quantity, unit, money.New(ratePerUnit).StringFixed(2), cashEquivalent.StringFixed(2), item.QualityGrade, item.Notes,
 		)
 		if err != nil {
 			return nil, err
@@ -395,7 +398,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		_, err = tx.Exec(
 			`INSERT INTO inventory_lots (tenant_id, source_type, source_id, inventory_item_id, qty_received, qty_remaining, unit_cost)
 			 VALUES ($1, 'IN_KIND', $2, $3, $4, $4, $5)`,
-			tenantID, l.ID, item.InventoryItemID, item.Quantity, ratePerUnit,
+			tenantID, l.ID, item.InventoryItemID, item.Quantity, money.New(ratePerUnit).StringFixed(2),
 		)
 		if err != nil {
 			return nil, err
@@ -422,7 +425,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
 		 SELECT $1, $2, la.id, $3::uuid, $4, 0
 		 FROM ledger_accounts la WHERE la.tenant_id = $1 AND la.code = 'INV_FOOD' LIMIT 1`,
-		tenantID, entryID, req.StudentID, totalValue,
+		tenantID, entryID, req.StudentID, totalValue.StringFixed(2),
 	)
 	if err != nil {
 		return nil, err
@@ -433,7 +436,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
 		 SELECT $1, $2, la.id, $3::uuid, 0, $4
 		 FROM ledger_accounts la WHERE la.tenant_id = $1 AND la.code = 'FEE_RECEIVABLE' LIMIT 1`,
-		tenantID, entryID, req.StudentID, totalValue,
+		tenantID, entryID, req.StudentID, totalValue.StringFixed(2),
 	)
 	if err != nil {
 		return nil, err
@@ -443,7 +446,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 	_, err = tx.Exec(
 		`INSERT INTO notification_outbox (tenant_id, channel, recipient, template_key, payload, status)
 		 VALUES ($1, 'SMS', (SELECT phone_number FROM users WHERE user_id = (SELECT user_id FROM learners WHERE learner_id = $2)), 'IN_KIND_RECEIPT', $3, 'PENDING')`,
-		tenantID, req.StudentID, `{"intake_number": "`+req.IntakeNumber+`", "total_value": `+fmt.Sprintf("%.2f", totalValue)+`}`,
+		tenantID, req.StudentID, `{"intake_number": "`+req.IntakeNumber+`", "total_value": `+totalValue.StringFixed(2)+`}`,
 	)
 	if err != nil {
 		// Non-fatal: log but don't fail the transaction
