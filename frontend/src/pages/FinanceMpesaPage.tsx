@@ -44,6 +44,7 @@ export default function FinanceMpesaPage() {
   const [drawer, setDrawer] = useState<C2BEvent | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
   const [showSuspense, setShowSuspense] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +55,7 @@ export default function FinanceMpesaPage() {
       setEvents(ev.data?.data || []);
       setStats(ev.data?.stats || {});
       setIntegrity(vf.data || null);
+      setUnavailable(false);
       // Derived gateway diagnostics from real rows (no fabrication).
       const rows = ev.data?.data || [];
       const last = rows.length ? rows.map((r: C2BEvent) => new Date(r.created_at).getTime())
@@ -68,6 +70,11 @@ export default function FinanceMpesaPage() {
         stkPending,
         syncPercent: ev.data?.stats?.sync_percent ?? null,
       });
+    } catch {
+      // The forensic event/chain endpoints are not part of the core API.
+      // Show an explicit not-enabled state instead of an empty "verified"
+      // ledger or a stream of failing action buttons.
+      setUnavailable(true);
     } finally {
       setLoading(false);
     }
@@ -112,6 +119,38 @@ export default function FinanceMpesaPage() {
   const allocated = events.filter((e) => e.status !== "SUSPENSE");
   const pad = dense ? "py-1.5" : "py-3";
   const cellTap = dense ? "text-xs" : "text-sm";
+
+  if (unavailable) {
+    return (
+      <ErrorBoundary>
+        <div className="min-h-screen bg-slate-50 p-4">
+          <div className="max-w-3xl mx-auto enterprise-card p-8">
+            <h2 className="text-heading">M-Pesa Real-Time Ledger</h2>
+            <p className="text-body text-gray-500">Forensic double-entry ledger · hash-chained · append-only</p>
+            <div className="mt-6 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+              <div className="font-bold">The forensic ledger is not enabled on this deployment</div>
+              <p className="mt-2 text-xs leading-relaxed">
+                This screen needs <span className="font-mono">GET /finance/mpesa/events</span>,
+                {" "}<span className="font-mono">GET /finance/ledger/verify</span>, and a hash-chained
+                event model. The database has raw M-Pesa inbox/transactions and journal entries, but
+                no event-chain columns or verification endpoints, so the app will not display a
+                “verified” chain or a simulated webhook button that cannot work.
+              </p>
+              <p className="mt-2 text-xs leading-relaxed">
+                Real M-Pesa transactions are still available. Use
+                {" "}<a className="font-bold underline" href="/finance/reconciliation">M-Pesa reconciliation</a>
+                {" "}to match receipts to invoices and flag refunds.
+              </p>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <button onClick={() => { setUnavailable(false); setLoading(true); load(); }} className="px-3 py-1.5 rounded-md border border-slate-300 font-bold hover:border-slate-500">Try again</button>
+              <a href="/finance/reconciliation" className="px-3 py-1.5 rounded-md bg-slate-900 text-white font-bold hover:bg-slate-800">Open reconciliation</a>
+            </div>
+          </div>
+        </div>
+      </ErrorBoundary>
+    );
+  }
 
   return (
     <ErrorBoundary>

@@ -11,6 +11,7 @@ export default function BoardPackPage() {
   const [verification, setVerification] = useState<any>(null);
   const [integrity, setIntegrity] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -22,7 +23,11 @@ export default function BoardPackPage() {
       setPack(p.data?.pack || null);
       setVerification(p.data?.verification || null);
       setIntegrity(v.data || null);
-    }).catch(() => {})
+    }).catch(() => {
+      // Do not render a blank board pack or a fake verification stamp when
+      // the service is not deployed. Explain the gap instead.
+      setUnavailable(true);
+    })
       .finally(() => setLoading(false));
     return () => document.body.classList.remove("printing-pack");
   }, []);
@@ -40,6 +45,38 @@ export default function BoardPackPage() {
   const school = (() => { try { return localStorage.getItem("school_code") || "School"; } catch { return "School"; } })();
 
   if (loading) return <div className="min-h-screen bg-gray-50 p-6"><Skeleton rows={8} columns={3} /></div>;
+
+  if (unavailable) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4">
+        <div className="max-w-3xl mx-auto">
+          <div className="enterprise-card p-8">
+            <h1 className="text-xl font-black uppercase tracking-tight">Board Financial Summary</h1>
+            <p className="text-xs text-gray-500 mt-1">Basic Education Act 2013 · s.56 reporting</p>
+            <div className="mt-6 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+              <div className="font-bold">Board pack is not enabled on this deployment</div>
+              <p className="mt-2 text-xs leading-relaxed">
+                This page needs <span className="font-mono">GET /finance/board-pack</span> and
+                {" "}<span className="font-mono">GET /finance/ledger/verify</span>, plus an append-only
+                hash-chained ledger. Those endpoints and chain columns are not present in this database,
+                so the app will not print a verification code or claim that a chain was checked.
+              </p>
+              <p className="mt-2 text-xs leading-relaxed">
+                The underlying finance records are still available from the normal finance screens.
+                Use <a className="font-bold underline" href="/finance/reconciliation">M-Pesa reconciliation</a>,
+                {" "}<a className="font-bold underline" href="/finance/invoices">invoices</a>, and
+                {" "}<a className="font-bold underline" href="/finance/payments">payments</a>.
+              </p>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <button onClick={() => window.location.reload()} className="px-3 py-1.5 rounded-md border border-slate-300 font-bold hover:border-slate-500">Try again</button>
+              <a href="/finance/reconciliation" className="px-3 py-1.5 rounded-md bg-slate-900 text-white font-bold hover:bg-slate-800">Open reconciliation</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 print:p-0">

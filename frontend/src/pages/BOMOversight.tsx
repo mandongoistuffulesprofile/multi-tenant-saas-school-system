@@ -16,23 +16,28 @@ export const BOMOversight: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // The ledger verification endpoint is optional: forensic hash-chain
+    // verification is not enabled on every deployment. Do not let one missing
+    // endpoint take down the whole statutory dashboard.
+    const safe = (path: string) => api.get(path).then((r) => r.data).catch(() => null);
     Promise.all([
-      api.get("/learners"),
-      api.get("/staff"),
-      api.get("/finance/invoices"),
-      api.get("/finance/payments"),
-      api.get("/attendance/marks"),
-      api.get("/finance/ledger/verify"),
+      safe("/learners"),
+      safe("/staff"),
+      safe("/finance/invoices"),
+      safe("/finance/payments"),
+      safe("/attendance/marks"),
+      safe("/finance/ledger/verify"),
     ]).then(([l, s, inv, pay, att, chain]) => {
-      const learners = Array.isArray(l.data) ? l.data : [];
-      const staff = Array.isArray(s.data) ? s.data : [];
-      const invoices = Array.isArray(inv.data) ? inv.data : [];
-      const payments = Array.isArray(pay.data) ? pay.data : [];
-      const marks = Array.isArray(att.data) ? att.data : [];
+      const learners = Array.isArray(l) ? l : [];
+      const staff = Array.isArray(s) ? s : [];
+      const invoices = Array.isArray(inv) ? inv : [];
+      const payments = Array.isArray(pay) ? pay : [];
+      const marks = Array.isArray(att) ? att : [];
       const teachers = staff.filter((m: any) => String(m.role || m.roles?.[0] || "").toUpperCase().indexOf("TEACHER") > -1);
       const present = marks.filter((m: any) => String(m.status).toUpperCase() === "PRESENT").length;
       const marked = marks.filter((m: any) => ["PRESENT", "ABSENT"].includes(String(m.status).toUpperCase())).length;
       const withoutUpi = learners.filter((l2: any) => !l2.upi_nemis_number).length;
+      const chainEnabled = Boolean(chain && typeof chain === "object" && "valid" in chain);
       setData({
         learners: learners.length,
         teachers: teachers.length,
@@ -42,11 +47,17 @@ export const BOMOversight: React.FC = () => {
         outstanding: invoices.reduce((a: number, x: any) => a + Number(x.amount_outstanding || 0), 0),
         attendancePct: marked ? Math.round((present / marked) * 1000) / 10 : null,
         withoutUpi,
-        chainDepth: chain.data?.depth ?? null,
-        chainOk: chain.data?.valid,
+        chainDepth: chainEnabled ? (chain as any).depth ?? null : null,
+        chainOk: chainEnabled ? (chain as any).valid : null,
+        chainEnabled,
       });
-    }).catch(() => {})
-      .finally(() => setLoading(false));
+    }).catch(() => {
+      setData({
+        learners: 0, teachers: 0, invoices: 0, invoiced: 0, collected: 0,
+        outstanding: 0, attendancePct: null, withoutUpi: 0,
+        chainDepth: null, chainOk: null, chainEnabled: false,
+      });
+    }).finally(() => setLoading(false));
   }, []);
 
   if (loading || !data) {
@@ -66,7 +77,13 @@ export const BOMOversight: React.FC = () => {
     efficiency: sw ? "Ufanisi wa ukusanyaji" : "Collection efficiency",
     capitation: sw ? "Ruzuju ya Serikali (Capitation)" : "Government capitation (SIMBA / GP accounts)",
     capitationNote: sw ? "Haitafuatiliwa kwenye mfumo huu bado — ripoti SIMBA/NEMIS ya wizara bado hutumwa nje." : "Not tracked in this system yet — MoE SIMBA/NEMIS capitation returns remain external.",
-    forensicsNote: sw ? `${data.chainDepth} malipo yamefungwa kwenye ledger yenye hash isiyo-ruhusu kubadilishwa.` : `${data.chainDepth} C2B receipts are committed to an append-only hash-chained ledger.`,
+    forensicsNote: !data.chainEnabled
+      ? (sw
+          ? "Uthibitishaji wa hash-chain haujawashwa kwenye mfumo huu. Takwimu hapa zinatokana na data halisi ya fedha; hakuna madai ya uthibitisho wa cryptografia."
+          : "Forensic hash-chain verification is not enabled on this deployment. The figures here come from live finance data; no cryptographic verification is claimed.")
+      : (sw
+          ? `${data.chainDepth} malipo yamefungwa kwenye ledger yenye hash isiyo-ruhusu kubadilishwa.`
+          : `${data.chainDepth} C2B receipts are committed to an append-only hash-chained ledger.`),
     print: sw ? "Chapisha kwa BOM" : "Print for BOM",
   };
 
