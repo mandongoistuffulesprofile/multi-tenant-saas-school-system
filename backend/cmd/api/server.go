@@ -723,6 +723,8 @@ func Run() error {
 		reportsGroup.GET("/runs", middleware.RequireRole(middleware.RoleAcademicStaff...), reportsHandler.ListReportRuns)
 		reportsGroup.GET("/cards", middleware.RequireRole(append(middleware.RoleAcademicStaff, middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.ListReportCards)
 		reportsGroup.GET("/cards/:card_id", middleware.RequireRole(append(middleware.RoleAcademicStaff, middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.GetReportCard)
+		// Print-ready PDF generated server-side from the stored card.
+		reportsGroup.GET("/cards/:card_id/pdf", middleware.RequireRole(append(middleware.RoleAcademicStaff, middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.GetReportCardPDF)
 		reportsGroup.GET("/cards/:card_id/comments", middleware.RequireRole(append(middleware.RoleAcademicStaff, middleware.RoleParent, middleware.RoleGuardian)...), reportsHandler.ListReportCardComments)
 
 		// Write side
