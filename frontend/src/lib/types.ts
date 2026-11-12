@@ -981,6 +981,20 @@ export interface PlatformInvoice {
   updated_at: Timestamp;
 }
 
+export interface Tenant {
+  tenant_id: ID;
+  school_name: string;
+  subdomain?: string;
+  school_type?: string;
+  funding_mode?: string;
+  status: string;
+  county?: string;
+  learners?: number;
+  last_activity?: string;
+  onboarding_status?: string;
+  onboarding_step?: string;
+}
+
 export interface TenantUsage {
   usage_id: ID;
   tenant_id: ID;

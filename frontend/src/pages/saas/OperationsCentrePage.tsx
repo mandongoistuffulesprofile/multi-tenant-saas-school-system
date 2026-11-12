@@ -6,7 +6,7 @@ import { KPIStatCard } from "../../components/atoms/Card";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 import { api } from "../../lib/api";
-import { Tenant, Plan, Subscription } from "../../lib/types";
+import { Tenant, TenantUsage, Plan, Subscription } from "../../lib/types";
 import { SharpShield } from "../../components/icons";
 
 interface AssistanceRequest {
