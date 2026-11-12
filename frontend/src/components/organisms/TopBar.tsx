@@ -19,7 +19,7 @@ interface TopBarProps {
  */
 export default function TopBar({ left, center, right, banner, className = "" }: TopBarProps) {
   return (
-    <header className={`sticky top-0 z-40 bg-white border-b border-gray-200 ${className}`}>
+    <header className={`sticky top-0 z-40 bg-white border-b border-gray-200 print:hidden ${className}`}>
       {banner}
       <div className="flex items-center justify-between px-6 py-3">
         <div className="flex items-center gap-3">{left}</div>

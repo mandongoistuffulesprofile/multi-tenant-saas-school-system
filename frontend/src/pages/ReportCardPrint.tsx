@@ -73,7 +73,7 @@ export const ReportCardPrint: React.FC = () => {
 
   return (
     <ErrorBoundary>
-      <div className="space-y-4 min-h-screen bg-gray-50 p-4">
+      <div className="space-y-4 min-h-screen bg-gray-50 p-4 print:min-h-0 print:bg-white print:p-0">
         <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 print:hidden max-w-5xl mx-auto">
           <div>
             <h2 className="text-base font-bold text-slate-900">Learner Report Card</h2>

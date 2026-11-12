@@ -78,7 +78,7 @@ export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
   return (
     <nav
       aria-label="Breadcrumb"
-      className="flex items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-100 bg-gray-50 px-4 py-2 text-xs text-gray-500 md:px-6 md:text-sm"
+      className="flex items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-gray-100 bg-gray-50 px-4 py-2 text-xs text-gray-500 md:px-6 md:text-sm print:hidden"
     >
       <ol className="flex items-center gap-1">
         {items.map((item, index) => {

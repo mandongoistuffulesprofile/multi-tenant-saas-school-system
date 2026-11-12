@@ -439,13 +439,13 @@ export default function Layout({ children }: LayoutProps) {
       <div className="flex">
         {!collapsed && (
           <div
-            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            className="fixed inset-0 z-40 bg-black/40 md:hidden print:hidden"
             onClick={() => setCollapsed(true)}
             aria-hidden="true"
           />
         )}
         <aside
-          className={`fixed inset-y-0 left-0 z-50 w-64 shrink-0 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out ${
+          className={`fixed inset-y-0 left-0 z-50 w-64 shrink-0 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out print:hidden ${
             collapsed ? "-translate-x-full" : "translate-x-0"
           } md:relative md:translate-x-0`}
         >
@@ -569,12 +569,12 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </aside>
 
-        <div className="flex-1 min-w-0 p-6">
+        <div className="flex-1 min-w-0 p-6 print:p-0">
           {showRecoveryHint && (
             <div
               role="status"
               aria-live="polite"
-              className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+              className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 print:hidden"
             >
               <div>
                 <strong>Protect your account.</strong> Add three security questions so you can
