@@ -105,3 +105,11 @@ what it will publish).
 - Both routes require `SCHOOL_ADMIN` (or another `RoleSchoolAdministrators`
   member) and a tenant-scoped transaction, so RLS applies to every read and
   write.
+- **Audit.** Applied operations write an `audit_events` row attributed to the
+  signed-in administrator, with the request IP and request ID; previews and
+  dry runs write nothing. `ACADEMIC_ROLLOVER_APPLIED` records the from/to
+  academic years plus promoted, graduating and total learner counts (the
+  target year is the event's record). `LEARNER_IMPORT_APPLIED` records rows
+  created, total rows, duplicates and invalid rows. Both are readable through
+  the tenant audit log and the platform console, and the SPA renders them as
+  sentences rather than raw action codes.

@@ -162,6 +162,15 @@ SPA screen is `/imports/learners`, linked from the learners directory. Both
 routes require a school-administrator role and run in the tenant-scoped
 transaction, so RLS applies to every read and write.
 
+**Audit.** Only applied operations are audited; previews and dry runs write
+nothing. Both events are attributed to the signed-in administrator and are
+visible in the tenant audit log and the platform console:
+
+| Action | Trigger | Records |
+| --- | --- | --- |
+| `ACADEMIC_ROLLOVER_APPLIED` | A school administrator applies a year-end rollover (`apply: true` / `dry_run: false`) | `from_year_id`, `to_year_id` (also the event's record), `promoted`, `graduating`, `total_learners` |
+| `LEARNER_IMPORT_APPLIED` | A school administrator applies a learner CSV import (`dry_run: false`) | `rows_created`, `total_rows`, `duplicates`, `invalid` |
+
 ## Architecture notes
 
 - **Tenancy:** `schools(tenant_id)` is the tenant root; `users` is global; authorization lives in `tenant_memberships`. Domain rows carry `tenant_id VARCHAR(50)`.
