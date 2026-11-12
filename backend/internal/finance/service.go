@@ -13,12 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -578,18 +580,20 @@ func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc Pa
 	}
 
 	// 1. Lock the invoice row to prevent concurrent allocation races.
+	// Scan monetary columns as strings to preserve exact NUMERIC(12,2) value
+	// without IEEE 754 float drift, then parse into money.Decimal.
 	var (
-		currentState InvoiceState
-		totalAmount  float64
-		paidAmount   float64
-		outstanding  float64
+		currentState string
+		totalStr     string
+		paidStr      string
+		outStr       string
 	)
 	err := tx.QueryRowContext(ctx, `
-		SELECT status, total_amount, amount_paid, amount_outstanding
+		SELECT status, total_amount::text, amount_paid::text, amount_outstanding::text
 		  FROM invoices
 		 WHERE invoice_id = $1 AND tenant_id = $2
 		 FOR UPDATE`,
-		alloc.InvoiceID, tenantID).Scan(&currentState, &totalAmount, &paidAmount, &outstanding)
+		alloc.InvoiceID, tenantID).Scan(&currentState, &totalStr, &paidStr, &outStr)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
 	}
@@ -597,36 +601,50 @@ func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc Pa
 		return nil, err
 	}
 
-	// 2. Evaluate the pure FSM transition (APPLY_CREDIT).
-	newPaid := paidAmount + alloc.AllocatedAmount
-	nextState, err := TransitionInvoice(currentState, EventApplyCredit, InvoiceContext{
+	totalAmount := money.New(totalStr)
+	paidAmount := money.New(paidStr)
+	outstanding := money.New(outStr)
+
+	// Snap the client-supplied allocation to 2dp cents to recover the intended
+	// currency value from the float64 JSON transport without drift.
+	allocAmount := money.New(fmt.Sprintf("%.2f", alloc.AllocatedAmount))
+
+	// 2. Evaluate the pure FSM transition (APPLY_CREDIT) using exact decimal.
+	newPaid := paidAmount.Add(allocAmount)
+	nextState, err := TransitionInvoice(InvoiceState(currentState), EventApplyCredit, InvoiceContext{
 		TotalAmount:       totalAmount,
 		PaidAmount:        newPaid,
-		AmountOutstanding: outstanding - alloc.AllocatedAmount,
+		AmountOutstanding: outstanding.Sub(allocAmount),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("allocation rejected: %w", err)
 	}
 
-	// 3. Persist the validated transition atomically.
+	newOutstanding := outstanding.Sub(allocAmount)
+
+	// 3. Persist the validated transition atomically. Write decimals back as
+	// fixed-2dp strings so Postgres casts them to NUMERIC(12,2) exactly.
 	_, err = tx.ExecContext(ctx, `
 		UPDATE invoices
-		   SET amount_paid = $1,
-		       amount_outstanding = $2,
+		   SET amount_paid = $1::numeric,
+		       amount_outstanding = $2::numeric,
 		       status = $3,
-		       paid_at = CASE WHEN $1 >= $4 THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
+		       paid_at = CASE WHEN $1::numeric >= $4::numeric THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
 		       updated_at = CURRENT_TIMESTAMP
 		 WHERE invoice_id = $5 AND tenant_id = $6`,
-		newPaid, outstanding-alloc.AllocatedAmount, nextState, totalAmount, alloc.InvoiceID, tenantID)
+		newPaid.StringFixed(2), newOutstanding.StringFixed(2), nextState, totalAmount.StringFixed(2), alloc.InvoiceID, tenantID)
 	if err != nil {
 		return nil, err
 	}
+
+	logInvoiceTransition(tx, tenantID, alloc.InvoiceID, string(currentState), string(nextState),
+		string(EventApplyCredit), alloc.AllocatedBy, "payment allocation")
 
 	err = tx.QueryRow(
 		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING allocation_id, allocated_at`,
-		tenantID, alloc.PaymentID, alloc.InvoiceID, alloc.AllocatedAmount, alloc.AllocatedBy,
+		tenantID, alloc.PaymentID, alloc.InvoiceID, allocAmount.StringFixed(2), alloc.AllocatedBy,
 	).Scan(&alloc.AllocationID, &alloc.AllocatedAt)
 	if err != nil {
 		return nil, err
@@ -644,12 +662,13 @@ func (s *Service) CancelInvoice(ctx context.Context, tenantID, invoiceID, cancel
 	}
 
 	var inv Invoice
+	var totalStr, paidStr string
 	err := tx.QueryRowContext(ctx, `
-		SELECT invoice_id, tenant_id, status, total_amount, amount_paid
+		SELECT invoice_id, tenant_id, status, total_amount::text, amount_paid::text
 		  FROM invoices
 		 WHERE invoice_id = $1 AND tenant_id = $2
 		 FOR UPDATE`,
-		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &inv.TotalAmount, &inv.AmountPaid)
+		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &totalStr, &paidStr)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
 	}
@@ -657,10 +676,13 @@ func (s *Service) CancelInvoice(ctx context.Context, tenantID, invoiceID, cancel
 		return nil, err
 	}
 
+	totalAmount := money.New(totalStr)
+	paidAmount := money.New(paidStr)
+
 	currentState := InvoiceState(inv.Status)
 	nextState, err := TransitionInvoice(currentState, EventCancel, InvoiceContext{
-		TotalAmount:  inv.TotalAmount,
-		PaidAmount:   inv.AmountPaid,
+		TotalAmount: totalAmount,
+		PaidAmount:  paidAmount,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cancel rejected: %w", err)
@@ -677,7 +699,15 @@ func (s *Service) CancelInvoice(ctx context.Context, tenantID, invoiceID, cancel
 	if err != nil {
 		return nil, err
 	}
+
+	logInvoiceTransition(tx, tenantID, invoiceID, string(currentState), string(nextState),
+		string(EventCancel), cancelledBy, "invoice cancelled")
+
 	inv.Status = string(nextState)
+	totalF, _ := totalAmount.Float64()
+	paidF, _ := paidAmount.Float64()
+	inv.TotalAmount = totalF
+	inv.AmountPaid = paidF
 	return &inv, nil
 }
 
@@ -689,12 +719,13 @@ func (s *Service) WaiveInvoice(ctx context.Context, tenantID, invoiceID, waivedB
 	}
 
 	var inv Invoice
+	var totalStr, paidStr string
 	err := tx.QueryRowContext(ctx, `
-		SELECT invoice_id, tenant_id, status, total_amount, amount_paid
+		SELECT invoice_id, tenant_id, status, total_amount::text, amount_paid::text
 		  FROM invoices
 		 WHERE invoice_id = $1 AND tenant_id = $2
 		 FOR UPDATE`,
-		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &inv.TotalAmount, &inv.AmountPaid)
+		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &totalStr, &paidStr)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
 	}
@@ -702,10 +733,13 @@ func (s *Service) WaiveInvoice(ctx context.Context, tenantID, invoiceID, waivedB
 		return nil, err
 	}
 
+	totalAmount := money.New(totalStr)
+	paidAmount := money.New(paidStr)
+
 	currentState := InvoiceState(inv.Status)
 	nextState, err := TransitionInvoice(currentState, EventWaive, InvoiceContext{
-		TotalAmount: inv.TotalAmount,
-		PaidAmount:  inv.AmountPaid,
+		TotalAmount: totalAmount,
+		PaidAmount:  paidAmount,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("waive rejected: %w", err)
@@ -722,7 +756,15 @@ func (s *Service) WaiveInvoice(ctx context.Context, tenantID, invoiceID, waivedB
 	if err != nil {
 		return nil, err
 	}
+
+	logInvoiceTransition(tx, tenantID, invoiceID, string(currentState), string(nextState),
+		string(EventWaive), waivedBy, "invoice waived")
+
 	inv.Status = string(nextState)
+	totalF, _ := totalAmount.Float64()
+	paidF, _ := paidAmount.Float64()
+	inv.TotalAmount = totalF
+	inv.AmountPaid = paidF
 	return &inv, nil
 }
 
@@ -734,12 +776,13 @@ func (s *Service) SuspendInvoice(ctx context.Context, tenantID, invoiceID, suspe
 	}
 
 	var inv Invoice
+	var totalStr, paidStr string
 	err := tx.QueryRowContext(ctx, `
-		SELECT invoice_id, tenant_id, status, total_amount, amount_paid
+		SELECT invoice_id, tenant_id, status, total_amount::text, amount_paid::text
 		  FROM invoices
 		 WHERE invoice_id = $1 AND tenant_id = $2
 		 FOR UPDATE`,
-		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &inv.TotalAmount, &inv.AmountPaid)
+		invoiceID, tenantID).Scan(&inv.InvoiceID, &inv.TenantID, &inv.Status, &totalStr, &paidStr)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
 	}
@@ -747,10 +790,13 @@ func (s *Service) SuspendInvoice(ctx context.Context, tenantID, invoiceID, suspe
 		return nil, err
 	}
 
+	totalAmount := money.New(totalStr)
+	paidAmount := money.New(paidStr)
+
 	currentState := InvoiceState(inv.Status)
 	nextState, err := TransitionInvoice(currentState, EventSuspend, InvoiceContext{
-		TotalAmount: inv.TotalAmount,
-		PaidAmount:  inv.AmountPaid,
+		TotalAmount: totalAmount,
+		PaidAmount:  paidAmount,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("suspend rejected: %w", err)
@@ -766,8 +812,29 @@ func (s *Service) SuspendInvoice(ctx context.Context, tenantID, invoiceID, suspe
 	if err != nil {
 		return nil, err
 	}
+
+	logInvoiceTransition(tx, tenantID, invoiceID, string(currentState), string(nextState),
+		string(EventSuspend), suspendedBy, "invoice suspended")
+
 	inv.Status = string(nextState)
+	totalF, _ := totalAmount.Float64()
+	paidF, _ := paidAmount.Float64()
+	inv.TotalAmount = totalF
+	inv.AmountPaid = paidF
 	return &inv, nil
+}
+
+// logTransition writes an immutable audit record for an invoice FSM state
+// transition inside the caller's open transaction. It never fails the
+// transition itself on a logging error (best-effort audit), but the write is
+// part of the same transaction so it commits or rolls back atomically.
+func logInvoiceTransition(tx *sqlx.Tx, tenantID, invoiceID, fromState, toState, event, actorID, reason string) {
+	_, _ = tx.ExecContext(context.Background(), `
+		INSERT INTO state_transition_logs
+			(tenant_id, entity_name, entity_id, from_state, to_state, event, actor_id, reason)
+		VALUES ($1, 'invoice', $2, $3, $4, $5, $6, $7)`,
+		tenantID, invoiceID, fromState, toState, event, actorID, reason,
+	)
 }
 
 // ============ Credits (tenant-scoped) ============

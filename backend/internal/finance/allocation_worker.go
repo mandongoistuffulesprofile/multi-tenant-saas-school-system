@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 )
 
 type AllocationWorker struct {
@@ -44,7 +46,7 @@ func (w *AllocationWorker) processBatch(ctx context.Context) error {
 	// Select next unallocated payments locking only target rows
 	// Process in tenant order for deterministic locking
 	selectQuery := `
-		SELECT id, tenant_id, trans_id, trans_amount, bill_ref_number
+		SELECT id, tenant_id, trans_id, trans_amount::text, bill_ref_number
 		FROM mpesa_inbox
 		WHERE status = 'PENDING'
 		ORDER BY tenant_id, created_at ASC
@@ -61,7 +63,7 @@ func (w *AllocationWorker) processBatch(ctx context.Context) error {
 		ID       string
 		TenantID string
 		TransID  string
-		Amount   float64
+		Amount   string
 		BillRef  string
 	}
 	var batch []Item
@@ -93,10 +95,16 @@ func (w *AllocationWorker) processBatch(ctx context.Context) error {
 	return tx.Commit()
 }
 
-func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inboxID, tenantID, transID string, amount float64, admissionNo string) error {
+func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inboxID, tenantID, transID, amountStr, admissionNo string) error {
 	// Set RLS scope dynamically for each allocation unit
 	if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", tenantID); err != nil {
 		return err
+	}
+
+	// Snap the inbox amount (NUMERIC read as text) to exact decimal cents.
+	allocAmount := money.New(amountStr)
+	if allocAmount.LessThanOrEqual(money.Zero()) {
+		return fmt.Errorf("allocation amount must exceed zero")
 	}
 
 	// 1. Resolve student by admission number
@@ -113,7 +121,7 @@ func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inbo
 	// 2. Select invoices for update to prevent concurrent race conditions
 	// Deterministic lock ordering: ORDER BY due_date ASC NULLS LAST
 	rows, err := tx.QueryContext(ctx, `
-		SELECT invoice_id, (total_amount - amount_paid) as remaining_balance 
+		SELECT invoice_id, (total_amount - amount_paid)::text as remaining_balance 
 		FROM invoices 
 		WHERE learner_id = $1 AND tenant_id = $2 AND status IN ('ISSUED','PARTIALLY_PAID','OVERDUE')
 		ORDER BY due_date ASC NULLS LAST, created_at
@@ -123,38 +131,43 @@ func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inbo
 	}
 	defer rows.Close()
 
-	remainingPayment := amount
-	for rows.Next() && remainingPayment > 0 {
+	remainingPayment := allocAmount
+	for rows.Next() && remainingPayment.GreaterThan(money.Zero()) {
 		var invoiceID string
-		var remainingBalance float64
-		if err := rows.Scan(&invoiceID, &remainingBalance); err != nil {
+		var remainingBalanceStr string
+		if err := rows.Scan(&invoiceID, &remainingBalanceStr); err != nil {
 			return err
 		}
+		remainingBalance := money.New(remainingBalanceStr)
 
 		allocation := remainingPayment
-		if allocation > remainingBalance {
+		if allocation.GreaterThan(remainingBalance) {
 			allocation = remainingBalance
 		}
 
-		// Lock invoice row and transition via the invoice FSM.
+		// Lock invoice row and transition via the invoice FSM (exact decimal).
 		var (
-			invState     InvoiceState
-			invTotal     float64
-			invPaid      float64
-			invOutstanding float64
+			invState       string
+			invTotalStr    string
+			invPaidStr     string
+			invOutstanding string
 		)
 		err := tx.QueryRowContext(ctx, `
-			SELECT status, total_amount, amount_paid, amount_outstanding
+			SELECT status, total_amount::text, amount_paid::text, amount_outstanding::text
 			  FROM invoices
 			 WHERE invoice_id = $1 AND tenant_id = $2
-			 FOR UPDATE`, invoiceID, tenantID).Scan(&invState, &invTotal, &invPaid, &invOutstanding)
+			 FOR UPDATE`, invoiceID, tenantID).Scan(&invState, &invTotalStr, &invPaidStr, &invOutstanding)
 		if err != nil {
 			return err
 		}
 
-		newPaid := invPaid + allocation
-		newOutstanding := invOutstanding - allocation
-		newBalance := remainingBalance - allocation
+		invTotal := money.New(invTotalStr)
+		invPaid := money.New(invPaidStr)
+		invOut := money.New(invOutstanding)
+
+		newPaid := invPaid.Add(allocation)
+		newOutstanding := invOut.Sub(allocation)
+		newBalance := remainingBalance.Sub(allocation)
 		nextState, err := TransitionInvoice(InvoiceState(invState), EventApplyCredit, InvoiceContext{
 			TotalAmount:       invTotal,
 			PaidAmount:        newPaid,
@@ -166,27 +179,28 @@ func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inbo
 
 		_, err = tx.ExecContext(ctx, `
 			UPDATE invoices 
-			SET amount_paid = $1, amount_outstanding = $2, status = $3,
-			    paid_at = CASE WHEN $1 >= $4 THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
+			SET amount_paid = $1::numeric, amount_outstanding = $2::numeric, status = $3,
+			    paid_at = CASE WHEN $1::numeric >= $4::numeric THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
 			    updated_at = NOW()
 			WHERE invoice_id = $5 AND tenant_id = $6`,
-			newPaid, newOutstanding, nextState, invTotal, invoiceID, tenantID)
+			newPaid.StringFixed(2), newOutstanding.StringFixed(2), nextState, invTotal.StringFixed(2), invoiceID, tenantID)
 		if err != nil {
 			return err
 		}
 
-		// Ledger write - immutable forensic record
+		// Ledger write - immutable forensic record (exact decimal amounts).
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO payment_ledger (
 				tenant_id, inbox_id, receipt_number, student_id, invoice_id, 
 				amount, balance_before, balance_after, allocated_by
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'SYSTEM_WORKER')`,
-			tenantID, inboxID, transID, studentID, invoiceID, allocation, remainingBalance, newBalance)
+			) VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, 'SYSTEM_WORKER')`,
+			tenantID, inboxID, transID, studentID, invoiceID,
+			allocation.StringFixed(2), remainingBalance.StringFixed(2), newBalance.StringFixed(2))
 		if err != nil {
 			return err
 		}
 
-		remainingPayment -= allocation
+		remainingPayment = remainingPayment.Sub(allocation)
 	}
 
 	return nil

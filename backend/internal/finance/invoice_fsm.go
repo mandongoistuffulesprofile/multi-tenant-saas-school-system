@@ -3,6 +3,8 @@ package finance
 import (
 	"errors"
 	"fmt"
+
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 )
 
 // InvoiceState is the lifecycle of a fee invoice. An invoice exists in
@@ -60,13 +62,13 @@ var invoiceTransitions = map[InvoiceState]map[InvoiceEvent]InvoiceState{
 	InvoiceSuspended:   {},
 }
 
-// InvoiceContext carries the numeric data evaluated by the pure transition
-// function. All amounts are in the invoice's currency minor units represented
-// as float64 for compatibility with the existing schema.
+// InvoiceContext carries the monetary data evaluated by the pure transition
+// function. All amounts use money.Decimal (shopspring/decimal, backed by
+// PostgreSQL NUMERIC) to avoid IEEE 754 float drift. Never use float64 here.
 type InvoiceContext struct {
-	TotalAmount     float64
-	PaidAmount      float64
-	AmountOutstanding float64
+	TotalAmount       money.Decimal
+	PaidAmount        money.Decimal
+	AmountOutstanding money.Decimal
 }
 
 // TransitionInvoice evaluates a state transition pure of any I/O. It returns
@@ -82,33 +84,32 @@ func TransitionInvoice(current InvoiceState, event InvoiceEvent, ctx InvoiceCont
 		return current, fmt.Errorf("%w: cannot execute event '%s' in state '%s'", ErrInvalidTransition, event, current)
 	}
 
+	zero := money.Zero()
+
 	switch event {
 	case EventIssue:
-		if ctx.TotalAmount <= 0 {
-			return current, fmt.Errorf("%w: total amount must exceed zero", ErrInvariantFailed)
+		if ctx.TotalAmount.LessThanOrEqual(zero) {
+			return current, fmt.Errorf("%w: total amount must exceed zero to issue", ErrInvariantFailed)
 		}
 		return targetState, nil
 
 	case EventApplyCredit:
-		if ctx.TotalAmount <= 0 {
-			return current, fmt.Errorf("%w: total amount must exceed zero", ErrInvariantFailed)
+		if ctx.PaidAmount.LessThan(zero) || ctx.TotalAmount.LessThanOrEqual(zero) {
+			return current, fmt.Errorf("%w: amounts cannot be negative or total zero", ErrInvariantFailed)
 		}
-		if ctx.PaidAmount < 0 {
-			return current, fmt.Errorf("%w: paid amount cannot be negative", ErrInvariantFailed)
-		}
-		if ctx.PaidAmount >= ctx.TotalAmount {
+		if ctx.PaidAmount.GreaterThanOrEqual(ctx.TotalAmount) {
 			return InvoiceFullyPaid, nil
 		}
 		return InvoicePartiallyPaid, nil
 
 	case EventCancel:
-		if ctx.PaidAmount > 0 {
+		if ctx.PaidAmount.GreaterThan(zero) {
 			return current, fmt.Errorf("%w: cannot cancel invoice with active payments", ErrInvariantFailed)
 		}
 		return targetState, nil
 
 	case EventWaive:
-		if ctx.PaidAmount > 0 {
+		if ctx.PaidAmount.GreaterThan(zero) {
 			return current, fmt.Errorf("%w: cannot waive invoice with active payments", ErrInvariantFailed)
 		}
 		return targetState, nil
