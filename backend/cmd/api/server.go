@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/academic"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/assessment"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/attendance"
@@ -31,6 +32,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/holdingtank"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/imports"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/inkind"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/kitchen"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/knec"
@@ -139,6 +141,12 @@ func Run() error {
 
 	structureService := structure.NewService(database)
 	structureHandler := structure.NewHandler(structureService)
+
+	academicService := academic.NewService(database)
+	academicHandler := academic.NewHandler(academicService)
+
+	importsService := imports.NewService(database)
+	importsHandler := imports.NewHandler(importsService)
 
 	syncService := sync.NewService()
 	syncHandler := sync.NewHandler(syncService)
@@ -896,6 +904,20 @@ func Run() error {
 		structureGroup.GET("/teaching-assignments", middleware.RequireRole(middleware.RoleAcademicStaff...), structureHandler.ListTeachingAssignments)
 		structureGroup.POST("/teaching-assignments", middleware.RequireRole(middleware.RoleSchoolAdministrators...), structureHandler.CreateTeachingAssignment)
 		structureGroup.DELETE("/teaching-assignments/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), structureHandler.DeleteTeachingAssignment)
+	}
+
+	// Academic year-end workflow — preview and apply learner promotion.
+	academicGroup := apiV1.Group("/academic")
+	academicGroup.Use(middleware.RequireAuthGin(jwtManager))
+	{
+		academicGroup.POST("/rollover", middleware.RequireRole(middleware.RoleSchoolAdministrators...), academicHandler.Rollover)
+	}
+
+	// Bulk learner intake — CSV preview (dry run) and apply.
+	importsGroup := apiV1.Group("/imports")
+	importsGroup.Use(middleware.RequireAuthGin(jwtManager))
+	{
+		importsGroup.POST("/learners", middleware.RequireRole(middleware.RoleSchoolAdministrators...), importsHandler.ImportLearners)
 	}
 
 	// Sync routes — offline queue replay and conflict resolution.
