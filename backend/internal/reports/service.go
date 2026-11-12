@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
@@ -312,25 +313,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 }
 
 func (h *Handler) logReportAudit(c *gin.Context, action, targetType, targetID string, meta map[string]any) {
-	tx := middleware.TxFromGin(c)
-	if tx == nil {
-		return
-	}
-	tenantID := c.GetString("tenant_id")
-	userID := c.GetString("user_id")
-	ip := c.ClientIP()
-	ua := c.GetHeader("User-Agent")
-	_, _ = tx.Exec(
-		`INSERT INTO audit_events (tenant_id, actor_user_id, action, target_type, target_id, request_ip, user_agent, after_state, severity)
-		 VALUES ($1, NULLIF($2,'')::uuid, $3, $4, $5, $6, $7, $8::jsonb, 'INFO')`,
-		tenantID, userID, action, targetType, targetID, ip, ua, func() string {
-			b, err := json.Marshal(meta)
-			if err != nil {
-				return "{}"
-			}
-			return string(b)
-		}(),
-	)
+	audit.TenantAction(middleware.TxFromGin(c), c, action, targetType, targetID, meta)
 }
 
 // loadCardResults attaches the per-learning-area rows shown on a printed card.

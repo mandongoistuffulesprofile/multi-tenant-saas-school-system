@@ -61,6 +61,25 @@ ADM-005,Brian,Otieno,Odhiambo,PP2,West,0700000005`
 	}
 }
 
+// TestImportAuditDetails records the applied batch's outcome, including the
+// duplicate and invalid counts the import screen showed the operator.
+func TestImportAuditDetails(t *testing.T) {
+	preview := Preview{TotalRows: 6, Importable: 2, Duplicates: 2, Invalid: 2}
+	details := ImportAuditDetails(preview, 2)
+
+	want := map[string]any{
+		"rows_created": 2,
+		"total_rows":   6,
+		"duplicates":   2,
+		"invalid":      2,
+	}
+	for key, expected := range want {
+		if details[key] != expected {
+			t.Fatalf("audit detail %q = %v, want %v", key, details[key], expected)
+		}
+	}
+}
+
 // TestPreviewAcceptsAnyColumnOrder keeps the import screen usable with the
 // export layouts schools already keep in spreadsheets.
 func TestPreviewAcceptsAnyColumnOrder(t *testing.T) {

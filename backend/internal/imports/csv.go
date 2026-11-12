@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
@@ -296,6 +297,10 @@ func (h *Handler) ImportLearners(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		// One audit event per applied import, in the same transaction as the
+		// inserts, so the batch and its outcome are attributable.
+		audit.TenantAction(tx, c, "LEARNER_IMPORT_APPLIED", "learners", "",
+			ImportAuditDetails(preview, created))
 		status = http.StatusCreated
 		payload = gin.H{"dry_run": false, "created": created, "preview": preview}
 	}
@@ -334,6 +339,17 @@ func knownGrades(tx *sqlx.Tx) (map[string]string, error) {
 		out[label] = id
 	}
 	return out, rows.Err()
+}
+
+// ImportAuditDetails is the audit payload for an applied learner import. It
+// records what was created and what was skipped, without learner names.
+func ImportAuditDetails(preview Preview, created int) map[string]any {
+	return map[string]any{
+		"rows_created": created,
+		"total_rows":   preview.TotalRows,
+		"duplicates":   preview.Duplicates,
+		"invalid":      preview.Invalid,
+	}
 }
 
 // applyImport inserts the importable rows and enrols each learner into the

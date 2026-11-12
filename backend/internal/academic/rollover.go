@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
@@ -272,6 +273,11 @@ func (h *Handler) Rollover(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
+	// Only an applied rollover is audited: previews change nothing, and the
+	// event is attributed to the signed-in administrator in the same
+	// transaction as the promotion.
+	audit.TenantAction(tx, c, "ACADEMIC_ROLLOVER_APPLIED", "academic_years", req.ToYearID,
+		RolloverAuditDetails(req.FromYearID, req.ToYearID, promoted, graduating))
 	c.JSON(http.StatusOK, gin.H{
 		"dry_run":    false,
 		"from_year":  req.FromYearID,
@@ -280,6 +286,18 @@ func (h *Handler) Rollover(c *gin.Context) {
 		"promoted":   promoted,
 		"graduating": graduating,
 	})
+}
+
+// RolloverAuditDetails is the audit payload for an applied rollover. It keeps
+// the year identity and the counts a reviewer needs, and no learner PII.
+func RolloverAuditDetails(fromYear, toYear string, promoted, graduating int) map[string]any {
+	return map[string]any{
+		"from_year_id":   fromYear,
+		"to_year_id":     toYear,
+		"promoted":       promoted,
+		"graduating":     graduating,
+		"total_learners": promoted + graduating,
+	}
 }
 
 func loadGrades(tx *sqlx.Tx) ([]Grade, error) {

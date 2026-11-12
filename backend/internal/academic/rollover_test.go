@@ -64,6 +64,26 @@ func TestRolloverRequiresExplicitApply(t *testing.T) {
 	}
 }
 
+// TestRolloverAuditDetails keeps the applied-rollover audit payload complete:
+// reviewers can tell who ran which move from the request attribution, and the
+// event itself carries the year pair and both outcome counts.
+func TestRolloverAuditDetails(t *testing.T) {
+	details := RolloverAuditDetails("year-2026", "year-2027", 10, 3)
+
+	want := map[string]any{
+		"from_year_id":   "year-2026",
+		"to_year_id":     "year-2027",
+		"promoted":       10,
+		"graduating":     3,
+		"total_learners": 13,
+	}
+	for key, expected := range want {
+		if details[key] != expected {
+			t.Fatalf("audit detail %q = %v, want %v", key, details[key], expected)
+		}
+	}
+}
+
 // TestRolloverPlanCounts checks that the preview totals per grade, per stream
 // and in aggregate match the source enrolments.
 func TestRolloverPlanCounts(t *testing.T) {
