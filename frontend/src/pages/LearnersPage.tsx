@@ -493,7 +493,7 @@ export default function LearnersPage() {
 	                  )}
 	                </div>
 	              )}
-              <div className="flex justify-end pt-4">
+              <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
                 <Button variant="secondary" onClick={() => { setOpen(false); resetWizard(); }}>{t("cancel")}</Button>
                 <Button variant="primary" onClick={nextStep}>{t("next")} →</Button>
               </div>
@@ -521,7 +521,7 @@ export default function LearnersPage() {
                   />
                 </FormField>
               </div>
-              <div className="flex justify-end pt-4">
+              <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
                 <Button variant="secondary" onClick={prevStep}>← {t("back")}</Button>
                 <Button variant="primary" onClick={nextStep}>{t("next")} →</Button>
               </div>

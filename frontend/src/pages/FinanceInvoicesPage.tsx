@@ -129,7 +129,7 @@ export default function FinanceInvoicesPage() {
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     />
                   </label>
-                  <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "1rem" }}>
+                  <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
                     <button type="button" onClick={() => setModalOpen(false)} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
                     <button type="submit" className="btn-primary" disabled={creating}>
                       {creating ? "Generating…" : "Generate"}

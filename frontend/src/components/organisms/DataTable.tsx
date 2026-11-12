@@ -78,7 +78,72 @@ export default function DataTable<T extends Record<string, any>>({
   }, [data, sortKey, sortDir]);
 
   return (
-    <div className={`overflow-x-auto rounded-xl border border-gray-200 ${className}`}>
+    <>
+      {/* Phones get readable cards instead of a 600px-wide scrolling table. */}
+      <div className={`space-y-3 md:hidden ${className}`}>
+        {loading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="h-4 w-1/3 rounded bg-gray-200 animate-pulse mb-3" />
+              <div className="h-4 w-2/3 rounded bg-gray-100 animate-pulse" />
+            </div>
+          ))
+        ) : sorted.length === 0 ? (
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <InstitutionalEmptyState
+              title={emptyMessage}
+              description="No records match the current filters. Try adjusting your search or filters."
+              icon={FileText}
+            />
+          </div>
+        ) : (
+          sorted.map((row) => {
+            const k = String((row as Record<string, unknown>)[keyField] ?? JSON.stringify(row));
+            return (
+              <div
+                key={k}
+                className={`rounded-xl border border-gray-200 bg-white p-4 ${onRowClick ? "cursor-pointer active:bg-gray-50" : ""}`}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                role={onRowClick ? "button" : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (e: React.KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+              >
+                <dl className="space-y-2">
+                  {columns.map((col) => (
+                    <div key={String(col.key)} className="flex items-start justify-between gap-4">
+                      <dt className="shrink-0 text-xs font-medium uppercase tracking-wide text-gray-500">
+                        {col.header}
+                      </dt>
+                      <dd className="min-w-0 break-words text-right text-sm text-gray-900">
+                        {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "—")}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                {expandable && (
+                  <details className="mt-3 border-t border-gray-100 pt-2">
+                    <summary className="cursor-pointer list-none text-xs font-medium text-gray-500">
+                      {t("common.audit_details")}
+                    </summary>
+                    <div className="mt-2 text-sm text-gray-700">{expandable(row)}</div>
+                  </details>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className={`hidden md:block overflow-x-auto rounded-xl border border-gray-200 ${className}`}>
       <table className="w-full text-left min-w-[600px]">
         <thead>
           <tr className="bg-gray-50 border-b border-gray-200">
@@ -167,6 +232,7 @@ export default function DataTable<T extends Record<string, any>>({
           </tbody>
         )}
       </table>
-    </div>
+      </div>
+    </>
   );
 }
