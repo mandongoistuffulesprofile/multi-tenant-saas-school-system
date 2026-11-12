@@ -164,7 +164,20 @@ export default function LearnersPage() {
   });
 
   const isLastStep = step === 2;
-  const nextStep = () => setStep((s) => (s < 2 ? s + 1 : s));
+  const nextStep = () => {
+    if (step === 0) {
+      const missing = [
+        !form.admission_number.trim() && t("admission_number"),
+        !form.first_name.trim() && t("first_name"),
+        !form.last_name.trim() && t("last_name"),
+      ].filter(Boolean);
+      if (missing.length > 0) {
+        toast(`Enter ${missing.join(", ")} before continuing`, { type: "error" });
+        return;
+      }
+    }
+    setStep((s) => (s < 2 ? s + 1 : s));
+  };
   const prevStep = () => setStep((s) => (s > 0 ? s - 1 : s));
 
   const structureForCategory = (categoryId: string) => {
