@@ -142,6 +142,26 @@ issued document and nothing on it is authoritative. The print page fetches
 this endpoint for the download, so the PDF and the on-screen card come from
 one server-side source.
 
+## Year-end rollover and learner import
+
+`POST /api/v1/academic/rollover` is **preview-only unless the request
+explicitly opts into writing**: send `{"apply": true}` or `{"dry_run":
+false}`. With no flag, `dry_run: true`, or `?dry_run=true`, it returns the
+promotion plan and writes nothing, so a missing or mistyped flag can never
+promote a learner. The plan maps the Kenyan ladder (PP1 → PP2 → Grade 1 … →
+Grade 9), reports per-grade learner and stream counts, and treats Grade 9 as
+graduation (the enrolment is marked `COMPLETED`, not deleted). Applying creates
+missing class groups in the target year and moves each learner's active
+enrolment.
+
+`POST /api/v1/imports/learners` takes `{csv, dry_run}` and classifies every row
+as `IMPORTABLE`, `DUPLICATE` (the admission number already exists or repeats in
+the file) or `INVALID` (missing names/admission number, unknown grade).
+Duplicates and invalid rows are reported with reasons and never inserted; the
+SPA screen is `/imports/learners`, linked from the learners directory. Both
+routes require a school-administrator role and run in the tenant-scoped
+transaction, so RLS applies to every read and write.
+
 ## Architecture notes
 
 - **Tenancy:** `schools(tenant_id)` is the tenant root; `users` is global; authorization lives in `tenant_memberships`. Domain rows carry `tenant_id VARCHAR(50)`.

@@ -178,15 +178,30 @@ func gradeRank(gradeID string) (int, bool) {
 	}
 }
 
+// ShouldApply decides whether a rollover request writes. Preview is the safe
+// default: omitting both flags can never promote anyone. A caller must opt in
+// with `apply: true` or `dry_run: false`; `apply` wins over `dry_run` when a
+// client sends both.
+func ShouldApply(apply, dryRun *bool) bool {
+	if apply != nil {
+		return *apply
+	}
+	if dryRun != nil {
+		return !*dryRun
+	}
+	return false
+}
+
 // Rollover previews or applies the move from one academic year to the next.
 //
-//	POST /academic/rollover?dry_run=true   preview (default when the body
-//	                                       sets dry_run, or when no body field
-//	                                       asks for a write)
-//	POST /academic/rollover                apply
+//	POST /academic/rollover                 preview (default)
+//	POST /academic/rollover {"apply":true}  apply
+//	POST /academic/rollover {"dry_run":false} apply
 //
-// Only an explicit non-dry-run request writes. Graduating learners keep their
-// learner record and their enrolment is marked COMPLETED rather than deleted.
+// Omitting the flags, or sending dry_run:true, only ever previews. The query
+// parameter ?dry_run=true also forces a preview for an otherwise applying
+// request. Graduating learners keep their learner record and their enrolment
+// is marked COMPLETED rather than deleted.
 func (h *Handler) Rollover(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
@@ -197,7 +212,10 @@ func (h *Handler) Rollover(c *gin.Context) {
 	var req struct {
 		FromYearID string `json:"from_year_id" binding:"required"`
 		ToYearID   string `json:"to_year_id" binding:"required"`
-		DryRun     bool   `json:"dry_run"`
+		// Pointers distinguish "not sent" from an explicit false, so a
+		// client that omits both flags gets the preview-only default.
+		Apply  *bool `json:"apply"`
+		DryRun *bool `json:"dry_run"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -236,7 +254,7 @@ func (h *Handler) Rollover(c *gin.Context) {
 	}
 	plan := BuildPlan(grades, sources)
 
-	if req.DryRun || c.Query("dry_run") == "true" {
+	if !ShouldApply(req.Apply, req.DryRun) || c.Query("dry_run") == "true" {
 		c.JSON(http.StatusOK, gin.H{
 			"dry_run":    true,
 			"from_year":  req.FromYearID,

@@ -86,12 +86,15 @@ what it will publish).
 
 ## Year-end rollover and learner import
 
-- `POST /api/v1/academic/rollover` previews (`dry_run: true`, the default) or
-  applies promotion of active enrolments from one academic year to the next.
-  The plan maps the Kenyan ladder (PP1 → PP2 → Grade 1 … → Grade 9), reports
-  per-grade learner and stream counts, and treats Grade 9 as graduation:
-  those enrolments are marked `COMPLETED`, not deleted. Apply creates missing
-  class groups in the target year and moves each learner's active enrolment.
+- `POST /api/v1/academic/rollover` is **preview-only unless the request
+  explicitly opts into writing** with `{"apply": true}` or `{"dry_run":
+  false}`. Omitting both flags (or sending `dry_run: true`, or `?dry_run=true`)
+  returns the plan and changes nothing, so a missing flag can never promote
+  learners; `apply` wins if a client sends both. The plan maps the Kenyan
+  ladder (PP1 → PP2 → Grade 1 … → Grade 9), reports per-grade learner and
+  stream counts, and treats Grade 9 as graduation: those enrolments are marked
+  `COMPLETED`, not deleted. Applying creates missing class groups in the
+  target year and moves each learner's active enrolment.
 - `POST /api/v1/imports/learners` takes `{csv, dry_run}` and classifies every
   row as `IMPORTABLE`, `DUPLICATE` (admission number already exists or repeats
   in the file) or `INVALID` (missing names/admission number or unknown grade).

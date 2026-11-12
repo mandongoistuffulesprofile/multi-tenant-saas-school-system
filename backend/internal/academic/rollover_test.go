@@ -33,6 +33,37 @@ func TestRolloverMapsPP1ToPP2(t *testing.T) {
 	}
 }
 
+// TestRolloverRequiresExplicitApply is the safety contract: a request that
+// does not explicitly opt in must never promote a learner.
+func TestRolloverRequiresExplicitApply(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	cases := []struct {
+		name   string
+		apply  *bool
+		dryRun *bool
+		want   bool
+	}{
+		{name: "no flags", want: false},
+		{name: "apply true", apply: &trueVal, want: true},
+		{name: "apply false", apply: &falseVal, want: false},
+		{name: "dry_run false", dryRun: &falseVal, want: true},
+		{name: "dry_run true", dryRun: &trueVal, want: false},
+		{name: "apply false with dry_run false stays a preview", apply: &falseVal, dryRun: &falseVal, want: false},
+		{name: "apply true with dry_run true applies", apply: &trueVal, dryRun: &trueVal, want: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ShouldApply(tc.apply, tc.dryRun); got != tc.want {
+				t.Fatalf("ShouldApply(apply=%v, dry_run=%v) = %v, want %v",
+					tc.apply, tc.dryRun, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestRolloverPlanCounts checks that the preview totals per grade, per stream
 // and in aggregate match the source enrolments.
 func TestRolloverPlanCounts(t *testing.T) {
