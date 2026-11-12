@@ -12,20 +12,32 @@
  *    survive a killed tab.
  */
 
-const CACHE_NAME = 'shuleyetu-v1.0.0';
+const CACHE_NAME = 'shuleyetu-v1.0.1';
 
 // App shell entries precached at install. The build step (vite) emits these
 // files into dist/; the SW only needs the routes, not the hashed filenames.
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json',
-  '/thermalReceipt.css',
+  '/manifest.webmanifest',
+  '/icons/icon.svg',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-512.png',
+  '/icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then((cache) =>
+      // A single missing file must not fail the whole install: without an
+      // installed worker the app is neither installable nor offline-capable.
+      Promise.all(
+        STATIC_ASSETS.map((url) =>
+          cache.add(url).catch((err) => console.warn('[SW] precache skipped:', url, err))
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
