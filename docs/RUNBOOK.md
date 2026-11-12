@@ -82,7 +82,7 @@ Stop the API before a destructive restore. Restore is `pg_restore --clean --if-e
 
 ## RLS and ownership
 
-The application role owns tables in the development stack, so RLS is bypassed for it. Tenant isolation therefore depends on explicit `WHERE tenant_id = $n` filters and on `db.WithTenant` for critical writes. Do **not** apply `migrations/optional/0005_force_rls.sql` until every handler uses request-scoped tenant transactions; doing so will make unfiltered reads return zero rows. Backups also fail against FORCE RLS when the dumping role is the owner.
+The application role owns tables in the development stack, but `migrations/0009_force_rls.sql` turns on `FORCE ROW LEVEL SECURITY`, so the owner is subject to the tenant policies too. Isolation still uses explicit `WHERE tenant_id = $n` filters and request-scoped transactions (`db.WithTenant`, `TenantTxMiddleware`) as defence in depth. A session with no `app.current_tenant_id` sees zero tenant rows. Backups must run through `ADMIN_DATABASE_URL` as a superuser or a role with `BYPASSRLS`; the owner cannot `pg_dump` a FORCE-RLS database.
 
 ## Logs and correlation
 

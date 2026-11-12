@@ -12,7 +12,6 @@ Multi-tenant school management system: **Go + Gin + PostgreSQL 18 + Redis** API 
 | `infrastructure/docker/` | Dev Compose, production Compose, Caddyfile and environment templates. |
 | `scripts/` | Backup, restore, verification, role provisioning and deployment helpers. |
 | `docs/` | Fix plan, operations runbook and architecture notes. |
-| `src/` + root `package.json` | Legacy standalone Node auth prototype. Not part of the running system. |
 
 ## Quick start (local, one command)
 
@@ -101,12 +100,14 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 
 Only Caddy publishes ports 80/443. PostgreSQL, Redis and the API stay on the private Docker network. Caddy terminates TLS, serves the SPA and proxies `/api`, `/webhooks` and `/health` to the API; `/metrics` is blocked publicly. Use `scripts/deploy.sh` for a health-gated rollout with rollback to the previous image tag.
 
+On a fresh Ubuntu/Debian VPS, `sudo bash scripts/provision_production_server.sh schools.example.com` installs Docker, configures UFW, generates `.env.prod` with fresh secrets and runs the deploy. Point the DNS record at the VPS first; the health gate uses HTTPS.
+
 Secrets (`POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ENCRYPTION_KEY`, `MPESA_WEBHOOK_TOKEN`, `METRICS_TOKEN`) must come from the environment or a secret manager. Never commit `.env.prod`.
 
 ## Architecture notes
 
 - **Tenancy:** `schools(tenant_id)` is the tenant root; `users` is global; authorization lives in `tenant_memberships`. Domain rows carry `tenant_id VARCHAR(50)`.
-- **RLS:** policies are installed on tenant tables, but `FORCE ROW LEVEL SECURITY` is **opt-in** (`migrations/optional/0005_force_rls.sql`). The default app role owns tables in development, so handlers still rely on explicit `WHERE tenant_id = $n` filters. Critical write paths (M-Pesa inbox/worker, outbox drainer, finance) use `db.WithTenant` / `db.BeginTenantTx`, which set `app.current_tenant_id` with `set_config(..., true)`.
+- **RLS:** `migrations/0009_force_rls.sql` enables and **forces** RLS on every table with a `tenant_id`, so even the owner is subject to policies. `TenantTxMiddleware` sets `app.current_tenant_id` (and `app.current_user_role` for platform admins) transaction-locally; `0028_platform_admin_rls.sql` and `0030_rls_remaining_tables.sql` add the cross-tenant `platform_admin_bypass` policies. Handlers still keep explicit `WHERE tenant_id = $n` predicates as defence in depth. Backups must use an admin/superuser URL (`ADMIN_DATABASE_URL`) because FORCE RLS blocks `pg_dump` for the owner.
 - **Auth:** Argon2id passwords, HS256 JWTs with issuer/audience validation, refresh-token rotation persisted in `refresh_tokens`. Login also sets HttpOnly `access_token`/`refresh_token` cookies and a readable `csrf_token`; cookie-authenticated mutations require `X-CSRF-Token` (double submit). The SPA still uses bearer tokens, so cookie-only mode is a follow-up.
 - **Money:** invoice → payment → allocation model. M-Pesa C2B callbacks write to a durable inbox and a worker allocates idempotently on `(tenant_id, trans_id)`.
 - **Async:** correlation outbox with `FOR UPDATE SKIP LOCKED`, attempt tracking and retry backoff; M-Pesa has its own worker.

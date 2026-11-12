@@ -27,7 +27,7 @@ go run ./cmd/migrate -dir ../migrations -baseline 0001_baseline.sql
 
 `migrations/seed/0001_demo.sql` is applied only with `-seed`. It creates the `demo-school` tenant, a learner and a guardian. No users or passwords are seeded; create the admin with `cmd/devuser`, which prints a generated password once.
 
-`migrations/optional/` holds opt-in hardening (for example `0005_force_rls.sql`) that is not picked up by the default run.
+`migrations/optional/` holds historical opt-in hardening. `0005_force_rls.sql` is now redundant with the default `0009_force_rls.sql`; it remains only for manual use on a database that has not applied 0009.
 
 ## Archived history
 
@@ -35,11 +35,10 @@ go run ./cmd/migrate -dir ../migrations -baseline 0001_baseline.sql
 
 ## RLS model
 
-Tenant tables have `ENABLE ROW LEVEL SECURITY` and an `<table>_isolation` policy comparing `tenant_id` with `current_tenant_id()`. Policies are strict: a session with no `app.current_tenant_id` sees no rows.
+Tenant tables have `ENABLE ROW LEVEL SECURITY`, an `<table>_isolation` policy comparing `tenant_id` with `current_tenant_id()`, and (since `0009_force_rls.sql`) `FORCE ROW LEVEL SECURITY` so the table owner is subject to the same policies. Policies are strict: a session with no `app.current_tenant_id` sees no rows.
 
-Two things are deliberately different from a fully enforced deployment:
+`0028_platform_admin_rls.sql` and `0030_rls_remaining_tables.sql` add `platform_admin_bypass` policies keyed on `app.current_user_role IN ('SAAS_ADMIN','SUPER_ADMIN')`. `TenantTxMiddleware` sets both GUCs transaction-locally from the validated JWT, and platform handlers read through the request transaction. `0030` also enrolls the last five tenant tables (`delegated_entry_tokens`, `export_audit_logs`, `mpesa_holding_tank`, `password_assistance_requests`, `platform_tenant_onboarding`).
 
-1. The default migrations do **not** run `FORCE ROW LEVEL SECURITY`. The application role owns the tables in development, and owners bypass RLS. `migrations/optional/0005_force_rls.sql` turns FORCE on once every handler uses request-scoped tenant transactions.
-2. Handlers that run outside `db.WithTenant` rely on explicit `WHERE tenant_id = $n` predicates. Use `db.WithTenant` / `db.BeginTenantTx` / `db.BeginReadTx` for new write paths. Those helpers set the context with `set_config('app.current_tenant_id', $1, true)`, not `SET LOCAL ... = $1` (PostgreSQL does not accept bind parameters in `SET`).
+Handlers still keep explicit `WHERE tenant_id = $n` predicates as defence in depth. Use `db.WithTenant` / `db.BeginTenantTx` / `db.BeginReadTx` for new write paths; those helpers set `app.current_tenant_id` with `set_config('app.current_tenant_id', $1, true)`, not `SET LOCAL ... = $1` (PostgreSQL does not accept bind parameters in `SET`).
 
-`pg_dump` fails against a database with FORCE RLS when the dumping role is the owner; run backups as a superuser/BYPASSRLS role or keep FORCE off until the request-scoped refactor is complete.
+`pg_dump` fails against a FORCE-RLS database when the dumping role is the table owner; run backups through `ADMIN_DATABASE_URL` as a superuser or a role with `BYPASSRLS`.

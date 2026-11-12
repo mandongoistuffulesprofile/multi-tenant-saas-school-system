@@ -18,7 +18,7 @@ This is the evidence-backed status, not a feature wish list.
 | Compose stack (`infrastructure/docker/docker-compose.prod.yml`) on a fresh PostgreSQL 18 volume | Previously verified with 24 migrations, 127 tables, 107 policies. Migrations 0026–0027 (password recovery) also apply cleanly with `cmd/migrate`; a full fresh-volume re-run is pending. |
 | `GET /health` / `GET /health/ready` inside the stack | `{"status":"healthy"}` / `{"status":"ready"}` |
 | Web container | Serves the built SPA (`index.html`) |
-| FORCE RLS | `relrowsecurity=true` and `relforcerowsecurity=true` on `schools`, `learners`, `payments`, `invoices` on the fresh database (`migrations/0009_force_rls.sql`) |
+| FORCE RLS | `relrowsecurity=true` and `relforcerowsecurity=true` on every tenant table, including the five enrolled by `0030_rls_remaining_tables.sql`; `0028`/`0030` add platform-admin bypass policies |
 | `TestTenantRLS` | Pass: no-context reads return 0 rows; cross-tenant update affects 0 rows |
 | M-Pesa inbox / outbox workers | Started by the API (`mpesa.StartWorker`, `outbox.StartWorker`) |
 | CI (`.github/workflows/ci.yml`) | Postgres 18 + Redis services; build, vet, migrations (twice), full test suite; frontend `npm ci`, build, blocking type check |
@@ -54,4 +54,4 @@ This is the evidence-backed status, not a feature wish list.
 
 ## Deferred until after the pilot
 
-PgBouncer, k6 load tests, HTTP ETag/caching, staging environment, PWA/offline sync (`sw.js`/`/sync/*`), report-card PDF generation, year-end rollover, CSV import dry-run UI, feature flags, and the legacy `devops/` stack and product-name cleanup.
+PgBouncer, k6 load tests, HTTP ETag/caching, staging environment, PWA/offline sync (`sw.js`/`/sync/*`), report-card PDF generation, year-end rollover, CSV import dry-run UI, feature flags, and product-name cleanup.

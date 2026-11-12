@@ -68,7 +68,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ## 7) Known residual risks (manage explicitly)
 - Money values are largely DB `numeric` and critical allocations use SQL/locking, but some API/struct paths still use `float64` — avoid manual fractional edge cases, rely on KES whole amounts where possible, and complete minor-unit refactor post-deploy.
 - Full browser/offline E2E and load tests not automated here; perform manual smoke on real devices for the first school.
-- `FORCE ROW LEVEL SECURITY` is opt-in in dev defaults; isolation proven by tests and tenant-scoped transactions—do not enable FORCE globally until handlers fully covered.
+- `FORCE ROW LEVEL SECURITY` is on by default (`migrations/0009_force_rls.sql`), with platform-admin bypass policies from `0028`/`0030`; tenant isolation still relies on request-scoped transactions plus explicit `WHERE tenant_id = $n` filters.
 - Keep `.env.prod`/secrets out of git; rotate compromised keys with planned procedure.
 
 ## 8) Rollback

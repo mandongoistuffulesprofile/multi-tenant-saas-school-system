@@ -19,7 +19,7 @@ These are architectural forks. The plan below assumes the recommended option.
 | D4 | Schema strategy | **Rebuild a single baseline**, archive old migrations | 66 FKs point at a `schools` table that does not exist; `users(user_id)` does not exist; tenant_id is `VARCHAR` in 68 places and `UUID` in 23. Patching is more expensive than rebuilding with zero prod data |
 | D5 | Auth model | `JWTManager` + Argon2id + `tenant_memberships`; users are global | Multi-school switching already exists; the legacy `users.tenant_id` model cannot support it |
 | D6 | Token storage | HttpOnly `Secure` `SameSite=Lax` cookies + CSRF double-submit | Tokens in `localStorage` are stealable via XSS; this app serves parents and minors |
-| D7 | Root Node service (`src/`, root `package.json`) | Archive after confirming no imports | Duplicates Go auth; three auth implementations is the root cause of the drift |
+| D7 | Root Node service (`src/`, root `package.json`) | **Done:** removed; the Go backend is the only auth implementation | Duplicates Go auth; three auth implementations is the root cause of the drift |
 | D8 | Hosting shape | One VPS, Docker Compose, Caddy | Kubernetes/Helm buys nothing before 50+ schools |
 
 If you disagree with D1–D8, stop and resolve it now. Half-migrating any of these is worse than either endpoint.
@@ -364,7 +364,7 @@ Branch: `stabilization`. The pre-plan working tree was committed first. This is 
 
 ### Partial / deliberately deferred
 
-- **B3/B4 (full RLS enforcement).** Policies are enabled and strict, but `FORCE` is opt-in because the app role owns tables and most handlers still query the pool directly with explicit tenant filters. `WithTenant` is used for M-Pesa, outbox and other critical transactions. Applying `migrations/optional/0005_force_rls.sql` before the handler refactor would make unfiltered reads return zero rows and break backups. This is documented in `README.md`, `migrations/README.md` and `docs/RUNBOOK.md`.
+- **B3/B4 (full RLS enforcement).** Done for coverage: `migrations/0009_force_rls.sql` forces RLS on every tenant table, and `0028`/`0030` add platform-admin bypass policies plus the last five tenant tables. `TenantTxMiddleware` provides request-scoped tenant transactions; explicit `WHERE tenant_id = $n` filters remain as defence in depth. Backups must use `ADMIN_DATABASE_URL` as a superuser/BYPASSRLS role because the owner cannot `pg_dump` a FORCE-RLS database.
 - **B5 (least-privilege roles).** `scripts/provision_roles.sh` prepares `skulapp_app`/`reader`/`writer`/`migrator`, but the stack still connects as the owner until B3 is complete.
 - **B7 (route coverage audit).** Guarded groups were reviewed manually; no table-driven route test was added.
 - **D1 encryption/offsite.** The backup script supports `BACKUP_S3` but does not encrypt with `age`/gpg and no timer/heartbeat was installed.
@@ -384,7 +384,7 @@ Branch: `stabilization`. The pre-plan working tree was committed first. This is 
 ### Recommended next actions
 
 1. Restore npm connectivity, run `npm install && npm run build && npx tsc --noEmit`, then move the SPA to cookie auth (`withCredentials`, CSRF header, no localStorage tokens).
-2. Finish the request-scoped tenant transaction refactor, then apply `migrations/optional/0005_force_rls.sql` and switch to the non-owner app role.
+2. Finish the handler audit for any remaining pool-level reads, switch the production app to the non-owner `skulapp_app` role, and keep `ADMIN_DATABASE_URL` on a separate backup role.
 3. Add M-Pesa failure-semantics and auth/route coverage tests; run the k6 duplicate-callback scenario.
 4. Stand up the staging VPS, run `scripts/deploy.sh`, and execute a restore drill with the backup heartbeat.
 5. Run a networked `go mod tidy` to prune test-only sums; the real `mimetype`/`go-urn` modules are already in use.
