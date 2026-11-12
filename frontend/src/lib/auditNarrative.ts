@@ -19,6 +19,10 @@ interface AuditRow {
   accessed_at?: string;
   ip_address?: string | null;
   user_agent?: string;
+  // Optional audit payload (audit_events.new_values). Not every feed includes
+  // it, so the action narratives below degrade to a plain sentence without it.
+  details?: Record<string, unknown>;
+  new_values?: Record<string, unknown>;
 }
 
 const RESOURCE_LABELS: Record<string, string> = {
@@ -70,6 +74,47 @@ const ACTION_VERBS: Record<string, string> = {
   void: "voided",
 };
 
+function detailNumber(row: AuditRow, key: string): number | null {
+  const value = (row.details ?? row.new_values ?? {})[key];
+  const n = typeof value === "string" ? Number(value) : value;
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+// Actions whose names carry the whole meaning (a verb would be invented by
+// verbFor) get a purpose-built sentence instead of a raw action code.
+const ACTION_NARRATIVES: Record<string, (row: AuditRow) => string> = {
+  ACADEMIC_ROLLOVER_APPLIED: (row) => {
+    const promoted = detailNumber(row, "promoted");
+    const graduating = detailNumber(row, "graduating");
+    if (promoted === null && graduating === null) {
+      return "ran the year-end rollover";
+    }
+    const parts = [
+      promoted !== null ? `promoted ${plural(promoted, "learner")}` : null,
+      graduating ? `graduated ${plural(graduating, "learner")}` : null,
+    ].filter(Boolean);
+    const summary = parts.length ? ` and ${parts.join(" and ")}` : "";
+    return `ran the year-end rollover${summary}`;
+  },
+  LEARNER_IMPORT_APPLIED: (row) => {
+    const created = detailNumber(row, "rows_created");
+    const duplicates = detailNumber(row, "duplicates");
+    const invalid = detailNumber(row, "invalid");
+    const imported = created !== null
+      ? `imported ${plural(created, "learner")} from a CSV file`
+      : "imported learners from a CSV file";
+    const skipped = (duplicates ?? 0) + (invalid ?? 0);
+    if (skipped > 0) {
+      return `${imported}, skipping ${plural(skipped, "row")} that were duplicated or invalid`;
+    }
+    return imported;
+  },
+};
+
 function verbFor(action?: string): string {
   const a = (action || "").toLowerCase();
   for (const [k, v] of Object.entries(ACTION_VERBS)) {
@@ -89,12 +134,19 @@ function nounFor(resourceType?: string): string {
  */
 export function formatAuditNarrative(row: AuditRow): string {
   const actor = row.actor_name || "A user";
-  const verb = verbFor(row.action);
-  const noun = nounFor(row.resource_type);
-  const rest = row.resource_id ? ` #${String(row.resource_id).slice(0, 8)}` : "";
   const when = row.accessed_at
     ? ` (${formatWhen(row.accessed_at)})`
     : "";
+
+  const actionCode = (row.action || "").toUpperCase();
+  const narrative = ACTION_NARRATIVES[actionCode];
+  if (narrative) {
+    return `${actor} ${narrative(row)}${when}`;
+  }
+
+  const verb = verbFor(row.action);
+  const noun = nounFor(row.resource_type);
+  const rest = row.resource_id ? ` #${String(row.resource_id).slice(0, 8)}` : "";
   return `${actor} ${verb} the ${noun}${rest}${when}`;
 }
 
