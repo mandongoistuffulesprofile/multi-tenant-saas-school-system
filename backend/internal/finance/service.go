@@ -190,7 +190,7 @@ func (s *Service) ListFeeStructures(ctx context.Context, tenantID string, limit,
 		`SELECT fs.structure_id, fs.tenant_id, fs.academic_year_id, fs.grade_id,
 			fs.category_id, fc.code, fc.name, fs.amount_per_term, fs.amount_per_year,
 			fs.currency, fs.is_mandatory, fs.payment_frequency, fs.due_day,
-			fs.created_by, fs.created_at, fs.updated_at
+			COALESCE(fs.created_by::text, ''), fs.created_at, fs.updated_at
 		 FROM fee_structures fs
 		 JOIN fee_categories fc ON fs.category_id = fc.category_id
 		 WHERE fs.tenant_id = $1 ORDER BY fs.grade_id, fc.code
