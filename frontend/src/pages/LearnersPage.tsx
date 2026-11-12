@@ -192,8 +192,8 @@ export default function LearnersPage() {
         `Learner admitted${savedOptions ? ` with ${savedOptions} fee category(ies)` : ""}${skippedNote}`,
         { type: skippedOptions ? "info" : "success" },
       );
-      const r = await api.get<Learner[]>("/learners");
-      setLearners(Array.isArray(r.data) ? r.data : []);
+      const r = await api.get<Learner[]>("/learners").catch(() => null);
+      if (r) setLearners(Array.isArray(r.data) ? r.data : []);
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to create learner", { type: "error" });
     } finally {
