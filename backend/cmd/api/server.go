@@ -186,6 +186,11 @@ func Run() error {
 	router.Use(middleware.TenantContextMiddleware(jwtManager, database))
 	router.Use(middleware.TenantTxMiddleware(database.DB, redisClient.Client))
 
+	// Universal idempotency: state-changing requests carrying an
+	// X-Idempotency-Key are replay-protected via Redis. Cached responses are
+	// returned without re-invoking the handler (24h TTL).
+	router.Use(middleware.IdempotencyMiddleware(redisClient.Client))
+
 	// Buffer GET response bodies so ETags can be computed and If-None-Match
 	// answered with 304, cutting repeat fetch payloads on metered connections.
 	router.Use(middleware.CaptureBodyMiddleware())
