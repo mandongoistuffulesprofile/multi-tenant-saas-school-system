@@ -32,7 +32,7 @@ export default function IntegrationsPage() {
   const saveSettings = async (patch: Partial<{ paybill: string; stk_enabled: boolean }>) => {
     setSaving(true);
     try {
-      await api.patch("/school/finance-settings", patch);
+      await api.put("/school/finance-settings", patch);
       toast("Finance settings saved", { type: "success" });
       load();
     } catch (err: any) {
