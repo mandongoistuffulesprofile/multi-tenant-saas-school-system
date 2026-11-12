@@ -96,7 +96,16 @@ npm run build
 cd infrastructure/docker
 cp .env.prod.example .env.prod          # fill every secret
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# First login (fresh databases have no users). Creates the platform owner,
+# prints the generated password once. Re-running resets that password.
+docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm bootstrap
 ```
+
+Then sign in at `https://$DOMAIN`, open **SaaS → Onboard tenant**, and the new
+school walks through profile → calendar → structure → finance → seeds →
+hand-off. M-Pesa, SMTP and SMS credentials are optional; without them the API
+logs outbound messages and keeps STK pushes disabled.
 
 Only Caddy publishes ports 80/443. PostgreSQL, Redis and the API stay on the private Docker network. Caddy terminates TLS, serves the SPA and proxies `/api`, `/webhooks` and `/health` to the API; `/metrics` is blocked publicly. Use `scripts/deploy.sh` for a health-gated rollout with rollback to the previous image tag.
 

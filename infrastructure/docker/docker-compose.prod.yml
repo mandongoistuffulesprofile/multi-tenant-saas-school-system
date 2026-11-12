@@ -57,6 +57,28 @@ services:
         condition: service_healthy
     networks: [internal]
 
+  # One-shot first-admin bootstrap. Fresh databases have no users, so nobody
+  # can sign in until this runs once:
+  #   docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  #     run --rm bootstrap
+  # Safe to re-run: it resets that account's password and leaves data intact.
+  bootstrap:
+    image: skulapp-api:${APP_VERSION:-latest}
+    entrypoint: ["/bootstrap-admin"]
+    profiles: ["tools"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-skulapp_app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-skulapp}?sslmode=disable
+      BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:-}
+      BOOTSTRAP_PHONE: ${BOOTSTRAP_PHONE:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      BOOTSTRAP_ROLE: ${BOOTSTRAP_ROLE:-SAAS_ADMIN}
+      BOOTSTRAP_TENANT: ${BOOTSTRAP_TENANT:-platform-ops}
+      BOOTSTRAP_SCHOOL_NAME: ${BOOTSTRAP_SCHOOL_NAME:-Platform Operations}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
   api:
     image: skulapp-api:${APP_VERSION:-latest}
     restart: unless-stopped
@@ -69,8 +91,27 @@ services:
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
       CORS_ALLOWED_ORIGIN: https://${DOMAIN:?set DOMAIN}
-      MPESA_WEBHOOK_TOKEN: ${MPESA_WEBHOOK_TOKEN:?set MPESA_WEBHOOK_TOKEN}
+      # Password-reset / invite links are built from this origin.
+      APP_BASE_URL: https://${DOMAIN:?set DOMAIN}
+      # Optional at go-live: without credentials the API logs M-Pesa callbacks
+      # as unverified and never pushes STK requests, which is correct until a
+      # school's own Daraja till is registered.
+      MPESA_WEBHOOK_TOKEN: ${MPESA_WEBHOOK_TOKEN:-}
       MPESA_ALLOWED_IPS: ${MPESA_ALLOWED_IPS:-}
+      # Optional outbound email (password reset, invites). Unset credentials =
+      # messages are logged to the API stdout instead of sent.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Shule Yetu}
+      # Optional SMS (Africa's Talking). Unset credentials = logged, not sent.
+      AT_USERNAME: ${AT_USERNAME:-}
+      AT_API_KEY: ${AT_API_KEY:-}
+      AT_SENDER_ID: ${AT_SENDER_ID:-}
+      TIMEZONE: ${TIMEZONE:-Africa/Nairobi}
+      CURRENCY: ${CURRENCY:-KES}
       METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN}
     expose:
       - "8080"
