@@ -139,13 +139,17 @@ func (h *Handler) DeleteReportTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"template_id": templateID, "is_active": false})
 }
 
-// CreateReportRun generates report cards for a class from captured results.
+// CreateReportRun generates report cards from captured results.
+//
+// academic_year_id and grade_id are optional: the current (or latest) academic
+// year is used when omitted, and every grade is generated when grade_id is
+// omitted. term_id may be a term UUID or the literal "current".
 func (h *Handler) CreateReportRun(c *gin.Context) {
 	var req struct {
 		TemplateID     string `json:"template_id" binding:"required"`
-		AcademicYearID string `json:"academic_year_id" binding:"required"`
+		AcademicYearID string `json:"academic_year_id"`
 		TermID         string `json:"term_id"`
-		GradeID        string `json:"grade_id" binding:"required"`
+		GradeID        string `json:"grade_id"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -158,32 +162,78 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
+	academicYearID := strings.TrimSpace(req.AcademicYearID)
+	gradeID := strings.TrimSpace(req.GradeID)
 
-	termID := interface{}(nil)
-	if strings.TrimSpace(req.TermID) != "" {
-		termID = req.TermID
+	if academicYearID == "" {
+		var y sql.NullString
+		if err := tx.QueryRow(
+			`SELECT COALESCE(
+				(SELECT year_id FROM academic_years WHERE tenant_id = $1 AND is_current = true),
+				(SELECT year_id FROM academic_years WHERE tenant_id = $1 ORDER BY start_date DESC LIMIT 1))`,
+			tenantID).Scan(&y); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if !y.Valid || y.String == "" {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "academic_year_id", Code: "REQUIRED", Message: "tenant has no academic year configured"},
+			})
+			return
+		}
+		academicYearID = y.String
+	}
+
+	var termID interface{}
+	if t := strings.TrimSpace(req.TermID); t != "" {
+		if strings.EqualFold(t, "current") {
+			var cur sql.NullString
+			if err := tx.QueryRow(
+				`SELECT term_id::text FROM terms
+				 WHERE tenant_id = $1 AND is_current = true
+				 ORDER BY start_date DESC LIMIT 1`, tenantID).Scan(&cur); err == nil && cur.Valid {
+				termID = cur.String
+			}
+		} else {
+			termID = t
+		}
+	}
+
+	var gradeFilter interface{}
+	if gradeID != "" {
+		gradeFilter = gradeID
 	}
 
 	var runID string
 	err := tx.QueryRow(
 		`INSERT INTO report_runs (tenant_id, template_id, academic_year_id, term_id, grade_id, status, created_by)
 		 VALUES ($1, $2, $3, $4, $5, 'PENDING', $6) RETURNING run_id`,
-		tenantID, req.TemplateID, req.AcademicYearID, termID, req.GradeID, nullableString(userID)).Scan(&runID)
+		tenantID, req.TemplateID, academicYearID, termID, gradeFilter, nullableString(userID)).Scan(&runID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
 
-	// One card per active learner in the grade.
-	generated := 0
-	rows, err := tx.Query(
-		`SELECT l.learner_id, g.grade_label
+	// One card per active learner, optionally restricted to a single grade.
+	learnerQuery := `
+		SELECT l.learner_id, g.grade_label, cg.grade_id
 		 FROM learners l
-		 JOIN enrolments e ON e.learner_id = l.learner_id AND e.status = 'ACTIVE'
+		 JOIN (
+			SELECT DISTINCT ON (learner_id) learner_id, class_group_id
+			FROM enrolments WHERE status = 'ACTIVE'
+			ORDER BY learner_id, started_on DESC
+		 ) e ON e.learner_id = l.learner_id
 		 JOIN class_groups cg ON cg.class_group_id = e.class_group_id
 		 JOIN grades g ON g.grade_id = cg.grade_id
-		 WHERE l.tenant_id = $1 AND cg.grade_id = $2 AND l.status = 'ACTIVE'
-		 ORDER BY l.last_name, l.first_name`, tenantID, req.GradeID)
+		 WHERE l.tenant_id = $1 AND l.status = 'ACTIVE'`
+	qargs := []interface{}{tenantID}
+	if gradeID != "" {
+		learnerQuery += " AND cg.grade_id = $2"
+		qargs = append(qargs, gradeID)
+	}
+	learnerQuery += " ORDER BY l.last_name, l.first_name"
+
+	rows, err := tx.Query(learnerQuery, qargs...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -191,11 +241,12 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 	type learnerRow struct {
 		learnerID  string
 		gradeLabel string
+		gradeID    string
 	}
 	learners := make([]learnerRow, 0)
 	for rows.Next() {
 		var lr learnerRow
-		if err := rows.Scan(&lr.learnerID, &lr.gradeLabel); err != nil {
+		if err := rows.Scan(&lr.learnerID, &lr.gradeLabel, &lr.gradeID); err != nil {
 			rows.Close()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
@@ -204,8 +255,9 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 	}
 	rows.Close()
 
+	generated := 0
 	for _, lr := range learners {
-		// Aggregate the learner's results for the run's events.
+		// Aggregate the learner's results for the run's term (or all terms).
 		var total, max float64
 		var overall string
 		err := tx.QueryRow(
@@ -214,8 +266,9 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 				COALESCE(MODE() WITHIN GROUP (ORDER BY ar.level_code), '')
 			 FROM assessment_results ar
 			 JOIN assessment_events ae ON ae.event_id = ar.event_id
-			 WHERE ar.tenant_id = $1 AND ae.grade_id = $2 AND ae.term_id = $3`,
-			tenantID, req.GradeID, req.TermID).Scan(&total, &max, &overall)
+			 WHERE ar.tenant_id = $1 AND ar.learner_id = $2
+			 AND ($3::uuid IS NULL OR ae.term_id = $3::uuid)`,
+			tenantID, lr.learnerID, termID).Scan(&total, &max, &overall)
 		if err != nil && err != sql.ErrNoRows {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
@@ -225,7 +278,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		if max > 0 {
 			percentage = total / max * 100
 		}
-		cardNumber := req.GradeID + "-" + strings.ToUpper(lr.learnerID[:8]) + "-" + runID[:8]
+		cardNumber := lr.gradeID + "-" + strings.ToUpper(lr.learnerID[:8]) + "-" + runID[:8]
 
 		_, err = tx.Exec(
 			`INSERT INTO report_cards
@@ -233,7 +286,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		  overall_grade, total_score, max_score, percentage, status, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'DRAFT', $12)
 		 ON CONFLICT (tenant_id, run_id, learner_id) DO NOTHING`,
-			tenantID, runID, lr.learnerID, cardNumber, req.AcademicYearID, termID, req.GradeID,
+			tenantID, runID, lr.learnerID, cardNumber, academicYearID, termID, lr.gradeID,
 			nullableString(overall), total, max, percentage, nullableString(userID))
 		if err != nil {
 			continue

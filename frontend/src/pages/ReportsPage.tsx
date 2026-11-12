@@ -8,10 +8,26 @@ import { useToast } from "../components/toast/ToastProvider";
 
 export default function ReportsPage() {
   const [generating, setGenerating] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [runs, setRuns] = useState<any[]>([]);
+  const [cards, setCards] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [publishingRunId, setPublishingRunId] = useState("");
+  const { t } = useTranslation();
+  const { toast } = useToast();
+
   const handleGenerateRun = async (termId?: string) => {
+    const template = templates.find((tpl: any) => tpl.is_default) ?? templates[0];
+    if (!template) {
+      toast("No report template is configured for this school.", { type: "error" });
+      return;
+    }
     setGenerating(true);
     try {
-      await api.post("/reports/runs", { term_id: termId || "current", template_id: "standard_cbc" });
+      await api.post("/reports/runs", {
+        term_id: termId || "current",
+        template_id: template.template_id,
+      });
       toast("Report cards generation initiated!", { type: "success" });
       const [rRes, cRes] = await Promise.all([
         api.get("/reports/runs"),
@@ -25,14 +41,6 @@ export default function ReportsPage() {
       setGenerating(false);
     }
   };
-
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [runs, setRuns] = useState<any[]>([]);
-  const [cards, setCards] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [publishingRunId, setPublishingRunId] = useState("");
-  const { t } = useTranslation();
-  const { toast } = useToast();
 
   useEffect(() => {
     Promise.all([
