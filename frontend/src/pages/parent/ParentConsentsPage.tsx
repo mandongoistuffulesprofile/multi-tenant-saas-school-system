@@ -26,7 +26,15 @@ export default function ParentConsentsPage() {
       .get("/compliance/consent-records")
       .then((r) => {
         if (!alive) return;
-        setConsents(Array.isArray(r.data) ? r.data : []);
+        const rows = Array.isArray(r.data) ? r.data : [];
+        setConsents(
+          rows.map((row: any) => ({
+            id: row.consent_id,
+            purpose: row.purpose || row.title || "Consent",
+            granted: Boolean(row.granted),
+            date: row.updated_at || row.created_at || "",
+          })),
+        );
         setState("content");
       })
       .catch(() => alive && setState("error"));

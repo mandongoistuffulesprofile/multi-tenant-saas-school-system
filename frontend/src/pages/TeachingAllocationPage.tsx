@@ -1,60 +1,141 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAuthStore } from "../lib/authStore";
 import { api } from "../lib/api";
 import Card from "../components/atoms/Card";
 import Badge from "../components/atoms/Badge";
 import Button from "../components/atoms/Button";
 import ViewState from "../components/organisms/ViewState";
-import DataTable from "../components/organisms/DataTable";
 import { LearningArea } from "../lib/types";
 import { useToast } from "../components/toast/ToastProvider";
 
-export default function TeachingAllocationPage() {
-  const handleSaveAllocation = async (allocations: any) => {
-    // Only post real (teacher-id) selections.
-    const payload = Object.fromEntries(Object.entries(allocations).filter(([, v]) => !!v));
-    try {
-      await api.post("/structure/teaching-allocations", payload);
-      toast("Teaching allocations saved to database!", { type: "success" });
-    } catch {
-      toast("Failed to save allocation", { type: "error" });
-    }
-  };
+interface ClassGroupRow {
+  class_group_id: string;
+  year_id: string;
+  year_label: string;
+  grade_label: string;
+  stream_name: string;
+}
 
+interface TeachingAssignmentRow {
+  assignment_id: string;
+  staff_membership_id: string;
+  class_group_id: string;
+  subject_id: string;
+  academic_year_id: string;
+}
+
+interface TeacherRow {
+  membership_id: string;
+  user_id: string;
+  email: string;
+  phone_number: string;
+  role: string;
+}
+
+export default function TeachingAllocationPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [areas, setAreas] = useState<LearningArea[]>([]);
-  const [allocation, setAllocation] = useState<Record<string, string | undefined>>({});
-  const [teachers, setTeachers] = useState<{ id: string; name: string; subjects: string[] }[]>([]);
+  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [classGroups, setClassGroups] = useState<ClassGroupRow[]>([]);
+  const [yearId, setYearId] = useState("");
+  const [classGroupId, setClassGroupId] = useState("");
+  const [assignments, setAssignments] = useState<TeachingAssignmentRow[]>([]);
+  const [allocation, setAllocation] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    // Real staff directory — teachers (and admins able to take a class).
-    api
-      .get("/staff")
-      .then((r) => {
-        if (!Array.isArray(r.data)) return;
-        const rows = r.data.filter((s: any) => ["teacher", "head", "deputy", "admin"].includes(s.role))
-          .map((s: any) => ({
-            id: s.staff_id || s.user_id,
-            name: s.full_name || s.name || s.email,
-            subjects: [] as string[],
-          }));
-        setTeachers(rows);
+    Promise.all([
+      api.get("/staff"),
+      api.get<LearningArea[]>("/curriculum/areas"),
+      api.get<ClassGroupRow[]>("/structure/class-groups"),
+    ])
+      .then(([staffRes, areasRes, groupsRes]) => {
+        const staff = Array.isArray(staffRes.data) ? staffRes.data : [];
+        setTeachers(
+          staff
+            .filter((s: TeacherRow) => ["TEACHER", "HEAD", "DEPUTY", "SCHOOL_ADMIN"].includes((s.role || "").toUpperCase()))
+            .map((s: TeacherRow) => ({ ...s })),
+        );
+        setAreas(Array.isArray(areasRes.data) ? areasRes.data : []);
+        const groups = Array.isArray(groupsRes.data) ? groupsRes.data : [];
+        setClassGroups(groups);
+        if (groups.length > 0) {
+          setYearId(groups[0].year_id);
+          setClassGroupId(groups[0].class_group_id);
+        }
         setState("content");
       })
       .catch(() => setState("error"));
-    api.get<LearningArea[]>("/curriculum/areas")
-      .then((r) => { setAreas(Array.isArray(r.data) ? r.data : []); })
-      .catch(() => setState("error"));
   }, []);
 
+  const loadAssignments = useCallback(async (groupId: string) => {
+    if (!groupId) {
+      setAssignments([]);
+      setAllocation({});
+      return;
+    }
+    try {
+      const res = await api.get<TeachingAssignmentRow[]>("/structure/teaching-assignments", {
+        params: { class_group_id: groupId },
+      });
+      const rows = Array.isArray(res.data) ? res.data : [];
+      setAssignments(rows);
+      const next: Record<string, string> = {};
+      for (const row of rows) next[row.subject_id] = row.staff_membership_id;
+      setAllocation(next);
+    } catch {
+      setAssignments([]);
+      setAllocation({});
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAssignments(classGroupId);
+  }, [classGroupId, loadAssignments]);
+
+  const years = Array.from(
+    new Map(classGroups.map((g) => [g.year_id, g.year_label || g.year_id])).entries(),
+  );
+  const groupsForYear = classGroups.filter((g) => !yearId || g.year_id === yearId);
+
+  const teacherName = (membershipId: string) => {
+    const teacher = teachers.find((item) => item.membership_id === membershipId);
+    return teacher?.email || teacher?.phone_number || membershipId;
+  };
+
   const handleSave = async () => {
+    if (!classGroupId || !yearId) {
+      toast("Choose an academic year and class first.", { type: "error" });
+      return;
+    }
     setSaving(true);
-    await handleSaveAllocation(allocation);
-    setSaving(false);
+    try {
+      const existingByArea = new Map(assignments.map((row) => [row.subject_id, row]));
+      for (const area of areas) {
+        const desired = allocation[area.area_id] || "";
+        const existing = existingByArea.get(area.area_id);
+        if (!desired) {
+          if (existing) await api.delete(`/structure/teaching-assignments/${existing.assignment_id}`);
+          continue;
+        }
+        if (existing?.staff_membership_id === desired) continue;
+        if (existing) await api.delete(`/structure/teaching-assignments/${existing.assignment_id}`);
+        await api.post("/structure/teaching-assignments", {
+          staff_membership_id: desired,
+          class_group_id: classGroupId,
+          subject_id: area.area_id,
+          academic_year_id: yearId,
+        });
+      }
+      toast("Teaching allocations saved!", { type: "success" });
+      await loadAssignments(classGroupId);
+    } catch (err: any) {
+      toast(err.response?.data?.message || "Failed to save allocation", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (state === "loading") return <ViewState state="loading" />;
@@ -70,6 +151,37 @@ export default function TeachingAllocationPage() {
       </div>
 
       <Card>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="label">{t("academic_year")}</label>
+            <select
+              className="input-field"
+              value={yearId}
+              onChange={(e) => {
+                setYearId(e.target.value);
+                const first = classGroups.find((g) => g.year_id === e.target.value);
+                setClassGroupId(first?.class_group_id || "");
+              }}
+            >
+              <option value="">{t("select", { defaultMessage: "Select" })}</option>
+              {years.map(([id, label]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">{t("class_group", { defaultMessage: "Class" })}</label>
+            <select className="input-field" value={classGroupId} onChange={(e) => setClassGroupId(e.target.value)}>
+              <option value="">{t("select", { defaultMessage: "Select" })}</option>
+              {groupsForYear.map((g) => (
+                <option key={g.class_group_id} value={g.class_group_id}>
+                  {g.grade_label} {g.stream_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left min-w-[700px]">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -82,7 +194,6 @@ export default function TeachingAllocationPage() {
             <tbody className="divide-y divide-gray-100">
               {areas.map((area) => {
                 const assigned = allocation[area.area_id];
-                const teacher = teachers.find((t) => t.id === assigned);
                 return (
                   <tr key={area.area_id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 text-sm text-gray-900">
@@ -94,13 +205,20 @@ export default function TeachingAllocationPage() {
                         className="input-field w-full max-w-xs"
                         value={assigned || ""}
                         onChange={(e) => {
-                          const v = e.target.value;
-                          setAllocation({ ...allocation, [area.area_id]: v || undefined });
+                          const value = e.target.value;
+                          setAllocation((prev) => {
+                            const next = { ...prev };
+                            if (value) next[area.area_id] = value;
+                            else delete next[area.area_id];
+                            return next;
+                          });
                         }}
                       >
                         <option value="">{t("unassigned")}</option>
-                        {teachers.map((t) => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
+                        {teachers.map((teacher) => (
+                          <option key={teacher.membership_id} value={teacher.membership_id}>
+                            {teacher.email || teacher.phone_number || teacher.membership_id}
+                          </option>
                         ))}
                       </select>
                     </td>
@@ -108,7 +226,7 @@ export default function TeachingAllocationPage() {
                       {!assigned ? (
                         <Badge variant="danger">{t("unassigned")}</Badge>
                       ) : (
-                        <Badge variant="success">{t("assigned")}</Badge>
+                        <Badge variant="success">{teacherName(assigned)}</Badge>
                       )}
                     </td>
                   </tr>
@@ -124,7 +242,7 @@ export default function TeachingAllocationPage() {
         </div>
         <div className="flex items-center justify-between mt-4">
           <p className="text-caption text-muted">{t("unassigned_warning")}</p>
-          <Button variant="primary" onClick={handleSave} disabled={saving || Object.keys(allocation).length === 0}>
+          <Button variant="primary" onClick={handleSave} disabled={saving || !classGroupId}>
             {saving ? "Saving…" : t("save", { defaultMessage: "Save allocations" })}
           </Button>
         </div>
