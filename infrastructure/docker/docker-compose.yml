@@ -41,7 +41,7 @@ services:
       dockerfile: Dockerfile
     container_name: school_migrate
     restart: "no"
-    entrypoint: ["/app/migrate"]
+    entrypoint: ["/migrate"]
     command: ["-dir", "/migrations"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-school_admin}:${POSTGRES_PASSWORD:-dev_secret_password}@postgres:5432/${POSTGRES_DB:-school_system}?sslmode=disable

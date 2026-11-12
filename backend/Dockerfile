@@ -37,10 +37,16 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w" \
     -buildvcs=false \
-    -o /out/migrate ./cmd/migrate
+    -o /out/migrate ./cmd/migrate \
+ && CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -buildvcs=false \
+    -o /out/healthcheck ./cmd/healthcheck
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /out/api /api
 COPY --from=builder /out/migrate /migrate
+COPY --from=builder /out/healthcheck /healthcheck
 EXPOSE 8080
 ENTRYPOINT ["/api"]

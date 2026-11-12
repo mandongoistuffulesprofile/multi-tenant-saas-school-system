@@ -43,8 +43,9 @@ services:
       context: ../../backend
       dockerfile: Dockerfile
     image: skulapp-api:${APP_VERSION:-latest}
-    # The image entrypoint is ./api; override it for the one-shot migrator.
-    entrypoint: ["/app/migrate"]
+    # backend/Dockerfile installs the migrator at /migrate (distroless has no
+    # /app directory), so override the image entrypoint with that exact path.
+    entrypoint: ["/migrate"]
     command: ["-dir", "/migrations"]
     restart: "no"
     environment:
@@ -79,7 +80,9 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health/ready"]
+      # Distroless has no shell or wget. /healthcheck is a static Go probe
+      # built into the API image by backend/Dockerfile.
+      test: ["CMD", "/healthcheck", "http://127.0.0.1:8080/health/ready"]
       interval: 15s
       timeout: 5s
       retries: 5

@@ -1,0 +1,9 @@
+# CI-only override for infrastructure/docker/docker-compose.prod.yml.
+#
+# The production stack keeps the API private and terminates TLS in Caddy. CI
+# does not have a real domain or certificate, so publish the API on localhost
+# and test the same image, migrations and healthcheck without starting Caddy.
+services:
+  api:
+    ports:
+      - "8080:8080"

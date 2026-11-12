@@ -116,3 +116,53 @@ jobs:
           count=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
           echo "public tables: $count"
           test "$count" -ge 100
+
+  prod-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, migrate and health-check the production Compose stack
+        working-directory: infrastructure/docker
+        run: |
+          set -euo pipefail
+          ENV_FILE="$RUNNER_TEMP/skulapp-ci.env"
+          cat > "$ENV_FILE" <<EOF
+          DOMAIN=localhost
+          APP_VERSION=ci
+          POSTGRES_PASSWORD=ci_postgres_password
+          JWT_SIGNING_KEY=$(openssl rand -hex 32)
+          ENCRYPTION_KEY=$(openssl rand -hex 32)
+          MPESA_WEBHOOK_TOKEN=$(openssl rand -hex 32)
+          METRICS_TOKEN=$(openssl rand -hex 32)
+          EOF
+          COMPOSE=(docker compose -p skulapp-ci -f docker-compose.prod.yml -f docker-compose.ci.yml --env-file "$ENV_FILE")
+          "${COMPOSE[@]}" down -v --remove-orphans || true
+          "${COMPOSE[@]}" build --pull
+          "${COMPOSE[@]}" up -d --wait postgres redis
+          # Run twice: the production migrate service must be idempotent.
+          "${COMPOSE[@]}" run --rm migrate
+          "${COMPOSE[@]}" run --rm migrate
+          "${COMPOSE[@]}" up -d --wait --no-deps --wait-timeout 120 api
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ok" -ne 1 ]; then
+            "${COMPOSE[@]}" logs --no-color --tail=200 api
+            exit 1
+          fi
+          curl -fsS http://127.0.0.1:8080/health/ready
+      - name: Tear down the Compose stack
+        if: always()
+        working-directory: infrastructure/docker
+        run: |
+          ENV_FILE="$RUNNER_TEMP/skulapp-ci.env"
+          if [ -f "$ENV_FILE" ]; then
+            docker compose -p skulapp-ci -f docker-compose.prod.yml -f docker-compose.ci.yml --env-file "$ENV_FILE" logs --no-color --tail=200 api || true
+            docker compose -p skulapp-ci -f docker-compose.prod.yml -f docker-compose.ci.yml --env-file "$ENV_FILE" down -v --remove-orphans || true
+          fi
