@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -308,17 +309,15 @@ func (h *Handler) withTenantTx(ctx context.Context, tenantID, actor string, fn f
 	return tx.Commit()
 }
 
+// auditPlatform records a platform-onboarding action against the tenant it
+// changed. It uses the shared audit helper so the event lands in the same
+// audit_events columns the tenant audit log and platform console read.
 func (h *Handler) auditPlatform(c *gin.Context, tenantID, action string, detail map[string]any) {
-	actor := c.GetString("user_id")
 	if detail == nil {
 		detail = map[string]any{}
 	}
 	detail["target_tenant_id"] = tenantID
-	payload, _ := json.Marshal(detail)
-	_, _ = h.q(c).Exec(
-		`INSERT INTO audit_events (tenant_id, actor_user_id, action, entity_type, payload, request_id)
-		 VALUES ($1, NULLIF($2,'')::uuid, $3, 'PLATFORM_ONBOARDING', $4::jsonb, $5)`,
-		tenantID, actor, action, string(payload), c.GetString("request_id"))
+	audit.TenantAction(h.q(c), c, action, "platform_onboarding", "", detail)
 }
 
 func (h *Handler) SetupProfile(c *gin.Context) {

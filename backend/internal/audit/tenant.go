@@ -1,12 +1,18 @@
 package audit
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jmoiron/sqlx"
 )
+
+// Execer is the minimal handle needed to insert an audit row. *sqlx.Tx and
+// *sqlx.DB (and the platform handler's queryer) satisfy it.
+type Execer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
 
 // TenantAction records a tenant-scoped audit event inside the request
 // transaction, attributed to the signed-in user.
@@ -19,8 +25,12 @@ import (
 // Writes are best-effort: the business change has already succeeded, so an
 // audit failure is reported to stderr instead of failing the response. Values
 // are not printed on failure because they may contain PII.
-func TenantAction(tx *sqlx.Tx, c *gin.Context, action, tableName, recordID string, details map[string]any) {
-	if tx == nil || c == nil {
+//
+// exec is normally the request transaction (*sqlx.Tx), but any handle exposing
+// sqlx's Exec signature works — platform onboarding writes through its
+// tenant-scoped queryer when no transaction is in the context.
+func TenantAction(exec Execer, c *gin.Context, action, tableName, recordID string, details map[string]any) {
+	if exec == nil || c == nil {
 		return
 	}
 	if details == nil {
@@ -30,7 +40,7 @@ func TenantAction(tx *sqlx.Tx, c *gin.Context, action, tableName, recordID strin
 	if err != nil {
 		payload = []byte("{}")
 	}
-	if _, err := tx.Exec(
+	if _, err := exec.Exec(
 		`INSERT INTO audit_events
 		    (tenant_id, user_id, action, table_name, record_id, new_values, ip_address, request_id)
 		 VALUES ($1, NULLIF($2, '')::uuid, $3, $4, NULLIF($5, '')::uuid, $6::jsonb,
