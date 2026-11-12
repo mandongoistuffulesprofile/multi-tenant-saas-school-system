@@ -45,6 +45,7 @@ import FinanceFeeStructuresPage from "./pages/FinanceFeeStructuresPage";
 import FinanceInvoicesPage from "./pages/FinanceInvoicesPage";
 import FinancePaymentsPage from "./pages/FinancePaymentsPage";
 import FinanceMpesaPage from "./pages/FinanceMpesaPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import BoardPackPage from "./pages/BoardPackPage";
 import FinanceReconciliationPage from "./pages/FinanceReconciliationPage";
 import HoldingTankReconciliationPage from "./pages/HoldingTankReconciliationPage";
@@ -163,9 +164,17 @@ export default function App() {
             <Route path="/finance/refunds" element={guard(FINANCE_ROLES, <FinanceRefundsPage />)} />
             <Route path="/platform" element={guard(SCHOOL_ADMIN_ROLES, <PlatformPage />)} />
 
-            {/* Redirects for common aliases */}
+            {/* Backwards-compatible aliases: bookmarks, PWA shortcuts and older
+                links must keep resolving after routes are renamed. */}
             <Route path="/fees" element={<Navigate to="/finance/invoices" replace />} />
             <Route path="/students" element={<Navigate to="/learners" replace />} />
+            <Route path="/invoices" element={<Navigate to="/finance/invoices" replace />} />
+            <Route path="/payments" element={<Navigate to="/finance/payments" replace />} />
+            <Route path="/mpesa" element={<Navigate to="/finance/mpesa" replace />} />
+            <Route path="/assessments" element={<Navigate to="/assessment" replace />} />
+            <Route path="/finance/record" element={<Navigate to="/finance/payments?action=record" replace />} />
+            <Route path="/record-payment" element={<Navigate to="/finance/payments?action=record" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
             {/* Non-production demo screens (disabled in production builds) */}
             {import.meta.env.DEV && (
               <>
@@ -233,7 +242,7 @@ export default function App() {
           </Route>
         </Route>
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+
       </Routes>
       </ErrorBoundary>
     </>

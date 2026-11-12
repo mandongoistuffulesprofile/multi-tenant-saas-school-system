@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
@@ -48,6 +49,17 @@ export default function FinancePaymentsPage() {
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep links (PWA shortcut, /finance/record alias) open the record dialog,
+  // then strip the action so closing it does not reopen on the next render.
+  useEffect(() => {
+    if (searchParams.get("action") !== "record") return;
+    setPayModal(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("action");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     api.get("/finance/payments").then((res) => {

@@ -227,6 +227,8 @@ export default function Layout({ children }: LayoutProps) {
   // overlay covering it.
   useEffect(() => {
     if (window.innerWidth < 768) setCollapsed(true);
+    setPalette((p) => (p.open ? { ...p, open: false } : p));
+    window.scrollTo(0, 0);
   }, [location.pathname]);
 
   /* Exit an impersonation session: restore the platform-owner tokens. */
