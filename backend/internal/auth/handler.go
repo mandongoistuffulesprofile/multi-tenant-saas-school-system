@@ -103,39 +103,22 @@ func (h *Handler) Login(c *gin.Context) {
 		}
 	}
 
-	const identityPredicate = `u.is_active = true
-		AND (u.email_norm = LOWER($1) OR LOWER(u.email) = LOWER($1) OR u.phone_number = $1)`
-
 	var (
 		userID       string
 		passwordHash string
 	)
 
-	// Prefer a real email/phone match over an email_norm-only row. Old test
-	// data can leave a phone-less, email-less "shell" row whose email_norm
-	// collides with a real account; a plain LIMIT 1 would sometimes select the
-	// shell and reject the correct password.
-	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate + `
-		ORDER BY (u.email IS NOT NULL AND LOWER(u.email) = LOWER($1)) DESC,
-		         (u.phone_number = $1) DESC,
-		         u.created_at DESC
-		LIMIT 1`
-	args := []any{identifier}
-
-	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
-		return
-	}
-	if _, err := tx.Exec(`SELECT set_config('app.current_user_role', 'SAAS_ADMIN', true)`); err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
-		return
-	}
-
-	if err := tx.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
+	// auth_lookup_credentials is a SECURITY DEFINER function owned by the
+	// migration/app role. It performs the identifier lookup without granting
+	// the public login path a broad SAAS_ADMIN session role; the function is
+	// the only thing exposed, and it returns no rows unless the account is
+	// active. This also keeps the query identical to the previous ordering
+	// rule that prefers a real email/phone over an email_norm-only shell row.
+	if err := h.database.QueryRowContext(c.Request.Context(),
+		`SELECT user_id, password_hash FROM auth_lookup_credentials($1)`,
+		identifier,
+	).Scan(&userID, &passwordHash); err != nil ||
 		!VerifyPassword(passwordHash, req.Password) {
-		tx.Rollback()
 		if h.redis != nil {
 			key := "rl:login:fail:" + strings.ToLower(identifier)
 			n, _ := h.redis.Incr(c.Request.Context(), key).Result()
@@ -144,10 +127,6 @@ func (h *Handler) Login(c *gin.Context) {
 			}
 		}
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
 		return
 	}
 	// Clear lockout on success.
@@ -246,8 +225,8 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"memberships": membershipResponses,
-		"user_id":     userID,
+		"memberships":               membershipResponses,
+		"user_id":                   userID,
 		"requires_tenant_selection": true,
 	})
 }

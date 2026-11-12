@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 
@@ -42,6 +43,16 @@ func NewHandler(service *Service) *Handler {
 // participate in the request transaction.
 func (h *Handler) q(c *gin.Context) queryer {
 	if tx := middleware.TxFromGin(c); tx != nil {
+		return tx
+	}
+	return h.service.database
+}
+
+// qctx is q for helpers that only receive a context. Onboarding helpers are
+// called from platform routes where TenantTxMiddleware has already put the
+// request transaction (and the SAAS_ADMIN bypass) in the context.
+func (h *Handler) qctx(ctx context.Context) queryer {
+	if tx := middleware.TxFromContext(ctx); tx != nil {
 		return tx
 	}
 	return h.service.database

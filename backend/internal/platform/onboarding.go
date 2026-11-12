@@ -17,8 +17,6 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
-
-
 // generateRandomToken returns a hex string of n random bytes. Used for
 // school_payment_channels.channel_token (NOT NULL) when provisioning a new
 // tenant's payment channels.
@@ -95,7 +93,7 @@ type ReadinessResult struct {
 }
 
 func (h *Handler) ensureOnboarding(ctx context.Context, tenantID, actor string) error {
-	_, err := h.service.database.ExecContext(ctx,
+	_, err := h.qctx(ctx).Exec(
 		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, created_by, updated_by)
 		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,'')::uuid, NULLIF($2,'')::uuid)
 		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID, actor)
@@ -106,7 +104,7 @@ func (h *Handler) getOnboarding(ctx context.Context, tenantID string) (*Onboardi
 	var st OnboardingState
 	var steps, draft, ready []byte
 	var createdBy, updatedBy, handed sql.NullString
-	err := h.service.database.QueryRowContext(ctx,
+	err := h.qctx(ctx).QueryRow(
 		`SELECT tenant_id, status, current_step, steps, draft, readiness, created_by::text, updated_by::text, handed_off_at::text, created_at::text, updated_at::text
 		 FROM platform_tenant_onboarding WHERE tenant_id = $1`, tenantID).
 		Scan(&st.TenantID, &st.Status, &st.CurrentStep, &steps, &draft, &ready, &createdBy, &updatedBy, &handed, &st.CreatedAt, &st.UpdatedAt)
@@ -132,7 +130,7 @@ func (h *Handler) getOnboarding(ctx context.Context, tenantID string) (*Onboardi
 func (h *Handler) updateOnboarding(ctx context.Context, tenantID, status, step, actor string, patchSteps, patchDraft map[string]any) error {
 	stepsJSON, _ := json.Marshal(patchSteps)
 	draftJSON, _ := json.Marshal(patchDraft)
-	_, err := h.service.database.ExecContext(ctx,
+	_, err := h.qctx(ctx).Exec(
 		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, steps, draft, updated_by)
 		 VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, NULLIF($6,'')::uuid)
 		 ON CONFLICT (tenant_id) DO UPDATE SET
@@ -147,7 +145,7 @@ func (h *Handler) updateOnboarding(ctx context.Context, tenantID, status, step, 
 
 func (h *Handler) tenantExists(ctx context.Context, tenantID string) (bool, string, error) {
 	var status string
-	err := h.service.database.QueryRowContext(ctx, `SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&status)
+	err := h.qctx(ctx).QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&status)
 	if err == sql.ErrNoRows {
 		return false, "", nil
 	}
@@ -312,10 +310,12 @@ func (h *Handler) withTenantTx(ctx context.Context, tenantID, actor string, fn f
 
 func (h *Handler) auditPlatform(c *gin.Context, tenantID, action string, detail map[string]any) {
 	actor := c.GetString("user_id")
-	if detail == nil { detail = map[string]any{} }
+	if detail == nil {
+		detail = map[string]any{}
+	}
 	detail["target_tenant_id"] = tenantID
 	payload, _ := json.Marshal(detail)
-	_, _ = h.service.database.ExecContext(c.Request.Context(),
+	_, _ = h.q(c).Exec(
 		`INSERT INTO audit_events (tenant_id, actor_user_id, action, entity_type, payload, request_id)
 		 VALUES ($1, NULLIF($2,'')::uuid, $3, 'PLATFORM_ONBOARDING', $4::jsonb, $5)`,
 		tenantID, actor, action, string(payload), c.GetString("request_id"))
@@ -712,7 +712,7 @@ func (h *Handler) CompleteSetup(c *gin.Context) {
 		return
 	}
 	readyBytes, _ := json.Marshal(res)
-	_, err = h.service.database.ExecContext(c.Request.Context(),
+	_, err = h.q(c).Exec(
 		`UPDATE platform_tenant_onboarding SET status='READY_FOR_HANDOFF', current_step='HANDOFF', readiness=$2::jsonb, updated_by=NULLIF($3,'')::uuid, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1`,
 		tenantID, string(readyBytes), actor)
 	if err != nil {
@@ -729,7 +729,7 @@ func (h *Handler) MarkHandoff(c *gin.Context) {
 		return
 	}
 	actor := c.GetString("user_id")
-	_, err := h.service.database.ExecContext(c.Request.Context(),
+	_, err := h.q(c).Exec(
 		`UPDATE platform_tenant_onboarding SET status='HANDED_OFF', current_step='HANDED_OFF', handed_off_at=CURRENT_TIMESTAMP, updated_by=NULLIF($2,'')::uuid, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1`,
 		tenantID, actor)
 	if err != nil {

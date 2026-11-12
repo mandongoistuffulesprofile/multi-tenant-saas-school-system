@@ -347,17 +347,7 @@ func (h *Handler) RequestPasswordAssistance(c *gin.Context) {
 
 	if userID, err := h.findActiveUser(ctx, identifier); err == nil {
 		tenantID := h.userTenant(ctx, userID)
-		_, err := h.database.ExecContext(ctx, `
-			INSERT INTO password_assistance_requests (user_id, tenant_id, note)
-			VALUES ($1, NULLIF($2, ''), $3)
-			ON CONFLICT (user_id) WHERE status = 'PENDING'
-			DO UPDATE SET note = CASE
-				WHEN EXCLUDED.note <> '' THEN EXCLUDED.note
-				ELSE password_assistance_requests.note
-			END`,
-			userID, tenantID, note,
-		)
-		if err != nil {
+		if err := h.queuePasswordAssistance(ctx, userID, tenantID, note); err != nil {
 			log.Printf("password assistance: could not queue request for user %s: %v", userID, err)
 		} else {
 			log.Printf("password assistance: request queued for tenant %q", tenantID)
@@ -368,6 +358,40 @@ func (h *Handler) RequestPasswordAssistance(c *gin.Context) {
 		"code":    "ASSISTANCE_REQUESTED",
 		"message": "A platform administrator has been notified. They can issue you a one-time reset code.",
 	})
+}
+
+// queuePasswordAssistance writes the support-queue row inside a tenant-scoped
+// transaction. password_assistance_requests is FORCE-RLS protected, and the
+// public assistance endpoint has no session tenant, so without this GUC the
+// insert would be rejected. A global account with no membership is allowed by
+// the policy's tenant_id IS NULL branch.
+func (h *Handler) queuePasswordAssistance(ctx context.Context, userID, tenantID, note string) error {
+	tx, err := h.database.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if tenantID != "" {
+		if _, err := tx.ExecContext(ctx,
+			`SELECT set_config('app.current_tenant_id', $1, true)`, tenantID); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO password_assistance_requests (user_id, tenant_id, note)
+		VALUES ($1, NULLIF($2, ''), $3)
+		ON CONFLICT (user_id) WHERE status = 'PENDING'
+		DO UPDATE SET note = CASE
+			WHEN EXCLUDED.note <> '' THEN EXCLUDED.note
+			ELSE password_assistance_requests.note
+		END`,
+		userID, tenantID, note,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ResetWithSupportCode redeems a one-time code issued by a platform admin.
@@ -459,11 +483,30 @@ type assistanceRequestRow struct {
 	ResolutionMethod string     `db:"resolution_method" json:"resolution_method,omitempty"`
 }
 
+// recoveryQueryer is the subset of *sqlx.DB / *sqlx.Tx used by the platform
+// assistance endpoints. Those tables are FORCE-RLS protected, so the handlers
+// must read through the request transaction (which carries the SAAS_ADMIN
+// bypass) rather than a fresh pooled connection.
+type recoveryQueryer interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+	SelectContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
+}
+
+func (h *Handler) requestQueryer(c *gin.Context) recoveryQueryer {
+	if v, ok := c.Get("tx"); ok {
+		if q, ok := v.(recoveryQueryer); ok {
+			return q
+		}
+	}
+	return h.database
+}
+
 // ListPasswordAssistance powers the platform-admin queue and its badge count.
 func (h *Handler) ListPasswordAssistance(c *gin.Context) {
 	ctx := c.Request.Context()
 	var items []assistanceRequestRow
-	err := h.database.SelectContext(ctx, &items, `
+	err := h.requestQueryer(c).SelectContext(ctx, &items, `
 		SELECT r.request_id::text, r.user_id::text,
 		       COALESCE(NULLIF(u.email, ''), u.phone_number) AS identifier,
 		       COALESCE(u.email, '') AS email,
@@ -500,7 +543,7 @@ func (h *Handler) IssueResetCodeForRequest(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	var userID, identifier string
-	err := h.database.QueryRowContext(ctx, `
+	err := h.requestQueryer(c).QueryRowContext(ctx, `
 		SELECT r.user_id::text, COALESCE(NULLIF(u.email, ''), u.phone_number)
 		  FROM password_assistance_requests r
 		  JOIN users u ON u.user_id = r.user_id
@@ -519,7 +562,7 @@ func (h *Handler) IssueResetCodeForRequest(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Could not issue a reset code"})
 		return
 	}
-	_, _ = h.database.ExecContext(ctx, `
+	_, _ = h.requestQueryer(c).ExecContext(ctx, `
 		UPDATE password_assistance_requests
 		   SET status = 'RESOLVED', resolved_by = NULLIF($2, '')::uuid,
 		       resolved_at = now(), resolution_method = 'CODE_ISSUED'
@@ -568,7 +611,7 @@ func (h *Handler) IssueResetCodeByEmail(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Could not issue a reset code"})
 		return
 	}
-	_, _ = h.database.ExecContext(ctx, `
+	_, _ = h.requestQueryer(c).ExecContext(ctx, `
 		UPDATE password_assistance_requests
 		   SET status = 'RESOLVED', resolved_by = NULLIF($2, '')::uuid,
 		       resolved_at = now(), resolution_method = 'CODE_ISSUED'
@@ -689,13 +732,31 @@ func (h *Handler) completePasswordReset(ctx context.Context, userID, newPassword
 	_, _ = h.database.ExecContext(ctx,
 		`UPDATE password_reset_codes SET used_at = now() WHERE user_id = $1 AND used_at IS NULL`, userID)
 	// Also resolve pending help requests immediately (the DB trigger is a
-	// backstop for any other password update path).
-	_, _ = h.database.ExecContext(ctx, `
+	// backstop for any other password update path). The table is FORCE-RLS
+	// protected, so this runs in a tenant-scoped transaction.
+	h.resolvePendingAssistance(ctx, userID)
+	return nil
+}
+
+func (h *Handler) resolvePendingAssistance(ctx context.Context, userID string) {
+	tenantID := h.userTenant(ctx, userID)
+	tx, err := h.database.BeginTxx(ctx, nil)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if tenantID != "" {
+		if _, err := tx.ExecContext(ctx,
+			`SELECT set_config('app.current_tenant_id', $1, true)`, tenantID); err != nil {
+			return
+		}
+	}
+	_, _ = tx.ExecContext(ctx, `
 		UPDATE password_assistance_requests
 		   SET status = 'RESOLVED', resolved_at = now(),
 		       resolution_method = COALESCE(NULLIF(resolution_method, ''), 'PASSWORD_CHANGED')
 		 WHERE user_id = $1 AND status = 'PENDING'`, userID)
-	return nil
+	_ = tx.Commit()
 }
 
 func (h *Handler) recoveryLocked(ctx context.Context, userID string) bool {
