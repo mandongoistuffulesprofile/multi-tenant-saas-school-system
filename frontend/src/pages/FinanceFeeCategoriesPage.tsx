@@ -184,7 +184,7 @@ export default function FinanceFeeCategoriesPage() {
                   return (
                     <Button
                       key={template.code}
-                      variant={exists ? "default" : "outline"}
+                      variant={exists ? "secondary" : "ghost"}
                       size="sm"
                       className="h-auto py-3 text-left gap-2"
                       onClick={() => !exists && openCreateFromTemplate(template)}

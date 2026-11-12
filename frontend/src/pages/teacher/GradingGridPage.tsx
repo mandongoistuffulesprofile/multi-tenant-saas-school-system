@@ -30,6 +30,7 @@ interface GradingCell {
 
 export default function GradingGridPage() {
   const [syncing, setSyncing] = useState(false);
+  const { tenantId } = useAuthStore();
 
   const handleInstantSync = async () => {
     if (syncing) return;
@@ -55,7 +56,7 @@ export default function GradingGridPage() {
       await Promise.all(
         entries.map((e) => {
           const clientId = `${selectedEvent}:${e.learner_id}:${e.sub_strand_id || event.learning_area_id}`;
-          return saveAssessmentResult({
+          return saveAssessmentResult(tenantId!, {
             id: clientId,
             client_uuid: clientId,
             learner_id: e.learner_id,
@@ -96,7 +97,8 @@ export default function GradingGridPage() {
   }, []);
 
   useEffect(() => {
-    getAssessmentResults().then((saved) => {
+    if (!tenantId) return;
+    getAssessmentResults(tenantId).then((saved) => {
       const map: Record<string, LevelCode> = {};
       saved.forEach((r) => {
         const p = r.payload as any;
@@ -106,7 +108,7 @@ export default function GradingGridPage() {
       });
       setCells(map);
     });
-  }, []);
+  }, [tenantId]);
 
   if (state === "loading") return <ViewState state="loading" />;
   if (events.length === 0) return <ViewState state="empty" message={'No assessment events'} />;
@@ -148,7 +150,7 @@ export default function GradingGridPage() {
     const key = `${learnerId}|${event.learning_area_id}`;
     setCells((c) => ({ ...c, [key]: level }));
     const clientId = `${selectedEvent}:${learnerId}:${event.learning_area_id}`;
-    saveAssessmentResult({
+    saveAssessmentResult(tenantId!, {
       id: clientId,
       client_uuid: clientId,
       learner_id: learnerId,

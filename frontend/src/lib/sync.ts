@@ -5,7 +5,8 @@
 // silently.
 
 import { api } from "./api";
-import { getQueue, removeFromQueue, bumpRetry, isOnline, getDeviceId, QueuedOp } from "./offline";
+import { getQueue, removeFromQueue, bumpRetry, isOnline, getDeviceId, QueuedOp, getAssessmentResults, getAttendanceMarks, clearOfflineData } from "./offline";
+import { useAuthStore } from "./authStore";
 import { toast } from "./toast";
 
 const MAX_RETRIES = 5;
@@ -30,6 +31,10 @@ export function isSyncing() { return syncing; }
 export { getQueue };
 export type { QueuedOp };
 
+function getTenantId(): string | null {
+  return useAuthStore.getState().tenantId;
+}
+
 function syncItemFor(op: QueuedOp) {
   const entityType = ENTITY_BY_ENDPOINT[op.endpoint] || "ATTENDANCE_MARK";
   const p = (op.payload as Record<string, unknown> | undefined) ?? {};
@@ -45,6 +50,8 @@ function syncItemFor(op: QueuedOp) {
 }
 
 export async function syncNow(): Promise<{ synced: number; failed: number; conflicts: number }> {
+  const tenantId = getTenantId();
+  if (!tenantId) return { synced: 0, failed: 0, conflicts: 0 };
   if (syncing || !isOnline()) return { synced: 0, failed: 0, conflicts: 0 };
   syncing = true;
   emit();
@@ -53,7 +60,7 @@ export async function syncNow(): Promise<{ synced: number; failed: number; confl
   let conflicts = 0;
 
   try {
-    const queue = await getQueue();
+    const queue = await getQueue(tenantId);
     const pending = queue.filter((op) => op.retries < MAX_RETRIES);
     const exhausted = queue.filter((op) => op.retries >= MAX_RETRIES);
     failed += exhausted.length;
@@ -92,13 +99,13 @@ export async function syncNow(): Promise<{ synced: number; failed: number; confl
         for (const op of pending) {
           const uuid = String((op.payload as Record<string, unknown> | undefined)?.id ?? op.id);
           if (appliedUUIDs.has(uuid)) {
-            await removeFromQueue(op.id);
+            await removeFromQueue(tenantId, op.id);
             synced += 1;
           } else if (conflictUUIDs.has(uuid)) {
-            await removeFromQueue(op.id);
+            await removeFromQueue(tenantId, op.id);
             conflicts += 1;
           } else {
-            await bumpRetry(op.id);
+            await bumpRetry(tenantId, op.id);
             failed += 1;
           }
         }
@@ -106,7 +113,7 @@ export async function syncNow(): Promise<{ synced: number; failed: number; confl
         // Network error while pushing: bump retry on every pending item and
         // back off; keep the session alive (no logout).
         for (const op of pending) {
-          await bumpRetry(op.id);
+          await bumpRetry(tenantId, op.id);
           failed += 1;
         }
         await sleep(Math.min(BACKOFF_BASE_MS * 2 ** (pending[0]?.retries || 0), 30000));
@@ -172,7 +179,9 @@ export function installSyncHooks(): () => void {
 }
 
 export async function queueCount(): Promise<number> {
-  return (await getQueue()).length;
+  const tenantId = getTenantId();
+  if (!tenantId) return 0;
+  return (await getQueue(tenantId)).length;
 }
 
 export { getDeviceId };

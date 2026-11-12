@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useAuthStore } from "../../lib/authStore";
 import Button from "../../components/atoms/Button";
 import Card from "../../components/atoms/Card";
 import Badge from "../../components/atoms/Badge";
@@ -20,14 +21,17 @@ type Conflict = {
 
 export default function SyncCentrePage() {
   const { t } = useTranslation();
+  const { tenantId } = useAuthStore();
   const [queue, setQueue] = useState<QueuedOp[]>([]);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [count, setCount] = useState(0);
   const syncing = isSyncing();
 
   const refresh = async () => {
-    setQueue(await getQueue());
-    setCount(await queueCount());
+    if (tenantId) {
+      setQueue(await getQueue(tenantId));
+      setCount(await queueCount());
+    }
     try {
       const { data } = await api.get<Conflict[]>("/sync/conflicts");
       setConflicts(Array.isArray(data) ? data.filter((c) => !c.resolved) : []);
@@ -38,7 +42,7 @@ export default function SyncCentrePage() {
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [tenantId]);
 
   const handleSync = async () => {
     const res = await syncNow();

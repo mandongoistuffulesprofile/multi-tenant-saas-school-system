@@ -84,11 +84,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ token, refreshToken, userId, tenantId, roles, hydrated: true });
   },
   clearAuth: () => {
+    const { tenantId } = get();
+    if (tenantId) {
+      void clearOfflineData(tenantId).catch(() => { /* ignore */ });
+    }
     clearCachedSession();
     set({ token: null, refreshToken: null, userId: null, tenantId: null, roles: [], hydrated: true });
-    void clearOfflineData().catch(() => {
-      /* ignore */
-    });
   },
   setTenant: (tenantId, roles) => {
     const { userId } = get();

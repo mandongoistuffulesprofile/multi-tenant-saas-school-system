@@ -12,6 +12,7 @@ import { Learner, AssessmentResult } from "../../lib/types";
 
 export default function ClassProgressPage() {
   const { t } = useTranslation();
+  const { tenantId } = useAuthStore();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [learners, setLearners] = useState<Learner[]>([]);
   const [results, setResults] = useState<AssessmentResult[]>([]);
@@ -20,10 +21,12 @@ export default function ClassProgressPage() {
     api.get<Learner[]>("/learners")
       .then((r) => { setLearners(Array.isArray(r.data) ? r.data : []); setState("content"); })
       .catch(() => setState("error"));
-    getAssessmentResults().then((saved) => {
-      setResults(saved.map((r) => r.payload as AssessmentResult));
-    });
-  }, []);
+    if (tenantId) {
+      getAssessmentResults(tenantId).then((saved) => {
+        setResults(saved.map((r) => r.payload as AssessmentResult));
+      });
+    }
+  }, [tenantId]);
 
   if (state === "loading") return <ViewState state="loading" />;
   if (learners.length === 0) return <ViewState state="empty" message={t("teacher.no_learners")} />;

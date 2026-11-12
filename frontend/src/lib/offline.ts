@@ -1,7 +1,6 @@
 // IndexedDB offline-first storage + sync queue for S2 Teacher PWA.
-// Single database: skulapp_offline, version 1.
+// Database is namespaced per tenant: skulapp_offline_<tenant_id>, version 1.
 
-const DB_NAME = "skulapp_offline";
 const DB_VERSION = 1;
 
 type ID = string;
@@ -34,11 +33,18 @@ const STORE_SCHEMAS: Record<StoreName, { keyPath: string; autoIncrement: boolean
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
+let currentTenantId: string | null = null;
 
-function openDB(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise;
+function getDBName(tenantId: string): string {
+  return `skulapp_offline_${tenantId}`;
+}
+
+function openDB(tenantId: string): Promise<IDBDatabase> {
+  if (dbPromise && currentTenantId === tenantId) return dbPromise;
+  currentTenantId = tenantId;
+  const dbName = getDBName(tenantId);
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(dbName, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       for (const [name, schema] of Object.entries(STORE_SCHEMAS)) {
@@ -54,8 +60,8 @@ function openDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-async function tx<T>(store: StoreName, mode: IDBTransactionMode, fn: (store: IDBObjectStore) => void): Promise<T | undefined> {
-  const database = await openDB();
+async function tx<T>(tenantId: string, store: StoreName, mode: IDBTransactionMode, fn: (store: IDBObjectStore) => void): Promise<T | undefined> {
+  const database = await openDB(tenantId);
   return new Promise((resolve, reject) => {
     const t = database.transaction([store], mode);
     const os = t.objectStore(store);
@@ -71,8 +77,8 @@ async function tx<T>(store: StoreName, mode: IDBTransactionMode, fn: (store: IDB
   });
 }
 
-async function getAll<T>(store: StoreName): Promise<T[]> {
-  const database = await openDB();
+async function getAll<T>(tenantId: string, store: StoreName): Promise<T[]> {
+  const database = await openDB(tenantId);
   return new Promise((resolve, reject) => {
     const t = database.transaction([store], "readonly");
     const os = t.objectStore(store);
@@ -82,28 +88,28 @@ async function getAll<T>(store: StoreName): Promise<T[]> {
   });
 }
 
-async function putRecord<T>(store: StoreName, record: StoredRecord<T>): Promise<void> {
-  await tx(store, "readwrite", (os) => os.put(record));
+async function putRecord<T>(tenantId: string, store: StoreName, record: StoredRecord<T>): Promise<void> {
+  await tx(tenantId, store, "readwrite", (os) => os.put(record));
 }
 
-async function deleteRecord(store: StoreName, id: ID): Promise<void> {
-  await tx(store, "readwrite", (os) => os.delete(id));
+async function deleteRecord(tenantId: string, store: StoreName, id: ID): Promise<void> {
+  await tx(tenantId, store, "readwrite", (os) => os.delete(id));
 }
 
-async function clearStore(store: StoreName): Promise<void> {
-  await tx(store, "readwrite", (os) => os.clear());
+async function clearStore(tenantId: string, store: StoreName): Promise<void> {
+  await tx(tenantId, store, "readwrite", (os) => os.clear());
 }
 
 /* ============ Record access ============ */
 
-export async function getAssessmentResults(): Promise<StoredRecord<any>[]> {
-  return getAll("assessment_results");
+export async function getAssessmentResults(tenantId: string): Promise<StoredRecord<any>[]> {
+  return getAll(tenantId, "assessment_results");
 }
-export async function saveAssessmentResult(result: any, opts?: { enqueue?: boolean }): Promise<void> {
+export async function saveAssessmentResult(tenantId: string, result: any, opts?: { enqueue?: boolean }): Promise<void> {
   const id = String(result.id ?? crypto.randomUUID());
   const payload = { ...result, id, client_uuid: result.client_uuid ?? id };
   const shouldEnqueue = opts?.enqueue !== false;
-  await putRecord("assessment_results", {
+  await putRecord(tenantId, "assessment_results", {
     id,
     payload,
     state: shouldEnqueue ? "pending" : "synced",
@@ -111,21 +117,21 @@ export async function saveAssessmentResult(result: any, opts?: { enqueue?: boole
     device_id: payload.device_id ?? null,
   });
   if (shouldEnqueue) {
-    await enqueueOp({ type: "create", endpoint: "/assessment/results", method: "POST", payload });
+    await enqueueOp(tenantId, { type: "create", endpoint: "/assessment/results", method: "POST", payload });
   }
 }
-export async function deleteAssessmentResult(id: ID): Promise<void> {
-  await deleteRecord("assessment_results", id);
+export async function deleteAssessmentResult(tenantId: string, id: ID): Promise<void> {
+  await deleteRecord(tenantId, "assessment_results", id);
 }
 
-export async function getAttendanceMarks(): Promise<StoredRecord<any>[]> {
-  return getAll("attendance_marks");
+export async function getAttendanceMarks(tenantId: string): Promise<StoredRecord<any>[]> {
+  return getAll(tenantId, "attendance_marks");
 }
-export async function saveAttendanceMark(mark: any, opts?: { enqueue?: boolean }): Promise<void> {
+export async function saveAttendanceMark(tenantId: string, mark: any, opts?: { enqueue?: boolean }): Promise<void> {
   const id = String(mark.id ?? crypto.randomUUID());
   const payload = { ...mark, id, client_uuid: mark.client_uuid ?? id, client_ts: mark.client_ts ?? new Date().toISOString() };
   const shouldEnqueue = opts?.enqueue !== false;
-  await putRecord("attendance_marks", {
+  await putRecord(tenantId, "attendance_marks", {
     id,
     payload,
     state: shouldEnqueue ? "pending" : "synced",
@@ -133,16 +139,16 @@ export async function saveAttendanceMark(mark: any, opts?: { enqueue?: boolean }
     device_id: payload.device_id ?? null,
   });
   if (shouldEnqueue) {
-    await enqueueOp({ type: "create", endpoint: "/attendance/marks", method: "POST", payload });
+    await enqueueOp(tenantId, { type: "create", endpoint: "/attendance/marks", method: "POST", payload });
   }
 }
-export async function deleteAttendanceMark(id: ID): Promise<void> {
-  await deleteRecord("attendance_marks", id);
+export async function deleteAttendanceMark(tenantId: string, id: ID): Promise<void> {
+  await deleteRecord(tenantId, "attendance_marks", id);
 }
 
-export async function clearOfflineData(): Promise<void> {
+export async function clearOfflineData(tenantId: string): Promise<void> {
   for (const store of ["assessment_results", "attendance_marks", "sync_queue"] as StoreName[]) {
-    await clearStore(store);
+    await clearStore(tenantId, store);
   }
 }
 
@@ -150,22 +156,22 @@ export async function clearOfflineData(): Promise<void> {
 
 const QUEUE_STORE = "sync_queue";
 
-async function enqueueOp(op: Omit<QueuedOp, "id" | "created_at" | "retries">): Promise<void> {
-  await tx(QUEUE_STORE, "readwrite", (os) =>
+async function enqueueOp(tenantId: string, op: Omit<QueuedOp, "id" | "created_at" | "retries">): Promise<void> {
+  await tx(tenantId, QUEUE_STORE, "readwrite", (os) =>
     os.add({ ...op, id: crypto.randomUUID(), created_at: new Date().toISOString(), retries: 0 })
   );
 }
 
-export async function getQueue(): Promise<QueuedOp[]> {
-  return (await getAll(QUEUE_STORE)) as QueuedOp[];
+export async function getQueue(tenantId: string): Promise<QueuedOp[]> {
+  return (await getAll(tenantId, QUEUE_STORE)) as QueuedOp[];
 }
 
-export async function removeFromQueue(id: ID): Promise<void> {
-  await deleteRecord(QUEUE_STORE, id);
+export async function removeFromQueue(tenantId: string, id: ID): Promise<void> {
+  await deleteRecord(tenantId, QUEUE_STORE, id);
 }
 
-export async function bumpRetry(id: ID): Promise<void> {
-  const database = await openDB();
+export async function bumpRetry(tenantId: string, id: ID): Promise<void> {
+  const database = await openDB(tenantId);
   await new Promise((resolve, reject) => {
     const t = database.transaction([QUEUE_STORE], "readwrite");
     const os = t.objectStore(QUEUE_STORE);

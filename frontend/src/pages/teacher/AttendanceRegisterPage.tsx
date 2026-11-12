@@ -22,7 +22,7 @@ const MARK_COLORS: Record<string, string> = {
 export default function AttendanceRegisterPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const { roles } = useAuthStore();
+  const { roles, tenantId } = useAuthStore();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [registers, setRegisters] = useState<AttendanceRegister[]>([]);
   const [selected, setSelected] = useState<AttendanceRegister | null>(null);
@@ -39,8 +39,8 @@ export default function AttendanceRegisterPage() {
   }, []);
 
   useEffect(() => {
-    if (!selected) return;
-    getAttendanceMarks().then((saved) => {
+    if (!selected || !tenantId) return;
+    getAttendanceMarks(tenantId).then((saved) => {
       const map: Record<string, string> = {};
       saved.forEach((r) => {
         const p = r.payload as any;
@@ -48,7 +48,7 @@ export default function AttendanceRegisterPage() {
       });
       setMarks(map);
     });
-  }, [selected]);
+  }, [selected, tenantId]);
 
   if (state === "loading") return <ViewState state="loading" />;
   if (registers.length === 0) return <ViewState state="empty" message={t("no_registers", { defaultMessage: "No attendance registers" })} />;
@@ -160,11 +160,11 @@ export default function AttendanceRegisterPage() {
           if (entries.length === 0) return;
           try {
             await api.post("/attendance/marks/batch", { register_id: selected.register_id, marks: entries.map(({ learner_id, status, register_id, client_uuid, device_id, client_ts }) => ({ learner_id, status, register_id, client_uuid, device_id, client_ts })) });
-            await Promise.all(entries.map((e) => saveAttendanceMark(e as any, { enqueue: false })));
+            await Promise.all(entries.map((e) => saveAttendanceMark(tenantId!, e as any, { enqueue: false })));
             toast("Attendance saved successfully!", { type: "success" });
           } catch (e) {
             // Persist each mark locally and queue for sync/retry.
-            await Promise.all(entries.map((e) => saveAttendanceMark(e as any)));
+            await Promise.all(entries.map((e) => saveAttendanceMark(tenantId!, e as any)));
             toast("Saved offline. Will sync when online.", { type: "warning" });
           }
         }}>
