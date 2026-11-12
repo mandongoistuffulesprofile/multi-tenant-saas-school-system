@@ -74,7 +74,6 @@ const SECTION_GROUPS: { id: string; label: string; items: SideItem[] }[] = [
       { path: "/finance/payments", label: "payments" },
       { path: "/finance/fee-categories", label: "fee_categories" },
       { path: "/finance/fee-structures", label: "fee_structures" },
-      { path: "/finance/mpesa", label: "mpesa_ledger" },
       { path: "/finance/reconciliation", label: "reconciliation" },
       { path: "/finance/board-pack", label: "board_pack" },
     ],
@@ -124,7 +123,6 @@ const ALL_ITEM_ROLES: Record<string, readonly string[]> = {
   "/finance/payments": FINANCE_ROLES,
   "/finance/fee-categories": FINANCE_ROLES,
   "/finance/fee-structures": FINANCE_ROLES,
-  "/finance/mpesa": FINANCE_ROLES,
   "/finance/reconciliation": FINANCE_ROLES,
   "/finance/board-pack": FINANCE_ROLES,
   "/calendar": [...ADMIN_ROLES, "TEACHER"],
@@ -184,7 +182,6 @@ const NAV_PAGES: { keys: string; path: string }[] = [
   { keys: "payments settlements receiving cash", path: "/finance/payments" },
   { keys: "fee categories classification", path: "/finance/fee-categories" },
   { keys: "fee structures matrix", path: "/finance/fee-structures" },
-  { keys: "mpesa ledger daraja c2b forensic", path: "/finance/mpesa" },
   { keys: "reconciliation matching", path: "/finance/reconciliation" },
   { keys: "board pack executive pack export", path: "/finance/board-pack" },
   { keys: "calendar terms year", path: "/calendar" },
@@ -252,14 +249,13 @@ export default function Layout({ children }: LayoutProps) {
     let alive = true;
     (async () => {
       const safe = async (p: string): Promise<any> => { try { return (await api.get(p)).data; } catch { return null; } };
-      const [learners, invoices, mpesa] = await Promise.all([
-        safe("/learners"), safe("/finance/invoices"), safe("/finance/mpesa/events"),
+      const [learners, invoices] = await Promise.all([
+        safe("/learners"), safe("/finance/invoices"),
       ]);
       if (!alive) return;
       setBadges({
         "/learners": Array.isArray(learners) ? learners.length : null,
         "/finance/invoices": Array.isArray(invoices) ? invoices.length : null,
-        "/finance/mpesa": (mpesa && mpesa.stats ? `${mpesa.stats.sync_percent}% sync` : null) as any,
       });
     })();
     return () => { alive = false; };
@@ -327,10 +323,8 @@ export default function Layout({ children }: LayoutProps) {
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   const q = palette.query.trim();
-                  const rx = q.match(/^receipt:\s*(\S+)/i);
                   const lr = q.match(/^learner:\s*(\S+)/i);
                   let dest = NAV_PAGES.find((n) => n.keys.toLowerCase().includes(q.toLowerCase()) || n.keys.split(" ").some((k) => k.startsWith(q.toLowerCase())))?.path;
-                  if (rx) dest = `/finance/mpesa?focus=${encodeURIComponent(rx[1])}`;
                   if (lr) dest = `/learners`;
                   if (dest) { setPalette({ open: false, query: "" }); navTo(dest); }
                 }
@@ -578,7 +572,6 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "/finance/fee-structures": FileText,
   "/finance/invoices": Receipt,
   "/finance/payments": CreditCard,
-  "/finance/mpesa": ArrowLeftRight,
   "/finance/reconciliation": Scale,
   "/finance/board-pack": Landmark,
   "/grades-streams": Layers,

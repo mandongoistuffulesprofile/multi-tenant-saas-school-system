@@ -191,37 +191,43 @@ func (h *Handler) TenantSwitch(c *gin.Context) {
 
 	userID := c.GetString("user_id")
 
-	// Verify user has membership in target tenant
+	// tenant_memberships is FORCE-RLS protected. Verify the membership and read
+	// the roles in a transaction scoped to this user, exactly like login; the
+	// self-select policy exposes only their own active memberships.
+	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		`SELECT set_config('app.current_user_id', $1, true)`, userID,
+	); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
+	}
+
 	var count int
-	err := h.database.QueryRow(
+	err = tx.QueryRow(
 		`SELECT COUNT(*) FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2 AND status = 'ACTIVE'`,
 		userID, req.TenantID,
 	).Scan(&count)
-
 	if err != nil || count == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"code": "NO_MEMBERSHIP", "message": "No membership in target tenant"})
 		return
 	}
 
-	// Get roles for this tenant
 	var roles []string
-	rows, err := h.database.Query(
+	if err := tx.Select(&roles,
 		`SELECT role FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2 AND status = 'ACTIVE'`,
 		userID, req.TenantID,
-	)
-	if err != nil {
+	); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load roles"})
 		return
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var role string
-		if err := rows.Scan(&role); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to scan role"})
-			return
-		}
-		roles = append(roles, role)
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
 	}
 
 	tokenPair, err := h.jwt.GenerateTokenPair(userID, req.TenantID, roles)
