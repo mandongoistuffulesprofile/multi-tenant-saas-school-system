@@ -26,23 +26,45 @@ registerBackgroundSync();
 async function bootstrapSession() {
   const { setAuth, clearAuth, setHydrated } = useAuthStore.getState();
   const API_BASE = (import.meta as any).env.VITE_API_BASE || "/api/v1";
+
+  const fetchMe = () =>
+    axios.get(`${API_BASE}/me`,
+      { withCredentials: true, headers: { "Content-Type": "application/json" } });
+
   try {
-    const { data } = await axios.get(`${API_BASE}/me`, {
-      withCredentials: true,
-      headers: { "Content-Type": "application/json" },
-    });
+    const { data } = await fetchMe();
     const roles = Array.isArray(data?.roles) ? data.roles : [];
     setAuth("", "", data?.user_id || "", data?.tenant_id || "", roles);
+    return;
   } catch (err: any) {
-    // 401/403 or other auth failure: no active session.
+    // The access token lives in an HttpOnly cookie and expires after 15
+    // minutes. A cold start on a returning device therefore gets a 401 while
+    // the refresh cookie is still valid — refresh once before deciding the
+    // user is signed out, otherwise every offline/returning launch logged the
+    // teacher out.
     if (err?.response?.status === 401 || err?.response?.status === 403) {
-      clearAuth();
-    } else {
-      // Network/offline: fall back to the last known identity so pages and the
-      // sync queue stay reachable. Tokens are never cached; the server
-      // re-authorises on the next successful request.
-      useAuthStore.getState().restoreCachedSession();
+      try {
+        await axios.post(`${API_BASE}/auth/refresh`, {},
+          { withCredentials: true, headers: { "Content-Type": "application/json" } });
+        const { data } = await fetchMe();
+        const roles = Array.isArray(data?.roles) ? data.roles : [];
+        setAuth("", "", data?.user_id || "", data?.tenant_id || "", roles);
+        return;
+      } catch (refreshErr: any) {
+        // Only an explicit rejection means the session is really gone. A
+        // network failure keeps the cached identity for read-only offline use.
+        if (!refreshErr?.response) {
+          useAuthStore.getState().restoreCachedSession();
+        } else {
+          clearAuth();
+        }
+        return;
+      }
     }
+    // Network/offline: fall back to the last known identity so pages and the
+    // sync queue stay reachable. Tokens are never cached; the server
+    // re-authorises on the next successful request.
+    useAuthStore.getState().restoreCachedSession();
   } finally {
     useAuthStore.getState().setHydrated(true);
   }

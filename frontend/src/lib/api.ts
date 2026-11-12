@@ -93,11 +93,13 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     // Retry transient network failures a couple of times before surfacing.
-    if (!error.response && originalRequest && !originalRequest._networkRetry) {
-      originalRequest._networkRetry = true;
-      originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
-      if (originalRequest._retryCount <= 2) {
-        await new Promise((r) => setTimeout(r, 500 * originalRequest._retryCount));
+    // The counter is the only guard: a boolean latch would stop after the
+    // first retry and leave the second attempt unused.
+    if (!error.response && originalRequest) {
+      const attempts = (originalRequest._retryCount || 0) + 1;
+      originalRequest._retryCount = attempts;
+      if (attempts <= 2) {
+        await new Promise((r) => setTimeout(r, 500 * attempts));
         return api(originalRequest);
       }
     }
