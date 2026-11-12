@@ -56,11 +56,11 @@ var resultTransitions = map[ResultState]map[ResultEvent]ResultState{
 
 // ResultContext carries the data evaluated by the pure transition function.
 type ResultContext struct {
-	TenantID   string
-	EventID    string
-	LearnerID  string
-	LevelCode  string
-	Role       string // role of the requesting user
+	TenantID  string
+	EventID   string
+	LearnerID string
+	LevelCode string
+	Role      string // role of the requesting user
 }
 
 // TransitionResult evaluates a state transition pure of any I/O.
@@ -83,19 +83,19 @@ func TransitionResult(current ResultState, event ResultEvent, ctx ResultContext)
 		return targetState, nil
 
 	case EventModerate:
-		if ctx.Role == "" {
+		if !roleIn(ctx.Role, moderatorRoles) {
 			return current, fmt.Errorf("%w: moderator role required", ErrInvariantFailed)
 		}
 		return targetState, nil
 
 	case EventPublish:
-		if ctx.Role == "" {
+		if !roleIn(ctx.Role, publisherRoles) {
 			return current, fmt.Errorf("%w: authorizing role required to publish", ErrInvariantFailed)
 		}
 		return targetState, nil
 
 	case EventLockTerm:
-		if ctx.Role == "" {
+		if !roleIn(ctx.Role, lockRoles) {
 			return current, fmt.Errorf("%w: authorizing role required to lock term", ErrInvariantFailed)
 		}
 		return targetState, nil
@@ -105,4 +105,22 @@ func TransitionResult(current ResultState, event ResultEvent, ctx ResultContext)
 	}
 
 	return targetState, nil
+}
+
+// Role sets are the single policy definition for administrative result events.
+var (
+	moderatorRoles = map[string]struct{}{
+		"SCHOOL_ADMIN": {}, "HEAD": {}, "DEPUTY": {},
+	}
+	publisherRoles = map[string]struct{}{
+		"SCHOOL_ADMIN": {}, "HEAD": {},
+	}
+	lockRoles = map[string]struct{}{
+		"SCHOOL_ADMIN": {},
+	}
+)
+
+func roleIn(role string, allowed map[string]struct{}) bool {
+	_, ok := allowed[role]
+	return ok
 }

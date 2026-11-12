@@ -18,12 +18,14 @@ import (
 // workflow. Every result write is idempotent on client_uuid so a teacher
 // device can replay its offline queue without duplicating rows.
 
-// Valid assessment result states, in workflow order.
+// Valid assessment result states, in workflow order. These are aliases of the
+// FSM constants so SQL comparisons can never drift from the transition table.
 const (
-	StateDraft     = "DRAFT"
-	StateSubmitted = "SUBMITTED"
-	StateModerated = "MODERATED"
-	StateLocked    = "LOCKED"
+	StateDraft     = string(ResultDraft)
+	StateSubmitted = string(ResultSubmitted)
+	StateModerated = string(ResultModerated)
+	StatePublished = string(ResultPublished)
+	StateLocked    = string(ResultLocked)
 )
 
 // Valid assessment event statuses.
@@ -87,7 +89,7 @@ func (h *Handler) UpsertResult(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
-	result, err := h.upsertResult(tx, tenantID, userID, input)
+	result, err := h.upsertResult(tx, tenantID, userID, requestRole(c), input)
 	if err != nil {
 		if err == errLocked {
 			validation.Conflict(c, "This result is locked. Request a reopen before editing it.")
@@ -134,7 +136,7 @@ func (h *Handler) BatchUpsertResults(c *gin.Context) {
 	saved := make([]gin.H, 0, len(req.Results))
 	failed := make([]gin.H, 0)
 	for _, input := range req.Results {
-		result, err := h.upsertResult(tx, tenantID, userID, input)
+		result, err := h.upsertResult(tx, tenantID, userID, requestRole(c), input)
 		if err != nil {
 			failed = append(failed, gin.H{
 				"client_uuid": input.ClientUUID,
@@ -164,7 +166,18 @@ type writeError struct{ msg string }
 func (e *writeError) Error() string { return e.msg }
 
 // upsertResult performs the actual insert/update and records history.
-func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID string, input ResultInput) (gin.H, error) {
+// requestRole returns the authenticated role for FSM authorization. Auth
+// middleware always sets a role; TEACHER is only a defensive fallback for a
+// token without role claims, and it cannot authorize moderation or publishing.
+func requestRole(c *gin.Context) string {
+	role := strings.ToUpper(strings.TrimSpace(c.GetString(middleware.ContextRole)))
+	if role == "" {
+		return "TEACHER"
+	}
+	return role
+}
+
+func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID, role string, input ResultInput) (gin.H, error) {
 	event := ResultEvent(strings.ToUpper(strings.TrimSpace(input.State)))
 	if event == "" {
 		event = EventSubmit
@@ -229,10 +242,11 @@ func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID string, input Resul
 		currentState = ResultState(existingState)
 	}
 	targetState, terr := TransitionResult(currentState, event, ResultContext{
-		TenantID: tenantID,
-		EventID:  input.EventID,
+		TenantID:  tenantID,
+		EventID:   input.EventID,
 		LearnerID: input.LearnerID,
 		LevelCode: input.LevelCode,
+		Role:      role,
 	})
 	if terr != nil {
 		return nil, &writeError{terr.Error()}

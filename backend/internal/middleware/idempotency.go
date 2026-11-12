@@ -11,19 +11,26 @@ import (
 
 // idempotencyResponse is the cached representation of an HTTP response.
 type idempotencyResponse struct {
-	StatusCode int               `json:"status_code"`
-	Header     http.Header       `json:"header"`
-	Body       []byte            `json:"body"`
+	StatusCode int         `json:"status_code"`
+	Header     http.Header `json:"header"`
+	Body       []byte      `json:"body"`
 }
 
-// idempotencyBufferWriter buffers the full response so it can be cached
-// before being committed to the client.
+// maxCachedResponseBytes caps how much of a response is retained for caching.
+// Large exports (CSV/PDF) are streamed straight through instead of being held
+// in process memory and pushed into Redis.
+const maxCachedResponseBytes = 64 * 1024
+
+// idempotencyBufferWriter buffers a response only up to the cache cap so it
+// can be cached before being committed to the client. Once the cap is crossed
+// the writer switches to pass-through streaming and the response is not cached.
 type idempotencyBufferWriter struct {
 	gin.ResponseWriter
 	body       []byte
 	statusCode int
 	written    bool
 	committed  bool
+	tooLarge   bool
 }
 
 func (w *idempotencyBufferWriter) WriteHeader(code int) {
@@ -39,6 +46,24 @@ func (w *idempotencyBufferWriter) Write(data []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	w.written = true
+
+	if w.tooLarge {
+		return w.ResponseWriter.Write(data)
+	}
+	if len(w.body)+len(data) > maxCachedResponseBytes {
+		// Cross the cap: send the real status, flush what is buffered and
+		// stream the rest directly. Later commits become no-ops.
+		w.tooLarge = true
+		w.commit(w.statusCode, nil)
+		if len(w.body) > 0 {
+			if _, err := w.ResponseWriter.Write(w.body); err != nil {
+				return 0, err
+			}
+			w.body = nil
+		}
+		return w.ResponseWriter.Write(data)
+	}
+
 	w.body = append(w.body, data...)
 	return len(data), nil
 }
@@ -73,10 +98,10 @@ func (w *idempotencyBufferWriter) commit(status int, body []byte) {
 // response, caches it in Redis (24h TTL), then writes it to the client.
 func IdempotencyMiddleware(rc *redis.Client) gin.HandlerFunc {
 	stateChanging := map[string]bool{
-		http.MethodPost:    true,
-		http.MethodPut:     true,
-		http.MethodPatch:   true,
-		http.MethodDelete:  true,
+		http.MethodPost:   true,
+		http.MethodPut:    true,
+		http.MethodPatch:  true,
+		http.MethodDelete: true,
 	}
 
 	return func(c *gin.Context) {
@@ -123,14 +148,18 @@ func IdempotencyMiddleware(rc *redis.Client) gin.HandlerFunc {
 
 		c.Next()
 
-		// Cache the response (status, headers, body) in Redis.
-		resp := idempotencyResponse{
-			StatusCode: proxy.statusCode,
-			Header:     proxy.Header(),
-			Body:       proxy.body,
+		// Cache only fully buffered responses; oversized bodies have already
+		// been streamed to the client and must not be replayed from Redis.
+		if !proxy.tooLarge {
+			resp := idempotencyResponse{
+				StatusCode: proxy.statusCode,
+				Header:     proxy.Header(),
+				Body:       proxy.body,
+			}
+			if payload, err := json.Marshal(resp); err == nil {
+				_ = rc.Set(c.Request.Context(), cacheKey, payload, 24*time.Hour).Err()
+			}
 		}
-		payload, _ := json.Marshal(resp)
-		_ = rc.Set(c.Request.Context(), cacheKey, payload, 24*time.Hour).Err()
 
 		proxy.commit(proxy.statusCode, proxy.body)
 	}

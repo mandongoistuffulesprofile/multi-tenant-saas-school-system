@@ -8,14 +8,26 @@ import (
 	"time"
 )
 
+// tableName is the single canonical outbox table. Migration 0001 creates
+// `outbox`; migration 0006 adds next_attempt_at/last_error. The worker used to
+// read a nonexistent `correlation_outbox` with columns that were never
+// migrated, so queued events were never dispatched.
+const tableName = "outbox"
+
+const (
+	maxAttempts   = 5
+	batchSize     = 25
+	maxBackoffSec = 30 * 60
+)
+
 type Event struct {
-	ID         string          `json:"id"`
-	TenantID   string          `json:"tenant_id"`
-	Topic      string          `json:"topic"`
-	Payload    json.RawMessage `json:"payload"`
-	Attempts   int             `json:"attempts"`
-	AggregateType string       `json:"aggregate_type"`
-	AggregateID string         `json:"aggregate_id"`
+	ID            string          `json:"id"`
+	TenantID      string          `json:"tenant_id"`
+	Topic         string          `json:"topic"`
+	Payload       json.RawMessage `json:"payload"`
+	Attempts      int             `json:"attempts"`
+	AggregateType string          `json:"aggregate_type"`
+	AggregateID   string          `json:"aggregate_id"`
 }
 
 type Dispatcher interface {
@@ -54,72 +66,91 @@ func (w *OutboxWorker) flush(ctx context.Context) {
 	}
 	defer tx.Rollback()
 
-	// Claim records with lease timeout (5 minutes) for stranded records
+	// event_type is the dispatch topic. next_attempt_at gates retries so a
+	// failed event is not hammered on every tick.
 	query := `
-		SELECT outbox_id, tenant_id, aggregate_type, aggregate_id, event_type, event_id, payload, attempt_count
-		FROM correlation_outbox
-		WHERE status IN ('PENDING', 'FAILED') 
-		  AND attempts < 5 
-		  AND (locked_until IS NULL OR locked_until < NOW())
+		SELECT outbox_id, tenant_id, aggregate_type, aggregate_id, event_type,
+		       payload, attempt_count
+		FROM ` + tableName + `
+		WHERE (status IN ('PENDING', 'FAILED')
+		       OR (status = 'PROCESSING' AND next_attempt_at <= NOW()))
+		  AND attempt_count < $1
+		  AND next_attempt_at <= NOW()
 		ORDER BY created_at ASC
-		LIMIT 25
-		FOR UPDATE SKIP LOCKED;
-	`
+		LIMIT $2
+		FOR UPDATE SKIP LOCKED`
 
-	rows, err := tx.QueryContext(ctx, query)
+	rows, err := tx.QueryContext(ctx, query, maxAttempts, batchSize)
 	if err != nil {
 		w.logger.Error("Querying outbox failed", "error", err)
 		return
 	}
-	defer rows.Close()
 
 	var events []Event
 	for rows.Next() {
 		var e Event
 		var payload []byte
-		if err := rows.Scan(&e.ID, &e.TenantID, &e.AggregateType, &e.AggregateID, &e.Topic, &e.Attempts, &payload, &e.Attempts); err == nil {
-			e.Payload = payload
-			events = append(events, e)
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.AggregateType, &e.AggregateID,
+			&e.Topic, &payload, &e.Attempts); err != nil {
+			w.logger.Error("Scanning outbox event failed", "error", err)
+			continue
 		}
+		e.Payload = payload
+		events = append(events, e)
 	}
 	rows.Close()
 
-	if len(events) == 0 {
-		return
-	}
-
-	// Mark in-flight with a lock lease (2 minutes)
-	lockQuery := `UPDATE correlation_outbox SET locked_until = NOW() + INTERVAL '2 minutes' WHERE outbox_id = $1`
+	// Claim the batch with a 2-minute lease in next_attempt_at. A crashed
+	// worker's PROCESSING rows become eligible again when the lease expires.
 	for _, e := range events {
-		_, _ = tx.ExecContext(ctx, lockQuery, e.ID)
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE `+tableName+`
+			 SET status = 'PROCESSING', next_attempt_at = NOW() + INTERVAL '2 minutes'
+			 WHERE outbox_id = $1`, e.ID); err != nil {
+			w.logger.Error("Claiming outbox event failed", "error", err, "outbox_id", e.ID)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
+		w.logger.Error("Committing outbox claim failed", "error", err)
 		return
 	}
 
-	// Process deliveries outside transaction lock
+	// Dispatch outside the transaction so a slow provider never holds a row
+	// lock, then record the terminal state.
 	for _, e := range events {
-		err := w.dispatcher.Dispatch(ctx, e.Topic, e.Payload)
-		w.resolveEvent(ctx, e.ID, e.Attempts, err)
+		dispatchErr := w.dispatcher.Dispatch(ctx, e.Topic, e.Payload)
+		w.resolveEvent(ctx, e.ID, e.Attempts, dispatchErr)
 	}
 }
 
-func (w *OutboxWorker) resolveEvent(ctx context.Context, eventID string, attempts int, err error) {
-	if err == nil {
-		_, _ = w.db.ExecContext(ctx, `
-			UPDATE correlation_outbox 
-			SET status = 'SENT', processed_at = NOW(), locked_until = NULL 
-			WHERE outbox_id = $1`, eventID)
-	} else {
-		nextAttempt := attempts + 1
-		backoffSeconds := nextAttempt * nextAttempt * 10
-		_, _ = w.db.ExecContext(ctx, `
-			UPDATE correlation_outbox 
-			SET attempts = $1, 
-			    status = CASE WHEN $1 >= 5 THEN 'DEAD_LETTER' ELSE 'FAILED' END,
-			    locked_until = NOW() + ($2 || ' seconds')::INTERVAL,
-			    last_error = $3
-			WHERE outbox_id = $4`, nextAttempt, backoffSeconds, err.Error(), eventID)
+func (w *OutboxWorker) resolveEvent(ctx context.Context, eventID string, attempts int, dispatchErr error) {
+	if dispatchErr == nil {
+		if _, err := w.db.ExecContext(ctx, `
+			UPDATE `+tableName+`
+			SET status = 'PUBLISHED', published_at = NOW(), last_error = NULL
+			WHERE outbox_id = $1`, eventID); err != nil {
+			w.logger.Error("Marking outbox event published failed", "error", err, "outbox_id", eventID)
+		}
+		return
+	}
+
+	nextAttempt := attempts + 1
+	backoffSeconds := nextAttempt * nextAttempt * 10
+	if backoffSeconds > maxBackoffSec {
+		backoffSeconds = maxBackoffSec
+	}
+	status := "FAILED"
+	if nextAttempt >= maxAttempts {
+		status = "DEAD_LETTER"
+	}
+	if _, err := w.db.ExecContext(ctx, `
+		UPDATE `+tableName+`
+		SET attempt_count = $1,
+		    status = $2,
+		    next_attempt_at = NOW() + ($3 || ' seconds')::INTERVAL,
+		    last_error = $4
+		WHERE outbox_id = $5`, nextAttempt, status, backoffSeconds, dispatchErr.Error(), eventID); err != nil {
+		w.logger.Error("Recording outbox failure failed", "error", err, "outbox_id", eventID)
 	}
 }
