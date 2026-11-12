@@ -143,6 +143,29 @@ services:
         condition: service_healthy
     networks: [internal]
 
+  # Free, self-hosted uptime monitoring. Not part of the default stack:
+  #   docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  #     --profile monitoring up -d uptime-kuma
+  # The UI is bound to loopback only; reach it through an SSH tunnel
+  # (docs/MONITORING.md explains the monitors and alerts to add).
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    ports:
+      - "${UPTIME_KUMA_BIND:-127.0.0.1}:${UPTIME_KUMA_PORT:-3001}:3001"
+    environment:
+      UPTIME_KUMA_DISABLE_STATS: "true"
+    volumes:
+      - uptimekuma:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "extra/healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks: [internal]
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -169,3 +192,4 @@ volumes:
   redisdata:
   caddy_data:
   caddy_config:
+  uptimekuma:
