@@ -509,6 +509,7 @@ router.Use(middleware.TenantContextMiddleware(jwtManager, database))
 		learnerGroup.GET("", middleware.RequireRole(middleware.RoleAcademicStaff...), learnerHandler.ListLearners)
 		learnerGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), learnerHandler.CreateLearner)
 		learnerGroup.GET("/:id", middleware.RequireRole(middleware.RoleAcademicStaff...), learnerHandler.GetLearner)
+		learnerGroup.PATCH("/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), learnerHandler.UpdateLearner)
 	}
 
 	// Curriculum routes (M5)

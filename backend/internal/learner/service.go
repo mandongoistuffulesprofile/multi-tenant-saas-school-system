@@ -362,6 +362,177 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"learner_id": learnerID})
 }
 
+// UpdateLearner applies inline grade/stream/status changes from the learners
+// table. Changing grade or stream moves the learner's active enrolment to the
+// matching class group, creating the stream and class group when the school has
+// not set them up yet.
+func (h *Handler) UpdateLearner(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	learnerID := c.Param("id")
+	tenantID := c.GetString("tenant_id")
+
+	var req struct {
+		GradeLabel string `json:"grade_label"`
+		StreamName string `json:"stream_name"`
+		Status     string `json:"status"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+	gradeLabel := strings.TrimSpace(req.GradeLabel)
+	streamName := strings.TrimSpace(req.StreamName)
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	if gradeLabel == "" && streamName == "" && status == "" {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "body", Code: "REQUIRED", Message: "provide grade_label, stream_name or status"},
+		})
+		return
+	}
+
+	var currentGrade, currentStream, currentYear sql.NullString
+	err := tx.QueryRow(
+		`SELECT g.grade_label, s.stream_name, e.year_id
+		 FROM learners l
+		 LEFT JOIN enrolments e ON e.learner_id = l.learner_id AND e.status = 'ACTIVE'
+		 LEFT JOIN class_groups cg ON cg.class_group_id = e.class_group_id
+		 LEFT JOIN grades g ON g.grade_id = cg.grade_id
+		 LEFT JOIN streams s ON s.stream_id = cg.stream_id
+		 WHERE l.learner_id = $1 AND l.tenant_id = $2
+		 ORDER BY e.started_on DESC NULLS LAST
+		 LIMIT 1`, learnerID, tenantID).Scan(&currentGrade, &currentStream, &currentYear)
+	if errors.Is(err, sql.ErrNoRows) {
+		validation.NotFound(c, "Learner not found")
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	if status != "" {
+		if _, err := tx.Exec(
+			`UPDATE learners SET status = $1 WHERE learner_id = $2 AND tenant_id = $3`,
+			status, learnerID, tenantID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+
+	if gradeLabel != "" || streamName != "" {
+		if gradeLabel == "" {
+			gradeLabel = currentGrade.String
+		}
+		if streamName == "" {
+			streamName = currentStream.String
+		}
+		if gradeLabel == "" {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "grade_label", Code: "REQUIRED", Message: "learner has no current grade; supply grade_label"},
+			})
+			return
+		}
+		if streamName == "" {
+			streamName = "Main"
+		}
+
+		yearID := currentYear.String
+		if yearID == "" {
+			var y sql.NullString
+			if err := tx.QueryRow(
+				`SELECT COALESCE(
+					(SELECT year_id FROM academic_years WHERE tenant_id = $1 AND is_current = true),
+					(SELECT year_id FROM academic_years WHERE tenant_id = $1 ORDER BY start_date DESC LIMIT 1))`,
+				tenantID).Scan(&y); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				return
+			}
+			if !y.Valid || y.String == "" {
+				validation.BadRequest(c, "Invalid request", []validation.FieldError{
+					{Field: "academic_year", Code: "REQUIRED", Message: "tenant has no academic year configured"},
+				})
+				return
+			}
+			yearID = y.String
+		}
+
+		var gradeID string
+		if err := tx.QueryRow(
+			`SELECT grade_id FROM grades WHERE lower(grade_label) = lower($1)`, gradeLabel).Scan(&gradeID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				validation.BadRequest(c, "Invalid request", []validation.FieldError{
+					{Field: "grade_label", Code: "INVALID_VALUE", Message: "unknown grade_label"},
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		var streamID string
+		err = tx.QueryRow(
+			`SELECT stream_id FROM streams
+			 WHERE tenant_id = $1 AND lower(stream_name) = lower($2) LIMIT 1`,
+			tenantID, streamName).Scan(&streamID)
+		if errors.Is(err, sql.ErrNoRows) {
+			err = tx.QueryRow(
+				`INSERT INTO streams (tenant_id, stream_name) VALUES ($1, $2) RETURNING stream_id`,
+				tenantID, streamName).Scan(&streamID)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		var classGroupID string
+		err = tx.QueryRow(
+			`SELECT class_group_id FROM class_groups
+			 WHERE tenant_id = $1 AND year_id = $2 AND grade_id = $3 AND stream_id = $4
+			 LIMIT 1`, tenantID, yearID, gradeID, streamID).Scan(&classGroupID)
+		if errors.Is(err, sql.ErrNoRows) {
+			err = tx.QueryRow(
+				`INSERT INTO class_groups (tenant_id, year_id, grade_id, stream_id)
+				 VALUES ($1, $2, $3, $4) RETURNING class_group_id`,
+				tenantID, yearID, gradeID, streamID).Scan(&classGroupID)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		var enrolmentID string
+		err = tx.QueryRow(
+			`SELECT enrolment_id FROM enrolments
+			 WHERE tenant_id = $1 AND learner_id = $2 AND status = 'ACTIVE'
+			 ORDER BY started_on DESC LIMIT 1`, tenantID, learnerID).Scan(&enrolmentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			_, err = tx.Exec(
+				`INSERT INTO enrolments (tenant_id, learner_id, class_group_id, year_id, status, started_on)
+				 VALUES ($1, $2, $3, $4, 'ACTIVE', CURRENT_DATE)`,
+				tenantID, learnerID, classGroupID, yearID)
+		} else if err == nil {
+			_, err = tx.Exec(
+				`UPDATE enrolments SET class_group_id = $1, year_id = $2 WHERE enrolment_id = $3`,
+				classGroupID, yearID, enrolmentID)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"learner_id":  learnerID,
+		"grade_label": gradeLabel,
+		"stream_name": streamName,
+		"status":      status,
+	})
+}
+
 func (h *Handler) GetLearner(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
