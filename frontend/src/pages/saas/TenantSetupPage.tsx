@@ -1044,22 +1044,25 @@ export default function TenantSetupPage() {
                   </button>
                 </div>
               ))}
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setCalendar({
-                    ...calendar,
-                    terms: [
-                      ...calendar.terms,
-                      { term_name: `Term ${calendar.terms.length + 1}`, start_date: "", end_date: "" },
-                    ],
-                  });
-                  touch("calendar");
-                }}
-              >
-                + Add term
-              </Button>
+              {calendar.terms.length < 3 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setCalendar({
+                      ...calendar,
+                      terms: [
+                        ...calendar.terms,
+                        { term_name: `Term ${calendar.terms.length + 1}`, start_date: "", end_date: "" },
+                      ],
+                    });
+                    touch("calendar");
+                  }}
+                >
+                  + Add term
+                </Button>
+              )}
+              <p className="text-[13px] text-gray-500">A Kenyan academic year has three terms.</p>
             </div>
           </div>
         );

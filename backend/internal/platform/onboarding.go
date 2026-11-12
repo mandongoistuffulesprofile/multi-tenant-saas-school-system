@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
@@ -58,7 +59,7 @@ func (h *Handler) seedStandardFeeCategories(ctx context.Context, tx *sql.Tx, ten
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO fee_categories (tenant_id, code, name, description, is_tuition, is_optional, requires_consent, is_active)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,true)
-			 ON CONFLICT (tenant_id, code) DO NOTHING`,
+			 ON CONFLICT (tenant_id, (upper(code))) WHERE tenant_id IS NOT NULL DO NOTHING`,
 			tenantID, cat.Code, cat.Name, cat.Description, cat.IsTuition, cat.IsOptional, cat.RequiresConsent)
 		if err != nil {
 			return err
@@ -439,53 +440,265 @@ func (h *Handler) SetupProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"tenant_id": tenantID, "step": "PROFILE"})
 }
 
+// Requests for the platform setup steps. They are named so the same payload can
+// be applied by the HTTP handlers and exercised directly by tests.
+type setupTerm struct {
+	TermName  string `json:"term_name" binding:"required"`
+	StartDate string `json:"start_date" binding:"required"`
+	EndDate   string `json:"end_date" binding:"required"`
+}
+
+type setupCalendarRequest struct {
+	YearLabel  string      `json:"year_label" binding:"required"`
+	StartDate  string      `json:"start_date" binding:"required"`
+	EndDate    string      `json:"end_date" binding:"required"`
+	SetCurrent bool        `json:"set_current"`
+	Terms      []setupTerm `json:"terms"`
+}
+
+type setupClassGroup struct {
+	GradeID    string `json:"grade_id" binding:"required"`
+	StreamID   string `json:"stream_id"`
+	StreamName string `json:"stream_name"`
+}
+
+type setupStructureRequest struct {
+	Streams     []string          `json:"streams"`
+	ClassGroups []setupClassGroup `json:"class_groups"`
+}
+
+type setupFinanceCategory struct {
+	Name        string `json:"name" binding:"required"`
+	Code        string `json:"code" binding:"required"`
+	Description string `json:"description"`
+	IsMandatory bool   `json:"is_mandatory"`
+}
+
+type setupFinanceStructure struct {
+	GradeID string  `json:"grade_id" binding:"required"`
+	YearID  string  `json:"year_id"`
+	Amount  float64 `json:"amount" binding:"required"`
+	Term    string  `json:"term"`
+}
+
+type setupFinanceChannel struct {
+	ChannelType         string   `json:"channel_type" binding:"required"`
+	ShortcodeOrAccount  string   `json:"shortcode_or_account" binding:"required"`
+	Label               string   `json:"label" binding:"required"`
+	Environment         string   `json:"environment"`
+	IsDefault           bool     `json:"is_default"`
+	RoutedFeeCategories []string `json:"routed_fee_categories"`
+}
+
+type setupFinanceRequest struct {
+	Categories      []setupFinanceCategory  `json:"categories"`
+	Structures      []setupFinanceStructure `json:"structures"`
+	Channels        []setupFinanceChannel   `json:"channels"`
+	FinanceSettings map[string]any          `json:"finance_settings"`
+}
+
+// applyCalendar creates or updates one academic year and its terms. Re-saving
+// the same year updates dates and labels in place instead of appending a second
+// set of terms, which is what the resumable setup wizard needs.
+func (h *Handler) applyCalendar(ctx context.Context, tx *sql.Tx, tenantID string, req setupCalendarRequest) (string, error) {
+	if len(req.Terms) > 3 {
+		return "", fmt.Errorf("a Kenyan academic year has at most three terms")
+	}
+	if req.SetCurrent {
+		if _, err := tx.ExecContext(ctx, `UPDATE academic_years SET is_current=false WHERE tenant_id=$1`, tenantID); err != nil {
+			return "", err
+		}
+	}
+	var yearID string
+	err := tx.QueryRowContext(ctx,
+		`INSERT INTO academic_years (tenant_id, year_label, start_date, end_date, is_current)
+		 VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (tenant_id, year_label) DO UPDATE SET
+		   is_current = EXCLUDED.is_current,
+		   start_date = EXCLUDED.start_date,
+		   end_date = EXCLUDED.end_date
+		 RETURNING year_id`,
+		tenantID, req.YearLabel, req.StartDate, req.EndDate, req.SetCurrent).Scan(&yearID)
+	if err != nil {
+		return "", err
+	}
+	for i, t := range req.Terms {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO terms (tenant_id, year_id, term_number, term_label, start_date, end_date)
+			 VALUES ($1,$2,$3,$4,$5,$6)
+			 ON CONFLICT (tenant_id, year_id, term_number) DO UPDATE SET
+			   term_label = EXCLUDED.term_label,
+			   start_date = EXCLUDED.start_date,
+			   end_date = EXCLUDED.end_date`,
+			tenantID, yearID, i+1, t.TermName, t.StartDate, t.EndDate); err != nil {
+			return "", err
+		}
+	}
+	return yearID, nil
+}
+
+// applyStructure creates the streams and class groups for the current academic
+// year. Both inserts are keyed, so re-running the step is a no-op rather than a
+// second set of classes.
+func (h *Handler) applyStructure(ctx context.Context, tx *sql.Tx, tenantID string, req setupStructureRequest) error {
+	var yearID string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT year_id FROM academic_years WHERE tenant_id=$1 AND is_current=true ORDER BY created_at DESC LIMIT 1`,
+		tenantID).Scan(&yearID); err != nil {
+		return fmt.Errorf("current academic year required")
+	}
+	streamMap := map[string]string{}
+	for _, sn := range req.Streams {
+		sn = strings.TrimSpace(sn)
+		if sn == "" {
+			continue
+		}
+		var sid string
+		if err := tx.QueryRowContext(ctx,
+			`INSERT INTO streams (tenant_id, stream_name) VALUES ($1,$2)
+			 ON CONFLICT (tenant_id, lower(stream_name)) DO UPDATE SET stream_name = EXCLUDED.stream_name
+			 RETURNING stream_id`,
+			tenantID, sn).Scan(&sid); err != nil {
+			return err
+		}
+		streamMap[strings.ToLower(sn)] = sid
+	}
+	for _, cg := range req.ClassGroups {
+		sid := cg.StreamID
+		if sid == "" && cg.StreamName != "" {
+			sid = streamMap[strings.ToLower(strings.TrimSpace(cg.StreamName))]
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO class_groups (tenant_id, year_id, grade_id, stream_id)
+			 VALUES ($1,$2,$3,$4)
+			 ON CONFLICT (tenant_id, year_id, grade_id,
+			              (COALESCE(stream_id, '00000000-0000-0000-0000-000000000000'::uuid)))
+			 DO NOTHING`,
+			tenantID, yearID, cg.GradeID, nullableString(sid)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// applyFinance creates the baseline fee category, per-grade fee structures and
+// optional M-PESA channels. Categories and structures update in place so a
+// corrected amount replaces the previous one instead of adding another row.
+func (h *Handler) applyFinance(ctx context.Context, tx *sql.Tx, tenantID string, req setupFinanceRequest) error {
+	// Seed standard Kenyan fee categories for this tenant.
+	if err := h.seedStandardFeeCategories(ctx, tx, tenantID, ""); err != nil {
+		return err
+	}
+	for _, cat := range req.Categories {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO fee_categories (tenant_id, code, name, description, is_tuition, is_optional, requires_consent, is_active)
+			 VALUES ($1,$2,$3,$4,false,false,$5,true)
+			 ON CONFLICT (tenant_id, (upper(code))) WHERE tenant_id IS NOT NULL
+			 DO UPDATE SET
+			   name = EXCLUDED.name,
+			   description = EXCLUDED.description,
+			   requires_consent = EXCLUDED.requires_consent,
+			   is_active = true`,
+			tenantID, strings.ToUpper(cat.Code), cat.Name, nullableString(cat.Description), cat.IsMandatory); err != nil {
+			return err
+		}
+	}
+	var defaultYear string
+	_ = tx.QueryRowContext(ctx, `SELECT year_id FROM academic_years WHERE tenant_id=$1 AND is_current=true ORDER BY created_at DESC LIMIT 1`, tenantID).Scan(&defaultYear)
+	// category_id is a UUID FK. Prefer the first category just inserted by the
+	// caller; fall back to the global TUITION reference category.
+	var defaultCatID string
+	if len(req.Categories) > 0 {
+		if e := tx.QueryRowContext(ctx,
+			`SELECT category_id FROM fee_categories WHERE tenant_id=$1 AND upper(code)=upper($2)`,
+			tenantID, req.Categories[0].Code).Scan(&defaultCatID); e != nil {
+			return e
+		}
+	} else if e := tx.QueryRowContext(ctx,
+		`SELECT category_id FROM fee_categories WHERE tenant_id IS NULL AND code='TUITION'`).Scan(&defaultCatID); e != nil {
+		return e
+	}
+	for _, fs := range req.Structures {
+		yid := fs.YearID
+		if yid == "" {
+			yid = defaultYear
+		}
+		if yid == "" {
+			return fmt.Errorf("year_id required for fee structure")
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO fee_structures (tenant_id, academic_year_id, grade_id, category_id,
+			 amount_per_term, amount_per_year, currency, is_mandatory, payment_frequency, due_day)
+			 VALUES ($1,$2,$3,$4,$5,$6,'KES',true,'PER_TERM',5)
+			 ON CONFLICT (tenant_id, academic_year_id, grade_id, category_id) DO UPDATE SET
+			   amount_per_term = EXCLUDED.amount_per_term,
+			   amount_per_year = EXCLUDED.amount_per_year,
+			   currency = EXCLUDED.currency,
+			   is_mandatory = EXCLUDED.is_mandatory,
+			   payment_frequency = EXCLUDED.payment_frequency,
+			   due_day = EXCLUDED.due_day,
+			   updated_at = CURRENT_TIMESTAMP`,
+			tenantID, yid, fs.GradeID, defaultCatID, fs.Amount, fs.Amount); err != nil {
+			return err
+		}
+	}
+	for _, ch := range req.Channels {
+		env := ch.Environment
+		if env == "" {
+			env = "PRODUCTION"
+		}
+		// routed_fee_categories is a text[]; passing a JSON string here fails with
+		// "malformed array literal", which previously broke every finance save
+		// that included a payment channel.
+		tok, _ := generateRandomToken(16)
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO school_payment_channels (tenant_id, channel_type, shortcode_or_account, label, environment, is_default, status, reference_format, routed_fee_categories, channel_token, c2b_registered)
+			 VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE','ACCOUNT_NUMBER',$7,$8,false) ON CONFLICT DO NOTHING`,
+			tenantID, ch.ChannelType, ch.ShortcodeOrAccount, ch.Label, env, ch.IsDefault, pq.Array(ch.RoutedFeeCategories), tok); err != nil {
+			return err
+		}
+	}
+	if len(req.FinanceSettings) > 0 {
+		_, _ = tx.ExecContext(ctx, `INSERT INTO school_finance_settings (tenant_id) VALUES ($1) ON CONFLICT DO NOTHING`, tenantID)
+		sets := []string{}
+		args := []any{}
+		i := 1
+		for k, v := range req.FinanceSettings {
+			if k == "tenant_id" {
+				continue
+			}
+			sets = append(sets, fmt.Sprintf("%s=$%d", k, i))
+			args = append(args, v)
+			i++
+		}
+		if len(sets) > 0 {
+			args = append(args, tenantID)
+			_, _ = tx.ExecContext(ctx, `UPDATE school_finance_settings SET `+strings.Join(sets, ",")+` WHERE tenant_id=$`+strconv.Itoa(i), args...)
+		}
+	}
+	return nil
+}
+
 func (h *Handler) SetupCalendar(c *gin.Context) {
 	tenantID, ok := h.requireSetupTenant(c)
 	if !ok {
 		return
 	}
-	var req struct {
-		YearLabel  string `json:"year_label" binding:"required"`
-		StartDate  string `json:"start_date" binding:"required"`
-		EndDate    string `json:"end_date" binding:"required"`
-		SetCurrent bool   `json:"set_current"`
-		Terms      []struct {
-			TermName  string `json:"term_name" binding:"required"`
-			StartDate string `json:"start_date" binding:"required"`
-			EndDate   string `json:"end_date" binding:"required"`
-		} `json:"terms"`
-	}
+	var req setupCalendarRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validation.BadRequest(c, "Invalid request", nil)
+		return
+	}
+	if len(req.Terms) > 3 {
+		validation.BadRequest(c, "A Kenyan academic year has at most three terms", nil)
 		return
 	}
 	actor := c.GetString("user_id")
 	var yearID string
 	err := h.withTenantTx(c.Request.Context(), tenantID, actor, func(tx *sql.Tx) error {
-		if req.SetCurrent {
-			if _, e := tx.ExecContext(c.Request.Context(), `UPDATE academic_years SET is_current=false WHERE tenant_id=$1`, tenantID); e != nil {
-				return e
-			}
-		}
-		err := tx.QueryRowContext(c.Request.Context(),
-			`INSERT INTO academic_years (tenant_id, year_label, start_date, end_date, is_current)
-			 VALUES ($1,$2,$3,$4,$5)
-			 ON CONFLICT (tenant_id, year_label) DO UPDATE SET is_current = EXCLUDED.is_current, start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date
-			 RETURNING year_id`, tenantID, req.YearLabel, req.StartDate, req.EndDate, req.SetCurrent).Scan(&yearID)
-		if err == sql.ErrNoRows {
-			err = tx.QueryRowContext(c.Request.Context(), `SELECT year_id FROM academic_years WHERE tenant_id=$1 AND year_label=$2`, tenantID, req.YearLabel).Scan(&yearID)
-		}
-		if err != nil {
-			return err
-		}
-		for i, t := range req.Terms {
-			if _, err = tx.ExecContext(c.Request.Context(),
-				`INSERT INTO terms (tenant_id, year_id, term_number, term_label, start_date, end_date)
-				 VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, tenantID, yearID, i+1, t.TermName, t.StartDate, t.EndDate); err != nil {
-				return err
-			}
-		}
-		return nil
+		var e error
+		yearID, e = h.applyCalendar(c.Request.Context(), tx, tenantID, req)
+		return e
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -501,55 +714,14 @@ func (h *Handler) SetupStructure(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req struct {
-		Streams     []string `json:"streams"`
-		ClassGroups []struct {
-			GradeID    string `json:"grade_id" binding:"required"`
-			StreamID   string `json:"stream_id"`
-			StreamName string `json:"stream_name"`
-		} `json:"class_groups"`
-	}
+	var req setupStructureRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validation.BadRequest(c, "Invalid request", nil)
 		return
 	}
 	actor := c.GetString("user_id")
 	err := h.withTenantTx(c.Request.Context(), tenantID, actor, func(tx *sql.Tx) error {
-		var yearID string
-		err := tx.QueryRowContext(c.Request.Context(), `SELECT year_id FROM academic_years WHERE tenant_id=$1 AND is_current=true ORDER BY created_at DESC LIMIT 1`, tenantID).Scan(&yearID)
-		if err != nil {
-			return fmt.Errorf("current academic year required")
-		}
-		streamMap := map[string]string{}
-		for _, sn := range req.Streams {
-			sn = strings.TrimSpace(sn)
-			if sn == "" {
-				continue
-			}
-			var sid string
-			err := tx.QueryRowContext(c.Request.Context(), `INSERT INTO streams (tenant_id, stream_name) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING stream_id`, tenantID, sn).Scan(&sid)
-			if err == sql.ErrNoRows {
-				_ = tx.QueryRowContext(c.Request.Context(), `SELECT stream_id FROM streams WHERE tenant_id=$1 AND stream_name=$2`, tenantID, sn).Scan(&sid)
-			}
-			if err != nil && err != sql.ErrNoRows {
-				return err
-			}
-			if sid != "" {
-				streamMap[strings.ToLower(sn)] = sid
-			}
-		}
-		for _, cg := range req.ClassGroups {
-			sid := cg.StreamID
-			if sid == "" && cg.StreamName != "" {
-				sid = streamMap[strings.ToLower(strings.TrimSpace(cg.StreamName))]
-			}
-			if _, err = tx.ExecContext(c.Request.Context(),
-				`INSERT INTO class_groups (tenant_id, year_id, grade_id, stream_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-				tenantID, yearID, cg.GradeID, nullableString(sid)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return h.applyStructure(c.Request.Context(), tx, tenantID, req)
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -565,110 +737,14 @@ func (h *Handler) SetupFinance(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req struct {
-		Categories []struct {
-			Name        string `json:"name" binding:"required"`
-			Code        string `json:"code" binding:"required"`
-			Description string `json:"description"`
-			IsMandatory bool   `json:"is_mandatory"`
-		} `json:"categories"`
-		Structures []struct {
-			GradeID string  `json:"grade_id" binding:"required"`
-			YearID  string  `json:"year_id"`
-			Amount  float64 `json:"amount" binding:"required"`
-			Term    string  `json:"term"`
-		} `json:"structures"`
-		Channels []struct {
-			ChannelType         string   `json:"channel_type" binding:"required"`
-			ShortcodeOrAccount  string   `json:"shortcode_or_account" binding:"required"`
-			Label               string   `json:"label" binding:"required"`
-			Environment         string   `json:"environment"`
-			IsDefault           bool     `json:"is_default"`
-			RoutedFeeCategories []string `json:"routed_fee_categories"`
-		} `json:"channels"`
-		FinanceSettings map[string]any `json:"finance_settings"`
-	}
+	var req setupFinanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		validation.BadRequest(c, "Invalid request", nil)
 		return
 	}
 	actor := c.GetString("user_id")
 	err := h.withTenantTx(c.Request.Context(), tenantID, actor, func(tx *sql.Tx) error {
-		// Seed standard Kenyan fee categories for this tenant
-		if err := h.seedStandardFeeCategories(c.Request.Context(), tx, tenantID, actor); err != nil {
-			return err
-		}
-		for _, cat := range req.Categories {
-			if _, err := tx.ExecContext(c.Request.Context(),
-				`INSERT INTO fee_categories (tenant_id, code, name, description, is_tuition, is_optional, requires_consent, is_active)
-				 VALUES ($1,$2,$3,$4,false,false,$5,true) ON CONFLICT DO NOTHING`,
-				tenantID, strings.ToUpper(cat.Code), cat.Name, nullableString(cat.Description), cat.IsMandatory); err != nil {
-				return err
-			}
-		}
-		var defaultYear string
-		_ = tx.QueryRowContext(c.Request.Context(), `SELECT year_id FROM academic_years WHERE tenant_id=$1 AND is_current=true ORDER BY created_at DESC LIMIT 1`, tenantID).Scan(&defaultYear)
-		// category_id is a UUID FK. Prefer the first category just inserted by
-		// the caller; fall back to the global TUITION reference category.
-		var defaultCatID string
-		if len(req.Categories) > 0 {
-			if e := tx.QueryRowContext(c.Request.Context(),
-				`SELECT category_id FROM fee_categories WHERE tenant_id=$1 AND code=$2`, tenantID, strings.ToUpper(req.Categories[0].Code)).Scan(&defaultCatID); e != nil {
-				return e
-			}
-		} else if e := tx.QueryRowContext(c.Request.Context(),
-			`SELECT category_id FROM fee_categories WHERE tenant_id IS NULL AND code='TUITION'`).Scan(&defaultCatID); e != nil {
-			return e
-		}
-		for _, fs := range req.Structures {
-			yid := fs.YearID
-			if yid == "" {
-				yid = defaultYear
-			}
-			if yid == "" {
-				return fmt.Errorf("year_id required for fee structure")
-			}
-			if _, err := tx.ExecContext(c.Request.Context(),
-				`INSERT INTO fee_structures (tenant_id, academic_year_id, grade_id, category_id,
-				 amount_per_term, amount_per_year, currency, is_mandatory, payment_frequency, due_day)
-				 VALUES ($1,$2,$3,$4,$5,$6,'KES',true,'PER_TERM',5) ON CONFLICT DO NOTHING`,
-				tenantID, yid, fs.GradeID, defaultCatID, fs.Amount, fs.Amount); err != nil {
-				return err
-			}
-		}
-		for _, ch := range req.Channels {
-			env := ch.Environment
-			if env == "" {
-				env = "PRODUCTION"
-			}
-			cats, _ := json.Marshal(ch.RoutedFeeCategories)
-			tok, _ := generateRandomToken(16)
-			if _, err := tx.ExecContext(c.Request.Context(),
-				`INSERT INTO school_payment_channels (tenant_id, channel_type, shortcode_or_account, label, environment, is_default, status, reference_format, routed_fee_categories, channel_token, c2b_registered)
-				 VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE','ACCOUNT_NUMBER',$7,$8,false) ON CONFLICT DO NOTHING`,
-				tenantID, ch.ChannelType, ch.ShortcodeOrAccount, ch.Label, env, ch.IsDefault, string(cats), tok); err != nil {
-				return err
-			}
-		}
-		if len(req.FinanceSettings) > 0 {
-			_, _ = tx.ExecContext(c.Request.Context(), `INSERT INTO school_finance_settings (tenant_id) VALUES ($1) ON CONFLICT DO NOTHING`, tenantID)
-			sets := []string{}
-			args := []any{}
-			i := 1
-			for k, v := range req.FinanceSettings {
-				if k == "tenant_id" {
-					continue
-				}
-				sets = append(sets, fmt.Sprintf("%s=$%d", k, i))
-				args = append(args, v)
-				i++
-			}
-			if len(sets) > 0 {
-				args = append(args, tenantID)
-				_, _ = tx.ExecContext(c.Request.Context(), `UPDATE school_finance_settings SET `+strings.Join(sets, ",")+` WHERE tenant_id=$`+strconv.Itoa(i), args...)
-			}
-		}
-		return nil
+		return h.applyFinance(c.Request.Context(), tx, tenantID, req)
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
