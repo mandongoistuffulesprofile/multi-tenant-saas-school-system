@@ -666,6 +666,10 @@ func Run() error {
 		financeGroup.POST("/payments", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.RecordPayment)
 		financeGroup.POST("/payments/allocate", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.AllocatePayment)
 
+		// M-Pesa inbox reconciliation
+		financeGroup.GET("/mpesa/events", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListMPESAEvents)
+		financeGroup.PATCH("/mpesa/events/:id/resolve", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ResolveMPESAEvent)
+
 		// Credits
 		financeGroup.GET("/credits", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListCredits)
 		financeGroup.POST("/credits", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateCredit)

@@ -15,6 +15,7 @@ export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
   // object. Read the resource directly and only accept plain strings; fall back
   // to a readable capitalised segment for namespaces.
   const label = (raw: string) => {
+    if (raw === "mpesa") return "M-Pesa Ledger";
     const value = i18n.getResource(i18n.language, "translation", raw);
     if (typeof value === "string") return value;
     return raw.charAt(0).toUpperCase() + raw.slice(1);

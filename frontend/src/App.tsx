@@ -44,6 +44,7 @@ import FinanceFeeCategoriesPage from "./pages/FinanceFeeCategoriesPage";
 import FinanceFeeStructuresPage from "./pages/FinanceFeeStructuresPage";
 import FinanceInvoicesPage from "./pages/FinanceInvoicesPage";
 import FinancePaymentsPage from "./pages/FinancePaymentsPage";
+import FinanceMpesaPage from "./pages/FinanceMpesaPage";
 import BoardPackPage from "./pages/BoardPackPage";
 import FinanceReconciliationPage from "./pages/FinanceReconciliationPage";
 import HoldingTankReconciliationPage from "./pages/HoldingTankReconciliationPage";
@@ -153,6 +154,7 @@ export default function App() {
             <Route path="/finance/fee-structures" element={guard(FINANCE_ROLES, <FinanceFeeStructuresPage />)} />
             <Route path="/finance/invoices" element={guard(FINANCE_ROLES, <FinanceInvoicesPage />)} />
             <Route path="/finance/payments" element={guard(FINANCE_ROLES, <FinancePaymentsPage />)} />
+            <Route path="/finance/mpesa" element={guard(FINANCE_ROLES, <FinanceMpesaPage />)} />
             <Route path="/finance/board-pack" element={guard(FINANCE_ROLES, <BoardPackPage />)} />
             <Route path="/finance/reconciliation" element={guard(FINANCE_ROLES, <FinanceReconciliationPage />)} />
             <Route path="/finance/holding-tank" element={guard(FINANCE_ROLES, <HoldingTankReconciliationPage />)} />
