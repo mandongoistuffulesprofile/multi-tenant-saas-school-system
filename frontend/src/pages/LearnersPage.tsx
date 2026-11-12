@@ -17,6 +17,17 @@ import { FloatingBulkDock } from "../components/ui/FloatingBulkDock";
 
 const GRADES = ["PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6"];
 const STREAMS = ["East", "West", "North", "South"];
+
+const EMPTY_LEARNER_FORM = {
+  admission_number: "", upi_nemis_number: "", first_name: "", middle_name: "",
+  last_name: "", date_of_birth: "", gender: "", status: "ACTIVE", admitted_on: "",
+  boarding_type: "DAY", grade_label: "Grade 1", stream_name: "East",
+  residence_type: "DAY_SCHOLAR_WITH_LUNCH", kemis_upi: "",
+  knec_assessment_no: "", sne_category: "NONE",
+  transport_zone_id: "", transport_trip_type: "NONE",
+  guardian_name: "", guardian_phone: "", guardian_email: "", guardian_relationship: "PARENT",
+  fee_category: "TUITION", fee_agreed: true,
+};
 const GENDERS = ["Male", "Female"];
 const RESIDENCE_OPTIONS = [
   { value: "DAY_SCHOLAR_WITH_LUNCH", label: "Day Scholar (with lunch)" },
@@ -56,16 +67,12 @@ export default function LearnersPage() {
   const [learners, setLearners] = useState<Learner[]>([]);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<any>({
-    admission_number: "", upi_nemis_number: "", first_name: "", middle_name: "",
-    last_name: "", date_of_birth: "", gender: "", status: "ACTIVE", admitted_on: "",
-    	    boarding_type: "DAY", grade_label: "Grade 1", stream_name: "East",
-	    residence_type: "DAY_SCHOLAR_WITH_LUNCH", kemis_upi: "",
-	    knec_assessment_no: "", sne_category: "NONE",
-	    transport_zone_id: "", transport_trip_type: "NONE",
-	    guardian_name: "", guardian_phone: "", guardian_email: "", guardian_relationship: "PARENT",
-	    fee_category: "TUITION", fee_agreed: true
-	  });
+  const [form, setForm] = useState<any>({ ...EMPTY_LEARNER_FORM });
+  const resetWizard = () => {
+    setForm({ ...EMPTY_LEARNER_FORM });
+    setFeeChecks({});
+    setStep(0);
+  };
 	  const [zones, setZones] = useState<TransportZone[]>([]);
   const [categories, setCategories] = useState<{ category_id: string; name: string; is_tuition?: boolean }[]>([]);
   const [structures, setStructures] = useState<any[]>([]);
@@ -224,7 +231,7 @@ export default function LearnersPage() {
         }
       }
       setOpen(false);
-      setStep(0);
+      resetWizard();
       const skippedNote = skippedOptions ? ` · ${skippedOptions} fee option(s) skipped (no fee structure configured)` : "";
       toast(
         `Learner admitted${savedOptions ? ` with ${savedOptions} fee category(ies)` : ""}${skippedNote}`,
@@ -339,7 +346,7 @@ export default function LearnersPage() {
         />
       )}
 
-      <Dialog open={open} onClose={() => { setOpen(false); setStep(0); }} title={t("add_learner")} className="max-w-2xl">
+      <Dialog open={open} onClose={() => { setOpen(false); resetWizard(); }} title={t("add_learner")} className="max-w-2xl">
         <form onSubmit={handleSubmit} className="space-y-6">
           {step === 0 && (
             <>
@@ -487,7 +494,7 @@ export default function LearnersPage() {
 	                </div>
 	              )}
               <div className="flex justify-end pt-4">
-                <Button variant="secondary" onClick={() => { setOpen(false); setStep(0); }}>{t("cancel")}</Button>
+                <Button variant="secondary" onClick={() => { setOpen(false); resetWizard(); }}>{t("cancel")}</Button>
                 <Button variant="primary" onClick={nextStep}>{t("next")} →</Button>
               </div>
             </>

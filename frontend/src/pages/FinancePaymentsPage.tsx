@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
+import Dialog from "../components/dialog/Dialog";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
@@ -87,10 +88,7 @@ export default function FinancePaymentsPage() {
               ]}
             />
           )}
-          {payModal && (
-            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setPayModal(false)}>
-              <div style={{ background: "#fff", borderRadius: 8, padding: "1.5rem", width: "24rem", maxWidth: "90vw" }} onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-heading" style={{ marginBottom: "1rem" }}>Record Payment</h3>
+          <Dialog open={payModal} onClose={() => setPayModal(false)} title="Record Payment" className="max-w-md">
                 <form onSubmit={handleRecordPayment}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
                     <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner</span>
@@ -148,9 +146,7 @@ export default function FinancePaymentsPage() {
                     </button>
                   </div>
                 </form>
-              </div>
-            </div>
-          )}
+          </Dialog>
         </div>
       </div>
     </ErrorBoundary>

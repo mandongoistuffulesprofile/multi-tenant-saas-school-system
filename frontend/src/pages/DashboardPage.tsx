@@ -195,11 +195,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpis.map((c) => (
           <div key={c.label} className="card p-5">
             <h3 className="text-caption uppercase tracking-wide mb-1">{c.label}</h3>
-            <p className={`text-2xl font-bold ${c.accent}`}>{c.value}</p>
+            <p className={`text-xl sm:text-2xl font-bold break-words ${c.accent}`}>{c.value}</p>
           </div>
         ))}
       </div>

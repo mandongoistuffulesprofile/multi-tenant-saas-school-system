@@ -199,14 +199,31 @@ const NAV_PAGES: { keys: string; path: string }[] = [
 
 export default function Layout({ children }: LayoutProps) {
   const { t, i18n } = useTranslation();
-  const { roles, clearAuth } = useAuthStore();
-  const [collapsed, setCollapsed] = useState(false);
+  const { roles, tenantId, clearAuth } = useAuthStore();
+  // On phones the navigation is an overlay, so it starts closed. Desktop keeps
+  // the persistent sidebar; crossing the breakpoint resets it either way.
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false,
+  );
   const location = useLocation();
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("app_lang") || "en"; } catch { return "en"; } });
   const [palette, setPalette] = useState<PaletteState>({ open: false, query: "" });
   const [badges, setBadges] = useState<Record<string, number | string | null>>({});
   const [impSchool, setImpSchool] = useState<string | null>(() => { try { return localStorage.getItem("imp_school"); } catch { return null; } });
   const [showRecoveryHint, setShowRecoveryHint] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const sync = () => setCollapsed(!mq.matches);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  // Navigating from the mobile drawer should reveal the page, not leave the
+  // overlay covering it.
+  useEffect(() => {
+    if (window.innerWidth < 768) setCollapsed(true);
+  }, [location.pathname]);
 
   /* Exit an impersonation session: restore the platform-owner tokens. */
   const exitImpersonation = () => {
@@ -382,10 +399,9 @@ export default function Layout({ children }: LayoutProps) {
         center={
             <span className="text-sm text-gray-600">
               {t("tenant_id")}:
-              <span className="font-medium text-gray-900 font-mono ml-1">{(() => {
-                try { return localStorage.getItem("school_code") || (isSaasAdmin ? "Platform" : "School"); }
-                catch { return isSaasAdmin ? "Platform" : "School"; }
-              })()}</span>
+              <span className="font-medium text-gray-900 font-mono ml-1">
+                {tenantId || (isSaasAdmin ? "Platform" : "School")}
+              </span>
             </span>
           }
         right={
@@ -415,12 +431,30 @@ export default function Layout({ children }: LayoutProps) {
       <Breadcrumb items={useBreadcrumbs()} />
 
       <div className="flex">
+        {!collapsed && (
+          <div
+            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            onClick={() => setCollapsed(true)}
+            aria-hidden="true"
+          />
+        )}
         <aside
-          className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out ${
+          className={`fixed inset-y-0 left-0 z-50 w-64 shrink-0 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out ${
             collapsed ? "-translate-x-full" : "translate-x-0"
           } md:relative md:translate-x-0`}
         >
           <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between px-4 pt-4 pb-1 md:hidden">
+              <span className="text-sm font-bold text-slate-700">Menu</span>
+              <button
+                type="button"
+                className="p-2 -mr-2 rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label="Close navigation"
+                onClick={() => setCollapsed(true)}
+              >
+                ×
+              </button>
+            </div>
             <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
               {canSeeItem(TOP_ITEM) && (
                 <NavLink
@@ -529,7 +563,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </aside>
 
-        <div className="flex-1 p-6">
+        <div className="flex-1 min-w-0 p-6">
           {showRecoveryHint && (
             <div
               role="status"

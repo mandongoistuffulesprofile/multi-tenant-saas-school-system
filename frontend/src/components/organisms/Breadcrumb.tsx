@@ -8,8 +8,17 @@ interface BreadcrumbItem {
 }
 
 export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
-  const { t } = useTranslation();
+  const { i18n } = useTranslation();
   const location = useLocation();
+
+  // Some route words ("finance") are also i18n namespaces, so t() returns an
+  // object. Read the resource directly and only accept plain strings; fall back
+  // to a readable capitalised segment for namespaces.
+  const label = (raw: string) => {
+    const value = i18n.getResource(i18n.language, "translation", raw);
+    if (typeof value === "string") return value;
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  };
 
   if (!items.length) return null;
 
@@ -33,7 +42,7 @@ export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
                   className="text-gray-900 font-medium truncate max-w-[200px]"
                   aria-current="page"
                 >
-                  {t(item.label) !== item.label ? t(item.label) : item.label}
+                  {label(item.label)}
                 </span>
               ) : (
                 <NavLink
@@ -43,7 +52,7 @@ export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
                   {isFirst && item.path === "/" && (
                     <Home className="w-4 h-4" aria-hidden="true" />
                   )}
-                  {t(item.label) !== item.label ? t(item.label) : item.label}
+                  {label(item.label)}
                 </NavLink>
               )}
             </li>

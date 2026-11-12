@@ -1,4 +1,4 @@
-import React, { ReactNode } from "react";
+import React, { ReactNode, useEffect } from "react";
 
 interface DialogProps {
   open: boolean;
@@ -9,6 +9,20 @@ interface DialogProps {
 }
 
 export default function Dialog({ open, onClose, title, children, className }: DialogProps) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
@@ -19,18 +33,29 @@ export default function Dialog({ open, onClose, title, children, className }: Di
         aria-hidden="true"
       />
       <div
-        className={`fixed left-1/2 top-1/2 z-50 w-full max-w-md transform translate-x-[-50%] translate-y-[-50%] scale-100 bg-white rounded-2xl shadow-2xl border border-gray-200 p-6 focus:outline-none ${className ?? ""}`}
+        className={`fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-1.5rem)] w-[calc(100%-1.5rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl focus:outline-none ${className ?? "max-w-md"}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="dialog-title"
       >
-        {title && (
-          <h2 id="dialog-title" className="text-lg font-bold text-gray-900 mb-3">
-            {title}
-          </h2>
-        )}
-        <div className="space-y-4">{children}</div>
-        <div className="mt-6 flex justify-end gap-2"></div>
+        <div className="mb-3 flex shrink-0 items-start justify-between gap-4">
+          {title ? (
+            <h2 id="dialog-title" className="text-lg font-bold text-gray-900">
+              {title}
+            </h2>
+          ) : (
+            <span />
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="-mr-2 -mt-1 rounded-lg p-2 text-xl leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          >
+            ×
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">{children}</div>
       </div>
     </>
   );

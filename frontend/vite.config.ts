@@ -56,8 +56,9 @@ export default defineConfig(({ command }) => {
     server: {
       port: 5173,
       host: "127.0.0.1",
-      // Pin the HMR channel so the browser reconnects cleanly on restarts.
-      hmr: { protocol: "ws", host: "localhost", clientPort: 5173 },
+      // Use the page's own origin for HMR. Pinning localhost:5173 breaks
+      // remote/cloud previews and leaves the client retrying a dead socket.
+      hmr: { protocol: "ws" },
       proxy: {
         "/api": {
           target: "http://localhost:8080",

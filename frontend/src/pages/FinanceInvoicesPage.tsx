@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
+import Dialog from "../components/dialog/Dialog";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
@@ -91,10 +92,7 @@ export default function FinanceInvoicesPage() {
           <div style={{ marginTop: "1rem" }}>
             <button className="btn-primary" onClick={() => setModalOpen(true)}>Generate Invoice</button>
           </div>
-          {modalOpen && (
-            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setModalOpen(false)}>
-              <div style={{ background: "#fff", borderRadius: 8, padding: "1.5rem", width: "24rem", maxWidth: "90vw" }} onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-heading" style={{ marginBottom: "1rem" }}>Generate Invoice</h3>
+          <Dialog open={modalOpen} onClose={() => setModalOpen(false)} title="Generate Invoice" className="max-w-md">
                 <form onSubmit={handleCreateInvoice}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
                     <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner</span>
@@ -138,9 +136,7 @@ export default function FinanceInvoicesPage() {
                     </button>
                   </div>
                 </form>
-              </div>
-            </div>
-          )}
+          </Dialog>
         </div>
       </div>
     </ErrorBoundary>
