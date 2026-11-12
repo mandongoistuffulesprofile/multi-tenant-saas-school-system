@@ -111,7 +111,15 @@ func (h *Handler) Login(c *gin.Context) {
 		passwordHash string
 	)
 
-	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate + ` LIMIT 1`
+	// Prefer a real email/phone match over an email_norm-only row. Old test
+	// data can leave a phone-less, email-less "shell" row whose email_norm
+	// collides with a real account; a plain LIMIT 1 would sometimes select the
+	// shell and reject the correct password.
+	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate + `
+		ORDER BY (u.email IS NOT NULL AND LOWER(u.email) = LOWER($1)) DESC,
+		         (u.phone_number = $1) DESC,
+		         u.created_at DESC
+		LIMIT 1`
 	args := []any{identifier}
 
 	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
