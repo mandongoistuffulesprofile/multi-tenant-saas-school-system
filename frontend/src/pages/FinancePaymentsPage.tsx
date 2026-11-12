@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
+import HelpTip from "../components/atoms/HelpTip";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
@@ -103,7 +104,7 @@ export default function FinancePaymentsPage() {
           <Dialog open={payModal} onClose={() => setPayModal(false)} title="Record Payment" className="max-w-md">
                 <form onSubmit={handleRecordPayment}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner<HelpTip text="Only active learners in this school are listed. The receipt is posted against this learner's account." /></span>
                     <select
                       required
                       value={payForm.learner_id}
@@ -117,7 +118,7 @@ export default function FinancePaymentsPage() {
                     </select>
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Amount (KES)</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Amount (KES)<HelpTip text="The payment is allocated to this learner's oldest unpaid invoice. Any remainder stays as an unallocated payment on account." /></span>
                     <input
                       type="number"
                       min="1"
@@ -142,7 +143,7 @@ export default function FinancePaymentsPage() {
                     </select>
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Reference (optional)</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Reference (optional)<HelpTip text="Use the M-Pesa code, bank slip or receipt number. Unique M-Pesa transaction IDs are protected against duplicate posting." /></span>
                     <input
                       type="text"
                       value={payForm.reference}

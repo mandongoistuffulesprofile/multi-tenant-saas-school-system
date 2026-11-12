@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
+import HelpTip from "../components/atoms/HelpTip";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
@@ -95,7 +96,7 @@ export default function FinanceInvoicesPage() {
           <Dialog open={modalOpen} onClose={() => setModalOpen(false)} title="Generate Invoice" className="max-w-md">
                 <form onSubmit={handleCreateInvoice}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner<HelpTip text="Only active learners in this school are listed. The invoice is issued in this tenant's name and currency." /></span>
                     <select
                       required
                       value={invoiceForm.learner_id}
@@ -109,7 +110,7 @@ export default function FinanceInvoicesPage() {
                     </select>
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Amount (KES)</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Amount (KES)<HelpTip text="This becomes the invoice total and the opening outstanding balance. Payments allocate against it oldest-invoice first." /></span>
                     <input
                       type="number"
                       min="1"
@@ -121,7 +122,7 @@ export default function FinanceInvoicesPage() {
                     />
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Due Date (optional)</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Due Date (optional)<HelpTip text="Used for reminders and for ordering unpaid invoices. Leave blank if the school does not bill to a fixed date." /></span>
                     <input
                       type="date"
                       value={invoiceForm.due_date}
