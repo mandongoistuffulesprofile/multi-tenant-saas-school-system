@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/assessment"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/attendance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
@@ -23,30 +24,29 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/comms"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/compliance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/config"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/curriculum"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/holdingtank"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/inkind"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/kitchen"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/knec"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/learner"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/mpesa"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/openingbalance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/outbox"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/platform"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/reports"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/school"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sms"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/staff"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/structure"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sync"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/holdingtank"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/inkind"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/valueledger"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/openingbalance"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/kitchen"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/wizard"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sms"
 )
 
 func Run() error {
@@ -221,7 +221,7 @@ func Run() error {
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.CORS(os.Getenv("CORS_ALLOWED_ORIGIN")))
 	router.Use(middleware.BodyLimit(2 << 20))
-router.Use(middleware.TenantContextMiddleware(jwtManager, database))
+	router.Use(middleware.TenantContextMiddleware(jwtManager, database))
 	router.Use(middleware.TenantTxMiddleware(database.DB, redisClient.Client))
 
 	// Buffer GET response bodies so ETags can be computed and If-None-Match
@@ -354,7 +354,10 @@ router.Use(middleware.TenantContextMiddleware(jwtManager, database))
 			client := c.ClientIP()
 			ok := false
 			for _, ip := range strings.Split(allow, ",") {
-				if strings.TrimSpace(ip) == client { ok = true; break }
+				if strings.TrimSpace(ip) == client {
+					ok = true
+					break
+				}
 			}
 			if !ok {
 				c.JSON(401, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
@@ -469,12 +472,12 @@ router.Use(middleware.TenantContextMiddleware(jwtManager, database))
 	obGroup.POST("/opening-stock", middleware.RequireRole(middleware.RoleSchoolAdministrators...), openingBalanceHandler.PostOpeningStock)
 
 	holdingGroup := apiV1.Group("/holding-tank")
-	holdingGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.TenantTxMiddleware(database.DB, redisClient.Client))
+	holdingGroup.Use(middleware.RequireAuthGin(jwtManager))
 	holdingGroup.GET("", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ListHoldingTank)
 	holdingGroup.POST("/:id/resolve", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ResolveHoldingTank)
 
 	tokenGroup := apiV1.Group("/delegated-tokens")
-	tokenGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.TenantTxMiddleware(database.DB, redisClient.Client))
+	tokenGroup.Use(middleware.RequireAuthGin(jwtManager))
 	tokenGroup.GET("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.ListTokens)
 	tokenGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.CreateToken)
 	tokenGroup.POST("/:id/revoke", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.RevokeToken)

@@ -13,7 +13,7 @@ import (
 type txKey struct{}
 
 const (
-	tenantStatusCacheTTL = 30 * time.Second
+	tenantStatusCacheTTL  = 30 * time.Second
 	tenantStatusKeyPrefix = "tenant:status:"
 )
 
@@ -91,6 +91,17 @@ func TenantTxMiddleware(db *sqlx.DB, redisClient *redis.Client) gin.HandlerFunc 
 			return
 		}
 
+		// Platform (SaaS) administrators operate across tenants. Mark the
+		// transaction so the platform_admin_bypass RLS policy can grant them
+		// cross-tenant reads; tenant sessions never set this GUC.
+		if isPlatformAdmin(c) {
+			if _, err := tx.ExecContext(c.Request.Context(), "SELECT set_config('app.current_user_role', 'SAAS_ADMIN', true)"); err != nil {
+				tx.Rollback()
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "failed to set platform role context"})
+				return
+			}
+		}
+
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), txKey{}, tx))
 		c.Set("tx", tx)
 
@@ -104,6 +115,25 @@ func TenantTxMiddleware(db *sqlx.DB, redisClient *redis.Client) gin.HandlerFunc 
 			// best effort; response already sent
 		}
 	}
+}
+
+// isPlatformAdmin reports whether the signed session carries a SaaS platform
+// administrator role. It reads the same claims RequireRole uses.
+func isPlatformAdmin(c *gin.Context) bool {
+	if rolesVal, ok := c.Get(ContextRoles); ok {
+		if roles, ok := rolesVal.([]string); ok {
+			for _, role := range roles {
+				if role == RoleSaasAdmin || role == RoleSuperAdmin {
+					return true
+				}
+			}
+		}
+	}
+	switch c.GetString(ContextRole) {
+	case RoleSaasAdmin, RoleSuperAdmin:
+		return true
+	}
+	return false
 }
 
 // TxFromContext returns the request-scoped transaction if present.
