@@ -87,6 +87,31 @@ type ReadinessCheck struct {
 	Message string `json:"message"`
 }
 
+// SetupSchool is the school-profile slice the setup wizard edits and echoes
+// back in its header and review step.
+type SetupSchool struct {
+	SchoolName  string `json:"school_name"`
+	Subdomain   string `json:"subdomain"`
+	SchoolType  string `json:"school_type"`
+	FundingMode string `json:"funding_mode"`
+	County      string `json:"county"`
+	SubCounty   string `json:"sub_county"`
+	Address     string `json:"address"`
+	NemisCode   string `json:"nemis_code"`
+	KemisCode   string `json:"kemis_code"`
+	KnecCode    string `json:"knec_code"`
+	Status      string `json:"status"`
+}
+
+// SetupGrade is a row of the global grades reference table. The structure and
+// finance steps pick from it instead of typing raw grade IDs.
+type SetupGrade struct {
+	GradeID        string `json:"grade_id"`
+	GradeLabel     string `json:"grade_label"`
+	LevelBand      string `json:"level_band"`
+	LessonsPerWeek int    `json:"lessons_per_week"`
+}
+
 type ReadinessResult struct {
 	Ready       bool             `json:"ready"`
 	Checks      []ReadinessCheck `json:"checks"`
@@ -189,7 +214,51 @@ func (h *Handler) GetTenantOnboarding(c *gin.Context) {
 		state = &OnboardingState{TenantID: tenantID, Status: "PENDING_SETUP", CurrentStep: "PROVISIONED", Steps: []byte("{}"), Draft: []byte("{}"), Readiness: []byte("{}")}
 	}
 	readiness, _ := h.computeReadiness(c.Request.Context(), tenantID)
-	c.JSON(http.StatusOK, gin.H{"onboarding": state, "readiness": readiness})
+	school, _ := h.setupSchool(c.Request.Context(), tenantID)
+	grades, _ := h.setupGrades(c.Request.Context())
+	c.JSON(http.StatusOK, gin.H{
+		"onboarding": state,
+		"readiness":  readiness,
+		"school":     school,
+		"grades":     grades,
+	})
+}
+
+func (h *Handler) setupSchool(ctx context.Context, tenantID string) (*SetupSchool, error) {
+	school := &SetupSchool{}
+	err := h.qctx(ctx).QueryRow(
+		`SELECT COALESCE(school_name,''), COALESCE(subdomain,''), COALESCE(school_type,''),
+		        COALESCE(funding_mode,''), COALESCE(county,''), COALESCE(sub_county,''),
+		        COALESCE(address,''), COALESCE(nemis_code,''), COALESCE(kemis_code,''),
+		        COALESCE(knec_code,''), COALESCE(status,'')
+		 FROM schools WHERE tenant_id = $1`, tenantID).
+		Scan(&school.SchoolName, &school.Subdomain, &school.SchoolType, &school.FundingMode,
+			&school.County, &school.SubCounty, &school.Address, &school.NemisCode,
+			&school.KemisCode, &school.KnecCode, &school.Status)
+	if err != nil {
+		return nil, err
+	}
+	return school, nil
+}
+
+func (h *Handler) setupGrades(ctx context.Context) ([]SetupGrade, error) {
+	rows, err := h.qctx(ctx).Query(
+		`SELECT grade_id, grade_label, level_band, lessons_per_week FROM grades
+		 ORDER BY CASE level_band WHEN 'EYE' THEN 0 WHEN 'LOWER_PRIMARY' THEN 1
+		          WHEN 'UPPER_PRIMARY' THEN 2 WHEN 'JSS' THEN 3 ELSE 4 END, grade_label`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	grades := make([]SetupGrade, 0, 11)
+	for rows.Next() {
+		var g SetupGrade
+		if err := rows.Scan(&g.GradeID, &g.GradeLabel, &g.LevelBand, &g.LessonsPerWeek); err != nil {
+			return nil, err
+		}
+		grades = append(grades, g)
+	}
+	return grades, rows.Err()
 }
 
 func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (ReadinessResult, error) {
@@ -631,6 +700,11 @@ func (h *Handler) SetupSeeds(c *gin.Context) {
 			phone, _ := st["phone_number"].(string)
 			email, _ := st["email"].(string)
 			if strings.TrimSpace(first) == "" || strings.TrimSpace(last) == "" {
+				continue
+			}
+			// Kenyan staff lists often have no email at all; a phone number alone
+			// identifies the person. Rows with neither identifier are unusable.
+			if strings.TrimSpace(phone) == "" && strings.TrimSpace(email) == "" {
 				continue
 			}
 			var uid string
