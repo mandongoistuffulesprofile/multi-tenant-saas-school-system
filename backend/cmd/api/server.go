@@ -229,6 +229,26 @@ func Run() error {
 	router.Use(middleware.CaptureBodyMiddleware())
 	router.Use(middleware.CacheControlMiddleware())
 
+	// Unknown routes must be a real 404. Gin's default error path can be
+	// swallowed by the body-capture writer (it sets the status on writermem
+	// rather than through c.Writer), which previously produced 200 with an
+	// empty body. That made every not-yet-implemented endpoint look successful
+	// to the SPA. Explicit JSON handlers keep the contract honest.
+	router.NoRoute(func(c *gin.Context) {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code":       "NOT_FOUND",
+			"message":    "Route not found",
+			"request_id": c.GetString(middleware.ContextRequestID),
+		})
+	})
+	router.NoMethod(func(c *gin.Context) {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{
+			"code":       "METHOD_NOT_ALLOWED",
+			"message":    "Method not allowed",
+			"request_id": c.GetString(middleware.ContextRequestID),
+		})
+	})
+
 	// Broad per-tenant (or per-IP for anonymous) safety valve. Expensive route
 	// groups may add stricter limits later; this prevents one tenant or client
 	// from exhausting the API.

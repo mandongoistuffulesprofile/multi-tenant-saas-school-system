@@ -65,7 +65,11 @@ export default function SaaSLayout({ children }: SaaSLayoutProps) {
           <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
             <Badge variant="default" className="text-xs">{t("online", { defaultMessage: "Online" })}</Badge>
             <button
-              onClick={() => { localStorage.clear(); window.location.href = "/login"; }}
+              onClick={async () => {
+                try { await api.post("/auth/logout"); } catch {}
+                localStorage.clear();
+                window.location.href = "/login";
+              }}
               className="ml-3 text-xs text-gray-500 hover:text-kenyan-red font-medium transition"
             >
               {t("sign_out", { defaultMessage: "Sign Out" })}

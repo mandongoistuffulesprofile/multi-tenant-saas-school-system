@@ -6,7 +6,7 @@ import { KPIStatCard } from "../../components/atoms/Card";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
 import { api } from "../../lib/api";
-import { TenantUsage, Plan, Subscription } from "../../lib/types";
+import { Tenant, Plan, Subscription } from "../../lib/types";
 import { SharpShield } from "../../components/icons";
 
 interface AssistanceRequest {
@@ -36,6 +36,7 @@ interface IssuedCode {
 export default function OperationsCentrePage() {
   const { t } = useTranslation();
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [usage, setUsage] = useState<TenantUsage[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
@@ -61,6 +62,7 @@ export default function OperationsCentrePage() {
   };
 
   useEffect(() => {
+    apiGet<Tenant[]>("/platform/tenants").then((d) => setTenants(Array.isArray(d) ? d : []));
     apiGet<TenantUsage[]>("/platform/usage").then((d) => setUsage(Array.isArray(d) ? d : []));
     apiGet<Plan[]>("/platform/plans").then((d) => setPlans(Array.isArray(d) ? d : []));
     apiGet<Subscription[]>("/platform/subscriptions").then((d) => setSubs(Array.isArray(d) ? d : []));
@@ -130,7 +132,7 @@ export default function OperationsCentrePage() {
 
   // Logical fix: "Active Tenants" counts tenants, and MRR is derived from what
   // tenants actually subscribe to — never from the plan catalog.
-  const activeTenants = usage.length;
+  const activeTenants = tenants.filter((t) => t.status === "ACTIVE").length;
   const mrr = subs.reduce((sum, s) => {
     const plan = plans.find((p) => p.plan_id === s.plan_id);
     return sum + (s.status === "CANCELLED" ? 0 : plan?.price_monthly ?? 0);
