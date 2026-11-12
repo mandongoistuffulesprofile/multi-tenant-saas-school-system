@@ -10,6 +10,8 @@ This is the evidence-backed status, not a feature wish list.
 | `go test ./... -count=1` with `TEST_DATABASE_URL` (migrated database) | Pass: RLS, finance/mpesa/outbox isolation + concurrency, reports |
 | Frontend `npx tsc --noEmit` | Pass |
 | Frontend `npm run build` | Pass (lockfile committed; `npm ci` reproducible) |
+| Frontend `npm test` (Vitest) | Pass: 8 tests covering cached-session restore/expiry and the session bootstrap (expired access cookie, offline, explicit refresh rejection); run in CI after the build and type check |
+| `GET /reports/cards/:card_id/pdf` | Pass: server-side PDF from the stored card, role-gated and audited (see *Report card PDFs*) |
 | SPA auth | HttpOnly cookies (`withCredentials`), CSRF double-submit header on unsafe methods, single-flight refresh; no token persisted to localStorage |
 | Offline-first auth | Non-sensitive identity/roles cached (never tokens) so an offline reload still renders the app and can flush the sync queue; explicit 401/403 clears it |
 | Credential lifecycle | No passwords in seeds or docs; `cmd/devuser`/`cmd/setpassword` generate 24-char unambiguous passwords (argon2id, unique per-user salt) and print them once; passwords persist and are reusable for normal logins (no rotation per sign-in). Login lockout + tenant membership resolution tested under FORCE RLS; email reset token is hashed, one-shot, policy-checked, and revokes sessions/refresh tokens. UI covers email link (`/auth/reset?token=…`), security questions, and platform-issued support codes (`/forgot-password`); SMS is not used for password recovery. |
@@ -21,7 +23,8 @@ This is the evidence-backed status, not a feature wish list.
 | FORCE RLS | `relrowsecurity=true` and `relforcerowsecurity=true` on every tenant table, including the five enrolled by `0030_rls_remaining_tables.sql`; `0028`/`0030` add platform-admin bypass policies |
 | `TestTenantRLS` | Pass: no-context reads return 0 rows; cross-tenant update affects 0 rows |
 | M-Pesa inbox / outbox workers | Started by the API (`mpesa.StartWorker`, `outbox.StartWorker`) |
-| CI (`.github/workflows/ci.yml`) | Postgres 18 + Redis services; build, vet, migrations (twice), full test suite; frontend `npm ci`, build, blocking type check |
+| CI (`.github/workflows/ci.yml`) | Postgres 18 + Redis services; build, vet, migrations (twice), full test suite; frontend `npm ci`, build, blocking type check and `npm test` |
+| Monitoring (optional profile) | `uptime-kuma` in `infrastructure/docker/docker-compose.prod.yml`; runbook in `docs/MONITORING.md` |
 
 ### Deployment fixes verified in this pass
 
@@ -48,10 +51,54 @@ This is the evidence-backed status, not a feature wish list.
 
 1. Point `DOMAIN` at the VPS and run `scripts/deploy.sh`; verify TLS, login, M-Pesa callback, a learner update and a backup/restore drill (Caddy TLS was not exercised locally because it needs a real domain).
 2. Configure real Daraja credentials and `MPESA_ALLOWED_IPS` (or `MPESA_WEBHOOK_TOKEN`) in `.env.prod`; without them STK requests are recorded `PENDING` and never pushed.
-3. Add monitoring/alerts: Sentry (Go + React), an uptime check on `/health/ready`, and log aggregation.
+3. Start the self-hosted monitoring profile (`docs/MONITORING.md`): Uptime Kuma watches `https://$DOMAIN/health/ready` and the SPA, with email/push alerts; optionally add Sentry (Go + React) and log aggregation.
 4. Encrypt off-host backups (`age`/`gpg` pipe before the S3/R2 upload) and schedule them with a dead-man's-switch ping.
-5. Add frontend tests (Vitest smoke + one E2E login/route) — there are currently no frontend test files.
+5. Extend the frontend test suite beyond the auth/session unit tests (one E2E login + route check once an E2E runner is chosen).
 
 ## Deferred until after the pilot
 
-PgBouncer, k6 load tests, HTTP ETag/caching, staging environment, PWA/offline sync (`sw.js`/`/sync/*`), report-card PDF generation, year-end rollover, CSV import dry-run UI, feature flags, and product-name cleanup.
+PgBouncer, k6 load tests, HTTP ETag/caching, staging environment, PWA/offline sync (`sw.js`/`/sync/*`), feature flags, and product-name cleanup.
+
+## Report card PDFs
+
+`GET /api/v1/reports/cards/:card_id/pdf` returns the stored report card as a
+real PDF (`application/pdf`, inline filename `report-card-<card_number>.pdf`,
+`Cache-Control: private, no-store`). It is generated server-side by
+`internal/reports` from the `report_cards` row with a standard-library writer,
+so the distroless API image needs no fonts, browser or PDF toolchain.
+
+- **Who can call it:** `SCHOOL_ADMIN`/academic staff, parents and guardians
+  (the same role gate as `GET /reports/cards/:card_id`). A parent or guardian
+  may download only cards for learners linked to their account; any other
+  card, unknown `card_id`, or another tenant's card returns `404` without
+  disclosing whether it exists. Parent/guardian downloads are audited as
+  `REPORT_CARD_PDF_DOWNLOAD`; card views remain `REPORT_CARD_VIEW`.
+- **What it returns:** a one-page A4 document with school name, learner name,
+admission number, grade, term and year, overall grade, total/max score,
+percentage, class position, class-teacher and head-teacher remarks, the
+status, and a generation timestamp plus signature/stamp lines. It is rendered
+from the stored card, including cards that are still `DRAFT` (the school sees
+what it will publish).
+- **Difference from the print page:** `/reports/cards/:card_id/print` is the
+  SPA's browser review surface. It has no authoritative content of its own;
+  the "Download PDF" action calls this endpoint. A screenshot or browser print
+  of that page is not the issued document and may omit server-side fields.
+
+## Year-end rollover and learner import
+
+- `POST /api/v1/academic/rollover` previews (`dry_run: true`, the default) or
+  applies promotion of active enrolments from one academic year to the next.
+  The plan maps the Kenyan ladder (PP1 → PP2 → Grade 1 … → Grade 9), reports
+  per-grade learner and stream counts, and treats Grade 9 as graduation:
+  those enrolments are marked `COMPLETED`, not deleted. Apply creates missing
+  class groups in the target year and moves each learner's active enrolment.
+- `POST /api/v1/imports/learners` takes `{csv, dry_run}` and classifies every
+  row as `IMPORTABLE`, `DUPLICATE` (admission number already exists or repeats
+  in the file) or `INVALID` (missing names/admission number or unknown grade).
+  Duplicates and invalid rows are reported with reasons and never inserted;
+  applying inserts only importable rows and enrols them when a matching class
+  group exists. The SPA screen is `/imports/learners` (school administrators),
+  linked from the learners directory.
+- Both routes require `SCHOOL_ADMIN` (or another `RoleSchoolAdministrators`
+  member) and a tenant-scoped transaction, so RLS applies to every read and
+  write.

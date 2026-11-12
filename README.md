@@ -88,7 +88,12 @@ cp .env.example .env       # VITE_API_BASE=/api/v1
 npm install
 npm run dev                # http://localhost:5173, proxies /api to :8080
 npm run build
+npx tsc --noEmit           # type check
+npm test                   # Vitest: auth store + session bootstrap
 ```
+
+`npm test` runs the hermetic Vitest suite (`vitest.config.ts`, jsdom). It is
+part of CI, alongside the build and type check.
 
 ## Production (single VPS)
 
@@ -113,6 +118,30 @@ On a fresh Ubuntu/Debian VPS, `sudo bash scripts/provision_production_server.sh 
 
 Secrets (`POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ENCRYPTION_KEY`, `MPESA_WEBHOOK_TOKEN`, `METRICS_TOKEN`) must come from the environment or a secret manager. Never commit `.env.prod`.
 
+## Report cards and PDFs
+
+`GET /api/v1/reports/cards/:card_id/pdf` streams a report card as a real PDF
+(`application/pdf`, `Content-Disposition: inline`, `Cache-Control: private,
+no-store`) generated on the server from the stored `report_cards` row. It is
+not a screenshot of the browser print page: the school hands the parent a
+fixed document, and the file cannot be edited in the browser before saving.
+
+- **Who can call it:** academic staff, parents and guardians. Parents and
+guardians are limited to learners linked to their account; any other card, an
+unknown card, or a card outside the caller's tenant returns `404` rather than
+revealing that the card exists. Parent/guardian downloads are written to the
+audit log as `REPORT_CARD_PDF_DOWNLOAD`.
+- **What it contains:** school name, learner name and admission number, grade,
+term and academic year, overall grade, total/max score, percentage, class
+position, class-teacher and head-teacher remarks, and the generation timestamp
+with signature/stamp lines. It is rendered with the standard library, so the
+distroless API image needs no fonts or PDF toolchain.
+- **How it differs from the print page:** `/reports/cards/:card_id/print` in
+the SPA is a browser review surface for the same stored card; it is not the
+issued document and nothing on it is authoritative. The print page fetches
+this endpoint for the download, so the PDF and the on-screen card come from
+one server-side source.
+
 ## Architecture notes
 
 - **Tenancy:** `schools(tenant_id)` is the tenant root; `users` is global; authorization lives in `tenant_memberships`. Domain rows carry `tenant_id VARCHAR(50)`.
@@ -135,4 +164,6 @@ Secrets (`POSTGRES_PASSWORD`, `JWT_SIGNING_KEY`, `ENCRYPTION_KEY`, `MPESA_WEBHOO
 - Restore: `scripts/restore.sh` (destructive, requires `CONFIRM_RESTORE=yes`).
 - Restore drill: `scripts/verify_backup.sh` restores into a scratch database and checks table/RLS counts.
 - Runbook: `docs/RUNBOOK.md`.
+- Monitoring: `docs/MONITORING.md` (Uptime Kuma on `/health/ready` and the SPA,
+  alerts, `/metrics` with `METRICS_TOKEN`).
 - Rollout: `scripts/deploy.sh`.
