@@ -10,13 +10,14 @@ import { ToastProvider } from "./components/toast/ToastProvider";
 import { installSyncHooks, registerBackgroundSync } from "./lib/sync";
 import { registerServiceWorker } from "./serviceWorkerRegistration";
 import { bootstrapSession } from "./lib/bootstrapSession";
+import { captureClientSource } from "./lib/clientSource";
 
+captureClientSource();
 installSyncHooks();
 registerServiceWorker();
 // After the SW is ready, ask the browser to flush the outbox when the
 // network comes back — even if the user killed the tab.
 registerBackgroundSync();
-
 
 bootstrapSession().finally(() => {
   ReactDOM.createRoot(document.getElementById("root")!).render(

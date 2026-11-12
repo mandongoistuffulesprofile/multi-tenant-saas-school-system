@@ -14,6 +14,7 @@ import TeacherLayout from "./components/organisms/TeacherLayout";
 import SaaSLayout from "./components/organisms/SaaSLayout";
 import RequireRole from "./components/RequireRole";
 import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
+import PWAUpdateBanner from "./components/PWAUpdateBanner";
 
 import LoginPage from "./pages/LoginPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
@@ -114,6 +115,7 @@ const PARENT_ROLES: string[] = [Role.Parent, Role.Guardian];
 export default function App() {
   return (
     <>
+      <PWAUpdateBanner />
       <PWAOfflineSyncBanner />
       <ErrorBoundary>
         <Routes>

@@ -1,10 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="64" fill="#CE1126"/>
-  <rect x="48" y="120" width="416" height="20" rx="10" fill="#FFFFFF"/>
-  <rect x="48" y="168" width="320" height="20" rx="10" fill="#FFFFFF" opacity="0.85"/>
-  <rect x="48" y="216" width="380" height="20" rx="10" fill="#FFFFFF" opacity="0.85"/>
-  <rect x="48" y="264" width="260" height="20" rx="10" fill="#FFFFFF" opacity="0.85"/>
-  <circle cx="140" cy="384" r="28" fill="#FFFFFF"/>
-  <path d="M112 400 L140 372 L168 400 L220 320 L248 344 L268 304 L300 400" stroke="#FFFFFF" stroke-width="16" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="256" y="60" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="bold" fill="#FFFFFF">S</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Shule Yetu">
+  <rect width="512" height="512" rx="56" fill="#16283A"/>
+  <rect x="42" y="42" width="428" height="428" rx="42" fill="none" stroke="#A67C52" stroke-opacity="0.55" stroke-width="2"/>
+  <rect x="192" y="116" width="128" height="8" rx="4" fill="#A67C52"/>
+  <path d="M100 160 L250 176 L250 386 L100 368 Z" fill="#FFFFFF"/>
+  <path d="M412 160 L262 176 L262 386 L412 368 Z" fill="#FFFFFF"/>
+  <rect x="248" y="172" width="16" height="218" rx="4" fill="#A67C52"/>
+  <g fill="#16283A" opacity="0.35">
+    <rect x="128" y="222" width="80" height="7" rx="3.5"/>
+    <rect x="128" y="258" width="96" height="7" rx="3.5"/>
+    <rect x="128" y="294" width="64" height="7" rx="3.5"/>
+    <rect x="304" y="222" width="80" height="7" rx="3.5"/>
+    <rect x="304" y="258" width="96" height="7" rx="3.5"/>
+    <rect x="304" y="294" width="64" height="7" rx="3.5"/>
+  </g>
 </svg>

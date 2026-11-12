@@ -47,6 +47,11 @@ func RequestLogger() gin.HandlerFunc {
 		if tenant := c.GetString(ContextTenantID); tenant != "" {
 			attrs = append(attrs, "tenant_id", tenant)
 		}
+		// Installed-PWA launches send source=pwa; keep the value constrained so a
+		// client cannot inject arbitrary high-cardinality log fields.
+		if source := c.GetHeader("X-Client-Source"); source == "pwa" || source == "web" {
+			attrs = append(attrs, "client_source", source)
+		}
 		if len(c.Errors) > 0 {
 			attrs = append(attrs, "error", c.Errors.String())
 		}

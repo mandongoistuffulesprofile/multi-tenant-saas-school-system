@@ -1,5 +1,6 @@
 import axios from "axios";
 import { useAuthStore } from "./authStore";
+import { getClientSource } from "./clientSource";
 
 const API_BASE = (import.meta as any).env.VITE_API_BASE || "/api/v1";
 
@@ -40,6 +41,8 @@ function isPublicPath(url?: string) {
 // CSRF cookie back in the X-CSRF-Token header (double-submit pattern). The
 // backend enforces this for cookie-authenticated unsafe methods.
 api.interceptors.request.use((config) => {
+  // Administrative telemetry only: installed PWA vs browser, no user data.
+  config.headers["X-Client-Source"] = getClientSource();
   if (isPublicPath(config.url)) {
     return config;
   }
