@@ -148,7 +148,7 @@ export default function EvidenceCapturePage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-display font-display">{t("teacher.evidence_capture")}</h1>
-          <p className="text-body">{t("teacher.evidence_capture_desc", { defaultMessage: "Record learner evidence and observations" })}</p>
+          <p className="text-body">{t("teacher.evidence_capture_desc", { defaultValue: "Record learner evidence and observations" })}</p>
         </div>
       </div>
 

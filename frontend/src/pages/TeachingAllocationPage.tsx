@@ -163,16 +163,16 @@ export default function TeachingAllocationPage() {
                 setClassGroupId(first?.class_group_id || "");
               }}
             >
-              <option value="">{t("select", { defaultMessage: "Select" })}</option>
+              <option value="">{t("select", { defaultValue: "Select" })}</option>
               {years.map(([id, label]) => (
                 <option key={id} value={id}>{label}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="label">{t("class_group", { defaultMessage: "Class" })}</label>
+            <label className="label">{t("class_group", { defaultValue: "Class" })}</label>
             <select className="input-field" value={classGroupId} onChange={(e) => setClassGroupId(e.target.value)}>
-              <option value="">{t("select", { defaultMessage: "Select" })}</option>
+              <option value="">{t("select", { defaultValue: "Select" })}</option>
               {groupsForYear.map((g) => (
                 <option key={g.class_group_id} value={g.class_group_id}>
                   {g.grade_label} {g.stream_name}
@@ -243,7 +243,7 @@ export default function TeachingAllocationPage() {
         <div className="flex items-center justify-between mt-4">
           <p className="text-caption text-muted">{t("unassigned_warning")}</p>
           <Button variant="primary" onClick={handleSave} disabled={saving || !classGroupId}>
-            {saving ? "Saving…" : t("save", { defaultMessage: "Save allocations" })}
+            {saving ? "Saving…" : t("save", { defaultValue: "Save allocations" })}
           </Button>
         </div>
       </Card>

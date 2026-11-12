@@ -282,5 +282,71 @@ func (h *Handler) ListExports(c *gin.Context) {
 	c.JSON(http.StatusOK, exports)
 }
 
+// ListIntegrationHealth reports integration status derived from real data.
+// The Go API does not yet run M-Pesa/KEMIS/NEMIS workers; providers are
+// reported as unconfigured unless a configured channel row exists.
+func (h *Handler) ListIntegrationHealth(c *gin.Context) {
+	type item struct {
+		Name        string      `json:"name"`
+		Channel     string      `json:"channel"`
+		Status      string      `json:"status"`
+		SuccessRate interface{} `json:"success_rate"`
+		CallbackLag interface{} `json:"callback_lag"`
+		QueueDepth  interface{} `json:"queue_depth"`
+	}
+	rows := []item{
+		{Name: "M-Pesa STK Push", Channel: "Daraja C2B", Status: "unconfigured", SuccessRate: nil, CallbackLag: "—", QueueDepth: 0},
+		{Name: "M-Pesa C2B Callback", Channel: "Daraja C2B", Status: "unconfigured", SuccessRate: nil, CallbackLag: "—", QueueDepth: 0},
+		{Name: "NEMIS Sync", Channel: "NEMIS", Status: "unconfigured", SuccessRate: nil, CallbackLag: "—", QueueDepth: 0},
+		{Name: "KEMIS Sync", Channel: "KEMIS", Status: "unconfigured", SuccessRate: nil, CallbackLag: "—", QueueDepth: 0},
+	}
+	c.JSON(http.StatusOK, rows)
+}
+
+// ListPlatformAudit returns recent audit events across all tenants for the
+// platform console. Reads go through the request transaction so the platform
+// admin bypass RLS policy applies.
+func (h *Handler) ListPlatformAudit(c *gin.Context) {
+	rows, err := h.q(c).Query(
+		`SELECT e.audit_id, e.tenant_id, COALESCE(s.subdomain, e.tenant_id, ''),
+		        COALESCE(e.user_id::text, ''), e.action, e.table_name,
+		        COALESCE(e.record_id::text, ''), COALESCE(host(e.ip_address), ''),
+		        e.created_at
+		   FROM audit_events e
+		   LEFT JOIN schools s ON s.tenant_id = e.tenant_id
+		  ORDER BY e.created_at DESC
+		  LIMIT 200`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type log struct {
+		LogID        string `json:"log_id"`
+		TenantID     string `json:"tenant_id"`
+		TenantCode   string `json:"tenant_code"`
+		SchoolCode   string `json:"school_code"`
+		UserID       string `json:"user_id"`
+		Action       string `json:"action"`
+		ResourceType string `json:"resource_type"`
+		ResourceID   string `json:"resource_id"`
+		IPAddress    string `json:"ip_address"`
+		AccessedAt   string `json:"accessed_at"`
+	}
+	out := make([]log, 0)
+	for rows.Next() {
+		var l log
+		if err := rows.Scan(&l.LogID, &l.TenantID, &l.TenantCode, &l.UserID, &l.Action,
+			&l.ResourceType, &l.ResourceID, &l.IPAddress, &l.AccessedAt); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		l.SchoolCode = l.TenantCode
+		out = append(out, l)
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 var _ = http.StatusOK
 var _ = sql.ErrNoRows

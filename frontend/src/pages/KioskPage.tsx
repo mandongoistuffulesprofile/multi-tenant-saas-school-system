@@ -23,16 +23,16 @@ export default function KioskPage() {
       const { data } = await api.post("/gate/scan", { passcode });
       if (data?.verified) {
         setVerified(true);
-        toast(t("gate.access_granted", { defaultMessage: "Access granted" }), {
+        toast(t("gate.access_granted", { defaultValue: "Access granted" }), {
           type: "success",
         });
         return;
       }
-      setError(t("gate.access_denied", { defaultMessage: "Access denied" }));
+      setError(t("gate.access_denied", { defaultValue: "Access denied" }));
     } catch (err: any) {
       setError(
         err?.response?.data?.message ||
-          t("gate.scan_failed", { defaultMessage: "Scan failed" }),
+          t("gate.scan_failed", { defaultValue: "Scan failed" }),
       );
     } finally {
       setScanning(false);
@@ -40,7 +40,7 @@ export default function KioskPage() {
   };
 
   const handleNfc = () => {
-    toast(t("gate.nfc_initiated", { defaultMessage: "NFC scan initiated" }), {
+    toast(t("gate.nfc_initiated", { defaultValue: "NFC scan initiated" }), {
       type: "success",
     });
     setVerified(true);
@@ -78,11 +78,11 @@ export default function KioskPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">
-                {t("gate.title", { defaultMessage: "Gate Access" })}
+                {t("gate.title", { defaultValue: "Gate Access" })}
               </h1>
               <p className="text-sm text-gray-400">
                 {t("gate.subtitle", {
-                  defaultMessage: "Clerk-operated badge scanner terminal",
+                  defaultValue: "Clerk-operated badge scanner terminal",
                 })}
               </p>
             </div>
@@ -94,11 +94,11 @@ export default function KioskPage() {
                 ✓
               </div>
               <h2 className="text-xl font-semibold text-green-400 mb-2">
-                {t("gate.access_granted", { defaultMessage: "Access granted" })}
+                {t("gate.access_granted", { defaultValue: "Access granted" })}
               </h2>
               <p className="text-gray-400 text-sm">
                 {t("gate.welcome_staff", {
-                  defaultMessage: "Welcome, staff member. Proceed to entry.",
+                  defaultValue: "Welcome, staff member. Proceed to entry.",
                 })}
               </p>
               <button
@@ -108,7 +108,7 @@ export default function KioskPage() {
                 }}
                 className="mt-6 text-xs border border-gray-600 hover:bg-white/10 px-4 py-2 rounded transition"
               >
-                {t("gate.scan_another", { defaultMessage: "Scan another badge" })}
+                {t("gate.scan_another", { defaultValue: "Scan another badge" })}
               </button>
             </div>
           ) : (
@@ -117,7 +117,7 @@ export default function KioskPage() {
                 <div>
                   <label className="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">
                     {t("gate.terminal_passcode", {
-                      defaultMessage: "Terminal Passcode",
+                      defaultValue: "Terminal Passcode",
                     })}
                   </label>
                   <input
@@ -135,7 +135,7 @@ export default function KioskPage() {
                     disabled={scanning}
                     className="flex-1 bg-green-500 text-black font-bold py-3 rounded-xl hover:bg-green-400 disabled:opacity-50 transition"
                   >
-                    {scanning ? t("gate.scanning", { defaultMessage: "Scanning…" }) : t("gate.verify", { defaultMessage: "Verify" })}
+                    {scanning ? t("gate.scanning", { defaultValue: "Scanning…" }) : t("gate.verify", { defaultValue: "Verify" })}
                   </button>
                   <button
                     onClick={handleNfc}
@@ -159,7 +159,7 @@ export default function KioskPage() {
 
       <footer className="border-t border-gray-800 px-6 py-4 text-center">
         <span className="text-[10px] text-gray-500 font-mono">
-          {t("gate.high_contrast", { defaultMessage: "High-contrast sunlight-readable terminal" })}
+          {t("gate.high_contrast", { defaultValue: "High-contrast sunlight-readable terminal" })}
         </span>
       </footer>
     </div>

@@ -25,7 +25,7 @@ export default function ParentProgressPage() {
   }, []);
 
   if (state === "loading") return <ViewState state="loading" />;
-  if (learners.length === 0) return <ViewState state="empty" message={t("parent.no_children", { defaultMessage: "No linked children" })} />;
+  if (learners.length === 0) return <ViewState state="empty" message={t("parent.no_children", { defaultValue: "No linked children" })} />;
 
   const childCards = selected ? cards.filter((c) => c.learner_id === selected.learner_id) : [];
 
@@ -34,9 +34,9 @@ export default function ParentProgressPage() {
       <h1 className="text-display font-display">{t("parent.progress")}</h1>
       <div className="flex flex-col gap-4">
         <Card className="p-4">
-          <label className="label block mb-2" htmlFor="child-select">{t("select_child", { defaultMessage: "Select child" })}</label>
+          <label className="label block mb-2" htmlFor="child-select">{t("select_child", { defaultValue: "Select child" })}</label>
           <select id="child-select" className="input-field w-full max-w-sm" value={selected?.learner_id ?? ""} onChange={(e) => setSelected(learners.find((l) => l.learner_id === e.target.value) ?? null)}>
-            <option value="">{t("select_child", { defaultMessage: "Select child" })}</option>
+            <option value="">{t("select_child", { defaultValue: "Select child" })}</option>
             {learners.map((l) => <option key={l.learner_id} value={l.learner_id}>{l.first_name} {l.last_name}</option>)}
           </select>
         </Card>
@@ -44,7 +44,7 @@ export default function ParentProgressPage() {
           <Card className="p-4">
             <h2 className="text-heading mb-3">{selected.first_name} {selected.last_name}</h2>
             {childCards.length === 0 ? (
-              <ViewState state="empty" message={t("parent.no_reports", { defaultMessage: "No published reports" })} />
+              <ViewState state="empty" message={t("parent.no_reports", { defaultValue: "No published reports" })} />
             ) : (
               <div className="space-y-3">
                 {childCards.map((card) => (
@@ -59,17 +59,17 @@ export default function ParentProgressPage() {
                       </Badge>
                     </div>
                     {card.percentage != null && (
-                      <div className="mt-2 text-sm">{t("parent.percentage", { defaultMessage: "Percentage" })}: {card.percentage}%</div>
+                      <div className="mt-2 text-sm">{t("parent.percentage", { defaultValue: "Percentage" })}: {card.percentage}%</div>
                     )}
                     {card.position != null && (
-                      <div className="text-sm">{t("parent.position", { defaultMessage: "Position" })}: {card.position}</div>
+                      <div className="text-sm">{t("parent.position", { defaultValue: "Position" })}: {card.position}</div>
                     )}
                     {card.comment && (
                       <div className="mt-2 text-sm text-gray-600">{card.comment}</div>
                     )}
                     <div className="mt-3 flex gap-2">
                       <a href={`/reports/cards/${card.card_id}/print`} className="text-sm text-kenyan-red hover:underline font-medium">
-                        {t("view_print", { defaultMessage: "View / Print" })}
+                        {t("view_print", { defaultValue: "View / Print" })}
                       </a>
                     </div>
                   </Card>

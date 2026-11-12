@@ -24,7 +24,7 @@ export default function ParentForgotPage() {
       await api.post("/auth/password/reset/request", { email });
       setStep(1);
     } catch (err: any) {
-      setError(err.response?.data?.message || t("errors.network_error", { defaultMessage: "Network error. Please check your connection." }));
+      setError(err.response?.data?.message || t("errors.network_error", { defaultValue: "Network error. Please check your connection." }));
     } finally {
       setProcessing(false);
     }
@@ -38,7 +38,7 @@ export default function ParentForgotPage() {
       await api.post("/auth/password/reset/confirm", { token, new_password: newPassword });
       setStep(2);
     } catch (err: any) {
-      setError(err.response?.data?.message || t("errors.network_error", { defaultMessage: "Network error. Please check your connection." }));
+      setError(err.response?.data?.message || t("errors.network_error", { defaultValue: "Network error. Please check your connection." }));
     } finally {
       setProcessing(false);
     }
@@ -49,8 +49,8 @@ export default function ParentForgotPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <Card className="w-full max-w-md p-6 text-center">
           <div className="text-4xl mb-3">✓</div>
-          <h2 className="text-heading mb-2">{t("auth.reset_password", { defaultMessage: "Reset Password" })}</h2>
-          <p className="text-body">{t("auth.password_reset_done", { defaultMessage: "Your password has been reset." })}</p>
+          <h2 className="text-heading mb-2">{t("auth.reset_password", { defaultValue: "Reset Password" })}</h2>
+          <p className="text-body">{t("auth.password_reset_done", { defaultValue: "Your password has been reset." })}</p>
           <Button variant="primary" onClick={() => navigate("/login")} fullWidth>{t("sign_in")}</Button>
         </Card>
       </div>
@@ -61,7 +61,7 @@ export default function ParentForgotPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <Card className="w-full max-w-md p-6">
         <h1 className="text-display font-display text-center mb-6">
-          {step === 0 ? t("forgot_password", { defaultMessage: "Forgot Password?" }) : t("auth.verification_code", { defaultMessage: "Verification Code" })}
+          {step === 0 ? t("forgot_password", { defaultValue: "Forgot Password?" }) : t("auth.verification_code", { defaultValue: "Verification Code" })}
         </h1>
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -74,16 +74,16 @@ export default function ParentForgotPage() {
           )}
           {step === 1 && (
             <>
-              <Input label={t("auth.verification_code", { defaultMessage: "Verification Code" })} placeholder="XXXX-XXXX" value={token} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToken(e.target.value)} required />
-              <Input label={t("new_password", { defaultMessage: "New Password" })} type="password" value={newPassword} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPassword(e.target.value)} required />
+              <Input label={t("auth.verification_code", { defaultValue: "Verification Code" })} placeholder="XXXX-XXXX" value={token} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setToken(e.target.value)} required />
+              <Input label={t("new_password", { defaultValue: "New Password" })} type="password" value={newPassword} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPassword(e.target.value)} required />
             </>
           )}
           <Button variant="primary" type="submit" fullWidth loading={processing}>
-            {step === 0 ? t("send_code", { defaultMessage: "Send Code" }) : t("auth.reset_password", { defaultMessage: "Reset Password" })}
+            {step === 0 ? t("send_code", { defaultValue: "Send Code" }) : t("auth.reset_password", { defaultValue: "Reset Password" })}
           </Button>
         </form>
         <p className="text-center text-sm text-gray-600 mt-4">
-          <Link to="/login" className="text-kenyan-red hover:underline">{t("back", { defaultMessage: "Back" })}</Link>
+          <Link to="/login" className="text-kenyan-red hover:underline">{t("back", { defaultValue: "Back" })}</Link>
         </p>
       </Card>
     </div>

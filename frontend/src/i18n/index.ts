@@ -15,13 +15,10 @@ type Locale = Record<string, unknown>;
  */
 function mergeLocale(locale: Locale): Record<string, unknown> {
   const { common, ...groups } = locale as { common?: Locale };
-  const merged: Record<string, unknown> = { ...groups };
+  const merged: Record<string, unknown> = { ...groups, common: common ?? {} };
 
   for (const [key, value] of Object.entries(common ?? {})) {
-    // Skip when a namespaced group already owns this key.
-    if (key in merged) continue;
-    // A nested object in `common` (e.g. `wizard`) is a group of its own and is
-    // merged recursively so its keys resolve at their own namespace.
+    if (key in merged && key !== "common") continue;
     if (value && typeof value === "object" && !Array.isArray(value)) {
       merged[key] = mergeLocale(value as Locale);
       continue;

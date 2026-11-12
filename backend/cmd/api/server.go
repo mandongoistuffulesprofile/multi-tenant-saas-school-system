@@ -539,12 +539,13 @@ func Run() error {
 	currGroup := apiV1.Group("/curriculum")
 	currGroup.Use(middleware.RequireAuthGin(jwtManager))
 	{
-		currGroup.GET("/versions", middleware.RequireRole(middleware.RoleAllStaff...), curriculumHandler.ListCurriculumVersions)
-		currGroup.GET("/versions/:version_id", middleware.RequireRole(middleware.RoleAllStaff...), curriculumHandler.GetCurriculumVersion)
-		currGroup.GET("/areas", middleware.RequireRole(middleware.RoleAllStaff...), curriculumHandler.ListLearningAreas)
-		currGroup.GET("/strands", middleware.RequireRole(middleware.RoleAllStaff...), curriculumHandler.ListStrands)
-		currGroup.GET("/sub-strands", middleware.RequireRole(middleware.RoleAllStaff...), curriculumHandler.ListSubStrands)
-		currGroup.GET("/pin", middleware.RequireRole(middleware.RoleAllStaff...), curriculumHandler.GetTenantCurriculumPin)
+		currReadRoles := append(append([]string{}, middleware.RoleAllStaff...), middleware.RolePlatformAdministrators...)
+		currGroup.GET("/versions", middleware.RequireRole(currReadRoles...), curriculumHandler.ListCurriculumVersions)
+		currGroup.GET("/versions/:version_id", middleware.RequireRole(currReadRoles...), curriculumHandler.GetCurriculumVersion)
+		currGroup.GET("/areas", middleware.RequireRole(currReadRoles...), curriculumHandler.ListLearningAreas)
+		currGroup.GET("/strands", middleware.RequireRole(currReadRoles...), curriculumHandler.ListStrands)
+		currGroup.GET("/sub-strands", middleware.RequireRole(currReadRoles...), curriculumHandler.ListSubStrands)
+		currGroup.GET("/pin", middleware.RequireRole(currReadRoles...), curriculumHandler.GetTenantCurriculumPin)
 		currGroup.POST("/pin", middleware.RequireRole(middleware.RoleSchoolAdministrators...), curriculumHandler.SetTenantCurriculumPin)
 	}
 
@@ -777,6 +778,8 @@ func Run() error {
 		platformGroup.GET("/invoices", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListPlatformInvoices)
 		platformGroup.GET("/usage", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListTenantUsage)
 		platformGroup.GET("/exports", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListExports)
+		platformGroup.GET("/integrations", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListIntegrationHealth)
+		platformGroup.GET("/audit", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListPlatformAudit)
 
 		// Write side — tenant registry, billing, reference data and exports
 		platformGroup.GET("/tenants", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListTenants)

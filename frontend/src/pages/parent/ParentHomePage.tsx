@@ -23,14 +23,14 @@ export default function ParentHomePage() {
   }, []);
 
   if (state === "loading") return <ViewState state="loading" />;
-  if (learners.length === 0) return <ViewState state="empty" message={t("parent.no_children", { defaultMessage: "No linked children" })} />;
+  if (learners.length === 0) return <ViewState state="empty" message={t("parent.no_children", { defaultValue: "No linked children" })} />;
 
   return (
     <div className="p-4 space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-display font-display">{t("parent.home")}</h1>
-          <p className="text-body">{t("parent.children_summary", { defaultMessage: "Your children at a glance" })}</p>
+          <p className="text-body">{t("parent.children_summary", { defaultValue: "Your children at a glance" })}</p>
         </div>
       </div>
 
@@ -44,12 +44,12 @@ export default function ParentHomePage() {
             <h3 className="text-heading mb-1">{child.first_name} {child.last_name}</h3>
             <p className="text-caption text-muted mb-4">{child.admission_number}</p>
             <div className="grid grid-cols-2 gap-2">
-              <KPIStatCard title={t("balance", { defaultMessage: "Balance" })} value={`KES ${balances[child.learner_id] ?? 0}`} />
-              <KPIStatCard title={t("parent.last_synced", { defaultMessage: "Last synced" })} value="Just now" />
+              <KPIStatCard title={t("balance", { defaultValue: "Balance" })} value={`KES ${balances[child.learner_id] ?? 0}`} />
+              <KPIStatCard title={t("parent.last_synced", { defaultValue: "Last synced" })} value="Just now" />
             </div>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" size="sm" fullWidth>{t("view")}</Button>
-              <Button variant="primary" size="sm" fullWidth>{t("parent.pay_fees", { defaultMessage: <a href="/parent/fees" className="btn-primary text-xs px-3 py-1.5 rounded-lg">Pay Fees</a> })}</Button>
+              <Button variant="primary" size="sm" fullWidth>{t("parent.pay_fees", { defaultValue: <a href="/parent/fees" className="btn-primary text-xs px-3 py-1.5 rounded-lg">Pay Fees</a> })}</Button>
             </div>
           </Card>
         ))}

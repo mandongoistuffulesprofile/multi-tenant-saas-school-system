@@ -47,8 +47,8 @@ export default function ClassProgressPage() {
     <div className="p-4 space-y-6">
       <h1 className="text-display font-display">{t("teacher.class_progress")}</h1>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPIStatCard title={t("total_learners", { defaultMessage: "Total Learners" })} value={totalLearners} />
-        <KPIStatCard title={t("teacher.graded_learners", { defaultMessage: "Graded" })} value={gradedLearners} trend={{ label: t("teacher.pending", { defaultMessage: "pending" }), value: totalLearners - gradedLearners, positive: false }} />
+        <KPIStatCard title={t("total_learners", { defaultValue: "Total Learners" })} value={totalLearners} />
+        <KPIStatCard title={t("teacher.graded_learners", { defaultValue: "Graded" })} value={gradedLearners} trend={{ label: t("teacher.pending", { defaultValue: "pending" }), value: totalLearners - gradedLearners, positive: false }} />
         <KPIStatCard title="EE" value={ee} trend={{ label: t("level_exceeding"), value: ee, positive: true }} />
         <KPIStatCard title="ME" value={me} trend={{ label: t("level_meeting"), value: me, positive: true }} />
         <KPIStatCard title="AE" value={ae} trend={{ label: t("level_approaching"), value: ae, positive: false }} />
@@ -56,7 +56,7 @@ export default function ClassProgressPage() {
       </div>
 
       <Card className="p-4">
-        <h3 className="text-heading mb-3">{t("teacher.learners_needing_support", { defaultMessage: "Learners Needing Support" })}</h3>
+        <h3 className="text-heading mb-3">{t("teacher.learners_needing_support", { defaultValue: "Learners Needing Support" })}</h3>
         <DataTable
           data={support}
           columns={[
@@ -66,7 +66,7 @@ export default function ClassProgressPage() {
             { key: "grade_label", header: t("grade") },
             { key: "level_code", header: t("level"), render: (row) => <Badge variant="default">{row.level_code ?? "—"}</Badge> },
           ]}
-          emptyMessage={t("teacher.all_on_track", { defaultMessage: "All learners on track" })}
+          emptyMessage={t("teacher.all_on_track", { defaultValue: "All learners on track" })}
           keyField="learner_id"
         />
       </Card>

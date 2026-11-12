@@ -45,7 +45,7 @@ export default function TeacherLayout({ children }: TeacherLayoutProps) {
         </button>
         <h1 className="font-display font-bold text-kenyan-red text-lg">{activeTab ? t(activeTab.labelKey) : t("teacher.my_classes")}</h1>
         <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-          <Badge variant="default" className="text-xs">{t("online", { defaultMessage: "Online" })}</Badge>
+          <Badge variant="default" className="text-xs">{t("online", { defaultValue: "Online" })}</Badge>
         </div>
       </header>
 

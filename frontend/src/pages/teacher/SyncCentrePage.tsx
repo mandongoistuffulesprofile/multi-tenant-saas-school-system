@@ -65,17 +65,17 @@ export default function SyncCentrePage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-heading mb-1">{t("teacher.pending_sync")}</h2>
-            <p className="text-caption text-muted">{t("teacher.changes_waiting", { defaultMessage: "Changes waiting to sync to the server" })}</p>
+            <p className="text-caption text-muted">{t("teacher.changes_waiting", { defaultValue: "Changes waiting to sync to the server" })}</p>
           </div>
           <div className="text-right">
             <div className="text-3xl font-bold text-kenyan-red">{count}</div>
-            <div className="text-caption text-muted">{t("teacher.items", { defaultMessage: "items" })}</div>
+            <div className="text-caption text-muted">{t("teacher.items", { defaultValue: "items" })}</div>
           </div>
         </div>
         <div className="mt-4 flex items-center gap-3">
-          <Badge variant={syncing ? "warning" : "default"}>{syncing ? t("teacher.syncing", { defaultMessage: "Syncing…" }) : t("teacher.online", { defaultMessage: "Online" })}</Badge>
+          <Badge variant={syncing ? "warning" : "default"}>{syncing ? t("teacher.syncing", { defaultValue: "Syncing…" }) : t("teacher.online", { defaultValue: "Online" })}</Badge>
           <Button variant="primary" onClick={handleSync} disabled={syncing || (count === 0 && conflicts.length === 0)} loading={syncing}>
-            {t("teacher.sync_now", { defaultMessage: "Sync Now" })}
+            {t("teacher.sync_now", { defaultValue: "Sync Now" })}
           </Button>
         </div>
       </Card>
@@ -91,7 +91,7 @@ export default function SyncCentrePage() {
             { key: "retries", header: t("retries") },
             { key: "created_at", header: t("created_at") },
           ]}
-          emptyMessage={t("no_pending_changes", { defaultMessage: "No pending changes" })}
+          emptyMessage={t("no_pending_changes", { defaultValue: "No pending changes" })}
           keyField="id"
         />
       </Card>

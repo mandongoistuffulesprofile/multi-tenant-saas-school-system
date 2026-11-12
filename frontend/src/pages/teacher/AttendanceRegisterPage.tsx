@@ -51,13 +51,13 @@ export default function AttendanceRegisterPage() {
   }, [selected, tenantId]);
 
   if (state === "loading") return <ViewState state="loading" />;
-  if (registers.length === 0) return <ViewState state="empty" message={t("no_registers", { defaultMessage: "No attendance registers" })} />;
+  if (registers.length === 0) return <ViewState state="empty" message={t("no_registers", { defaultValue: "No attendance registers" })} />;
   if (!selected) {
     return (
       <div className="p-4 space-y-4">
         <Card className="p-4">
           <h2 className="text-heading mb-3">{t("teacher.attendance")}</h2>
-          <p className="text-body mb-4">{t("teacher.select_register", { defaultMessage: "Select a register to mark attendance" })}</p>
+          <p className="text-body mb-4">{t("teacher.select_register", { defaultValue: "Select a register to mark attendance" })}</p>
           <div className="space-y-2">
             {registers.map((reg) => (
               <Button key={reg.register_id} variant="secondary" fullWidth onClick={() => setSelected(reg)}>
@@ -87,7 +87,7 @@ export default function AttendanceRegisterPage() {
         </div>
         <div className="text-right">
           <div className="text-xs font-bold text-gray-900">{presentCount}/{classLearners.length}</div>
-          <div className="text-caption text-muted">{t("teacher.present", { defaultMessage: "present" })}</div>
+          <div className="text-caption text-muted">{t("teacher.present", { defaultValue: "present" })}</div>
         </div>
       </div>
 
@@ -168,7 +168,7 @@ export default function AttendanceRegisterPage() {
             toast("Saved offline. Will sync when online.", { type: "warning" });
           }
         }}>
-          {t("teacher.save_register", { defaultMessage: "Save Register" })}
+          {t("teacher.save_register", { defaultValue: "Save Register" })}
         </Button>
       </div>
     </div>

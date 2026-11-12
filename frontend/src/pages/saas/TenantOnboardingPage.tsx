@@ -143,7 +143,7 @@ export default function TenantOnboardingPage() {
       });
       setCreatedTenant(res.data);
     } catch (err: any) {
-      setError(err.response?.data?.message || t("errors.failed_to_create_tenant", { defaultMessage: "Failed to create tenant" }));
+      setError(err.response?.data?.message || t("errors.failed_to_create_tenant", { defaultValue: "Failed to create tenant" }));
     } finally {
       setProcessing(false);
     }
@@ -171,7 +171,7 @@ export default function TenantOnboardingPage() {
   if (createdTenant) {
     return (
       <div className="p-4 space-y-4">
-        <ViewState state="content" message={t("saas.tenant_created", { defaultMessage: "Tenant created successfully!" })} />
+        <ViewState state="content" message={t("saas.tenant_created", { defaultValue: "Tenant created successfully!" })} />
         <Card className="p-6 max-w-lg mx-auto text-center space-y-3">
           <p className="font-semibold text-lg text-kenyan-green">School Provisioned</p>
           <p className="text-sm text-gray-600">Tenant: <code className="bg-gray-100 px-2 py-1 rounded">{createdTenant?.tenant_id || form.subdomain}</code></p>
@@ -198,12 +198,12 @@ export default function TenantOnboardingPage() {
   return (
     <div className="p-4 max-w-3xl mx-auto space-y-6">
       <nav className="flex items-center gap-2 text-sm text-gray-500" aria-label="Breadcrumb">
-        <a href="/platform/tenants" className="hover:text-kenyan-red transition">{t("saas.tenants", { defaultMessage: "Tenants" })}</a>
+        <a href="/platform/tenants" className="hover:text-kenyan-red transition">{t("saas.tenants", { defaultValue: "Tenants" })}</a>
         <span aria-hidden="true">/</span>
-        <span className="text-gray-900 font-medium">{t("saas.onboard", { defaultMessage: "New School" })}</span>
+        <span className="text-gray-900 font-medium">{t("saas.onboard", { defaultValue: "New School" })}</span>
       </nav>
 
-      <h1 className="text-display font-display">{t("saas.onboard", { defaultMessage: "Onboard New School" })}</h1>
+      <h1 className="text-display font-display">{t("saas.onboard", { defaultValue: "Onboard New School" })}</h1>
 
       {error && (
         <div className="p-3 bg-slate-100 text-slate-900 font-semibold text-sm rounded-lg border border-red-200" role="alert">
@@ -215,23 +215,23 @@ export default function TenantOnboardingPage() {
         <Card className="p-6 space-y-6">
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-kenyan-red/10 flex items-center justify-center text-kenyan-red font-semibold text-sm">1</span>
-            <h2 className="text-heading font-display">{t("saas.school_details", { defaultMessage: "School Identity" })}</h2>
+            <h2 className="text-heading font-display">{t("saas.school_details", { defaultValue: "School Identity" })}</h2>
           </div>
           <div className="border-t border-gray-100 pt-6 space-y-4">
             <div>
-              <label className="label block mb-1" htmlFor="school_name">{t("common.school_name", { defaultMessage: "School Name" })}</label>
+              <label className="label block mb-1" htmlFor="school_name">{t("common.school_name", { defaultValue: "School Name" })}</label>
               <Input
                 id="school_name"
                 value={form.school_name}
                 onChange={(e) => setForm({ ...form, school_name: e.target.value })}
-                placeholder={t("common.school_name_placeholder", { defaultMessage: "e.g., St. Mary's Primary School" })}
+                placeholder={t("common.school_name_placeholder", { defaultValue: "e.g., St. Mary's Primary School" })}
                 required
                 fullWidth
               />
             </div>
 
             <div>
-              <label className="label block mb-1" htmlFor="subdomain">{t("common.subdomain", { defaultMessage: "Subdomain" })}</label>
+              <label className="label block mb-1" htmlFor="subdomain">{t("common.subdomain", { defaultValue: "Subdomain" })}</label>
               <div className="relative flex items-center gap-2">
                 <Input
                   id="subdomain"
@@ -241,7 +241,7 @@ export default function TenantOnboardingPage() {
                     setSubdomainTouched(true);
                   }}
                   onBlur={() => setSubdomainTouched(true)}
-                  placeholder={t("common.subdomain_placeholder", { defaultMessage: "school-name" })}
+                  placeholder={t("common.subdomain_placeholder", { defaultValue: "school-name" })}
                   required
                   fullWidth
                   className="pr-32"
@@ -251,12 +251,12 @@ export default function TenantOnboardingPage() {
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                {t("common.subdomain_hint", { defaultMessage: "Auto-generated from School Name. Must be unique." })}
+                {t("common.subdomain_hint", { defaultValue: "Auto-generated from School Name. Must be unique." })}
               </p>
             </div>
 
             <div>
-              <label className="label block mb-1" htmlFor="county">{t("common.county", { defaultMessage: "County" })}</label>
+              <label className="label block mb-1" htmlFor="county">{t("common.county", { defaultValue: "County" })}</label>
               <div className="relative">
                 <Input
                   id="county"
@@ -267,7 +267,7 @@ export default function TenantOnboardingPage() {
                   }}
                   onFocus={() => handleCountySearch(form.county)}
                   onBlur={() => setTimeout(() => setCountyDropdownOpen(false), 200)}
-                  placeholder={t("common.county_placeholder", { defaultMessage: "Select or type county" })}
+                  placeholder={t("common.county_placeholder", { defaultValue: "Select or type county" })}
                   required
                   fullWidth
                 />
@@ -292,40 +292,40 @@ export default function TenantOnboardingPage() {
         <Card className="p-6 space-y-6">
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-kenyan-red/10 flex items-center justify-center text-kenyan-red font-semibold text-sm">2</span>
-            <h2 className="text-heading font-display">{t("saas.admin_user", { defaultMessage: "Primary School Admin" })}</h2>
+            <h2 className="text-heading font-display">{t("saas.admin_user", { defaultValue: "Primary School Admin" })}</h2>
           </div>
           <div className="border-t border-gray-100 pt-6 space-y-4">
             <div>
-              <label className="label block mb-1" htmlFor="admin_full_name">{t("common.admin_full_name", { defaultMessage: "Full Name" })}</label>
+              <label className="label block mb-1" htmlFor="admin_full_name">{t("common.admin_full_name", { defaultValue: "Full Name" })}</label>
               <Input
                 id="admin_full_name"
                 value={form.admin_full_name}
                 onChange={(e) => setForm({ ...form, admin_full_name: e.target.value })}
-                placeholder={t("common.admin_full_name_placeholder", { defaultMessage: "e.g., Jane Wanjiku" })}
+                placeholder={t("common.admin_full_name_placeholder", { defaultValue: "e.g., Jane Wanjiku" })}
                 required
                 fullWidth
               />
               <p className="text-xs text-gray-500 mt-1">
-                {t("common.admin_full_name_hint", { defaultMessage: "Required for audit logs and personalized greetings." })}
+                {t("common.admin_full_name_hint", { defaultValue: "Required for audit logs and personalized greetings." })}
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="label block mb-1" htmlFor="admin_email">{t("common.email", { defaultMessage: "Email Address" })}</label>
+                <label className="label block mb-1" htmlFor="admin_email">{t("common.email", { defaultValue: "Email Address" })}</label>
                 <Input
                   id="admin_email"
                   type="email"
                   value={form.admin_email}
                   onChange={(e) => setForm({ ...form, admin_email: e.target.value })}
-                  placeholder={t("auth.email_placeholder", { defaultMessage: "you@school.ke" })}
+                  placeholder={t("auth.email_placeholder", { defaultValue: "you@school.ke" })}
                   required
                   fullWidth
                 />
               </div>
 
               <div>
-                <label className="label block mb-1" htmlFor="admin_phone">{t("common.phone", { defaultMessage: "Phone Number" })}</label>
+                <label className="label block mb-1" htmlFor="admin_phone">{t("common.phone", { defaultValue: "Phone Number" })}</label>
                 <div className="relative flex items-center">
                   <span className="absolute left-3 text-gray-500 font-medium pointer-events-none">+254</span>
                   <Input
@@ -333,14 +333,14 @@ export default function TenantOnboardingPage() {
                     type="tel"
                     value={form.admin_phone}
                     onChange={(e) => handlePhoneChange(e.target.value)}
-                    placeholder={t("auth.phone_placeholder", { defaultMessage: "7XXXXXXXX" })}
+                    placeholder={t("auth.phone_placeholder", { defaultValue: "7XXXXXXXX" })}
                     required
                     fullWidth
                     className="pl-12"
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  {t("common.admin_phone_hint", { defaultMessage: "Kenyan mobile number. Country code (+254) is added automatically." })}
+                  {t("common.admin_phone_hint", { defaultValue: "Kenyan mobile number. Country code (+254) is added automatically." })}
                 </p>
               </div>
             </div>
@@ -350,11 +350,11 @@ export default function TenantOnboardingPage() {
         <Card className="p-6 space-y-6">
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-kenyan-red/10 flex items-center justify-center text-kenyan-red font-semibold text-sm">3</span>
-            <h2 className="text-heading font-display">{t("saas.plan", { defaultMessage: "Subscription Plan" })}</h2>
+            <h2 className="text-heading font-display">{t("saas.plan", { defaultValue: "Subscription Plan" })}</h2>
           </div>
           <div className="border-t border-gray-100 pt-6">
             <p className="text-sm text-gray-600 mb-4">
-              {t("common.plan_hint", { defaultMessage: "Choose a plan that fits the school's size and needs. All plans include core features." })}
+              {t("common.plan_hint", { defaultValue: "Choose a plan that fits the school's size and needs. All plans include core features." })}
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="radiogroup" aria-label="Subscription plans">
               {PLANS.map((plan) => (
@@ -413,10 +413,10 @@ export default function TenantOnboardingPage() {
 
         <div className="flex items-center justify-between border-t border-gray-100 pt-4">
           <Button variant="ghost" onClick={handleCancel}>
-            {t("common.cancel", { defaultMessage: "Cancel" })}
+            {t("common.cancel", { defaultValue: "Cancel" })}
           </Button>
           <Button variant="primary" type="submit" loading={processing} size="lg">
-            {t("common.create_and_invite", { defaultMessage: "Create School & Send Invite" })}
+            {t("common.create_and_invite", { defaultValue: "Create School & Send Invite" })}
           </Button>
         </div>
       </form>

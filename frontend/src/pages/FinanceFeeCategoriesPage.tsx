@@ -172,9 +172,9 @@ export default function FinanceFeeCategoriesPage() {
           </div>
 
           {templates.length > 0 && (
-            <Card title={t("quick_add_templates", { defaultMessage: "Quick Add from Templates" })}>
+            <Card title={t("quick_add_templates", { defaultValue: "Quick Add from Templates" })}>
               <p className="text-sm text-gray-500 mb-4">
-                {t("quick_add_templates_desc", { defaultMessage: "Add common Kenyan school fee types with one click. Pre-filled with recommended settings." })}
+                {t("quick_add_templates_desc", { defaultValue: "Add common Kenyan school fee types with one click. Pre-filled with recommended settings." })}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {templates.map((template) => {
@@ -196,7 +196,7 @@ export default function FinanceFeeCategoriesPage() {
                       </div>
                       {exists && (
                         <Badge variant="default" className="text-xs">
-                          {t("added", { defaultMessage: "Added" })}
+                          {t("added", { defaultValue: "Added" })}
                         </Badge>
                       )}
                     </Button>

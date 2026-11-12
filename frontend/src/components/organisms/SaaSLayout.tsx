@@ -63,7 +63,7 @@ export default function SaaSLayout({ children }: SaaSLayoutProps) {
         }
         right={
           <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
-            <Badge variant="default" className="text-xs">{t("online", { defaultMessage: "Online" })}</Badge>
+            <Badge variant="default" className="text-xs">{t("online", { defaultValue: "Online" })}</Badge>
             <button
               onClick={async () => {
                 try { await api.post("/auth/logout"); } catch {}
@@ -72,7 +72,7 @@ export default function SaaSLayout({ children }: SaaSLayoutProps) {
               }}
               className="ml-3 text-xs text-gray-500 hover:text-kenyan-red font-medium transition"
             >
-              {t("sign_out", { defaultMessage: "Sign Out" })}
+              {t("sign_out", { defaultValue: "Sign Out" })}
             </button>
           </div>
         }

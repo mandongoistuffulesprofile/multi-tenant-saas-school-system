@@ -66,7 +66,7 @@ export default function LearnerRemarksPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-display font-display">{t("teacher.learner_remarks", { defaultMessage: "Learner Remarks" })}</h1>
+      <h1 className="text-display font-display">{t("teacher.learner_remarks", { defaultValue: "Learner Remarks" })}</h1>
       <Card className="p-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -110,7 +110,7 @@ export default function LearnerRemarksPage() {
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => { setRemark(""); setHeadComment(""); }}>Clear</Button>
               <Button variant="primary" loading={publishing} disabled={!selectedCardId} onClick={submitRemark}>
-                {t("teacher.publish", { defaultMessage: "Save remark" })}
+                {t("teacher.publish", { defaultValue: "Save remark" })}
               </Button>
             </div>
             {!cards.length && selectedLearnerId && (

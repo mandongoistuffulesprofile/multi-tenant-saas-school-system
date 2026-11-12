@@ -40,13 +40,13 @@ export default function SubscriptionsPage() {
     <div className="p-4 space-y-6">
       <h1 className="text-display font-display">{t("saas.subscriptions")}</h1>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPIStatCard title={t("saas.total_plans", { defaultMessage: "Total Plans" })} value={plans.length} />
-        <KPIStatCard title={t("saas.active_subs", { defaultMessage: "Active Subscriptions" })} value={subs.filter((s) => s.status === "ACTIVE").length} />
-        <KPIStatCard title={t("saas.mrr", { defaultMessage: "MRR" })} value={`KES ${mrr}`} />
-        <KPIStatCard title={t("saas.arrears", { defaultMessage: "Arrears" })} value={subs.filter((s) => s.status === "PAST_DUE").length} />
+        <KPIStatCard title={t("saas.total_plans", { defaultValue: "Total Plans" })} value={plans.length} />
+        <KPIStatCard title={t("saas.active_subs", { defaultValue: "Active Subscriptions" })} value={subs.filter((s) => s.status === "ACTIVE").length} />
+        <KPIStatCard title={t("saas.mrr", { defaultValue: "MRR" })} value={`KES ${mrr}`} />
+        <KPIStatCard title={t("saas.arrears", { defaultValue: "Arrears" })} value={subs.filter((s) => s.status === "PAST_DUE").length} />
       </div>
       <Card className="p-4">
-        <h3 className="text-heading mb-3">{t("saas.subscription_list", { defaultMessage: "Subscriptions" })}</h3>
+        <h3 className="text-heading mb-3">{t("saas.subscription_list", { defaultValue: "Subscriptions" })}</h3>
         <DataTable
           data={subs}
           columns={[
@@ -62,7 +62,7 @@ export default function SubscriptionsPage() {
             { key: "ends_at", header: t("saas.ends_at") },
             { key: "auto_renew", header: t("saas.auto_renew"), render: (row: any) => row.auto_renew ? t("yes") : t("no") },
           ]}
-          emptyMessage={t("no_subscriptions", { defaultMessage: "No subscriptions" })}
+          emptyMessage={t("no_subscriptions", { defaultValue: "No subscriptions" })}
           keyField="subscription_id"
         />
       </Card>

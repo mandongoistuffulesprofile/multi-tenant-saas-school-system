@@ -38,9 +38,9 @@ export default function MyClassesPage() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-heading font-display">{label}</h2>
-              <p className="text-caption text-muted">{classLearners.length} {t("learners", { defaultMessage: "learners" })}</p>
+              <p className="text-caption text-muted">{classLearners.length} {t("learners", { defaultValue: "learners" })}</p>
             </div>
-            <Badge variant="default">{t("teacher.online", { defaultMessage: "Online" })}</Badge>
+            <Badge variant="default">{t("teacher.online", { defaultValue: "Online" })}</Badge>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {classLearners.map((l) => (

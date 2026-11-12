@@ -90,7 +90,7 @@ export default function LoginPage() {
         setSchools([]);
         setError(
           t("errors.network_error", {
-            defaultMessage: "Could not load your schools. Try again.",
+            defaultValue: "Could not load your schools. Try again.",
           }),
         );
       }
@@ -151,7 +151,7 @@ export default function LoginPage() {
               }}
               className="mt-4 w-full text-sm text-kenyan-red hover:underline"
             >
-              {t("common.btn_back", { defaultMessage: "Back" })}
+              {t("common.btn_back", { defaultValue: "Back" })}
             </button>
           </div>
         </div>
@@ -168,7 +168,7 @@ export default function LoginPage() {
             {t("tenant_id")}
           </h2>
           <p className="text-sm text-gray-600 mb-6">
-            {t("auth.select_school", { defaultMessage: "Choose your school" })}
+            {t("auth.select_school", { defaultValue: "Choose your school" })}
           </p>
           <div className="space-y-3">
             {schools.map((school) => (
@@ -207,14 +207,14 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="label" htmlFor="tenant-id">
-              {t("tenant_id", { defaultMessage: "School Code (Optional)" })}
+              {t("tenant_id", { defaultValue: "School Code (Optional)" })}
             </label>
             <input
               id="tenant-id"
               type="text"
               className="input-field"
               placeholder={t("auth.school_code_placeholder", {
-                defaultMessage: "e.g. smoke-school",
+                defaultValue: "e.g. smoke-school",
               })}
               value={tenantCode}
               onChange={(e) => setTenantCode(e.target.value)}
@@ -224,14 +224,14 @@ export default function LoginPage() {
 
           <div>
             <label className="label" htmlFor="username">
-              {t("username", { defaultMessage: "Username/Email/Phone" })}
+              {t("username", { defaultValue: "Username/Email/Phone" })}
             </label>
             <input
               id="username"
               type="text"
               className="input-field"
               placeholder={t("auth.username_placeholder", {
-                defaultMessage: "Enter your username, email or phone",
+                defaultValue: "Enter your username, email or phone",
               })}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
