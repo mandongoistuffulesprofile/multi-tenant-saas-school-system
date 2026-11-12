@@ -257,7 +257,8 @@ func (s *Service) ListLearnerFeeOptions(ctx context.Context, tenantID, learnerID
 	q := middleware.TxFromContext(ctx)
 	rows, err := q.Query(
 		`SELECT option_id, tenant_id, learner_id, category_id, structure_id,
-			opted_in, opted_at, opted_by, created_at, updated_at
+			opted_in, COALESCE(opted_at::text, ''), COALESCE(opted_by::text, ''),
+			created_at, updated_at
 		 FROM learner_fee_options WHERE tenant_id = $1 AND learner_id = $2`,
 		tenantID, learnerID,
 	)
@@ -285,7 +286,7 @@ func (s *Service) UpsertLearnerFeeOption(ctx context.Context, tenantID string, o
 	err := q.QueryRow(
 		`INSERT INTO learner_fee_options (tenant_id, learner_id, category_id, structure_id,
 			opted_in, opted_at, opted_by)
-		 VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
+		 VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULLIF($6, '')::uuid)
 		 ON CONFLICT (tenant_id, learner_id, category_id, structure_id) DO UPDATE SET
 			opted_in = EXCLUDED.opted_in,
 			opted_at = CASE WHEN EXCLUDED.opted_in THEN CURRENT_TIMESTAMP ELSE learner_fee_options.opted_at END,
@@ -1345,6 +1346,13 @@ func (h *Handler) UpsertLearnerFeeOption(c *gin.Context) {
 		return
 	}
 	o.LearnerID = learnerID
+	if strings.TrimSpace(o.CategoryID) == "" || strings.TrimSpace(o.StructureID) == "" {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "category_id", Code: "REQUIRED", Message: "category_id and structure_id are required"},
+		})
+		return
+	}
+	o.OptedBy = c.GetString("user_id")
 	created, err := h.service.UpsertLearnerFeeOption(c.Request.Context(), tenantID, o)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
