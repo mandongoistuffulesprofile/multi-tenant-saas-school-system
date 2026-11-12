@@ -3,7 +3,6 @@ package finance
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,7 +16,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
@@ -1908,53 +1906,20 @@ func (h *Handler) CreateParentMPESASTKRequest(c *gin.Context) {
 		return
 	}
 
-	// When Daraja credentials are configured, push the real STK prompt and
-	// record Safaricom's request ids on the row; the poll endpoint then
-	// reflects the callback processing. Without credentials the request is
-	// recorded (status PENDING → the poll returns it unchanged) exactly like
-	// the bursar-facing flow, which is the documented no-credentials mode.
-	if darajaConfigured() {
-		pushed, pushErr := daraja.NewMpesaService(nil).InitiateSTKPush(c.Request.Context(), uuidMustParse(tenantID), daraja.STKPushRequest{
-			PhoneNumber: phone,
-			AmountKES:   int64(amount),
-			AdmissionNo: admissionNo,
-		})
-		if pushErr != nil {
-			_, _ = tx.Exec(
-				`UPDATE mpesa_stk_requests SET status = 'FAILED', callback_payload = jsonb_build_object('error', $2)
-				 WHERE stk_id = $1`,
-				created.STKID, pushErr.Error(),
-			)
-			c.JSON(http.StatusBadGateway, gin.H{
-				"code":    "DARAJA_ERROR",
-				"message": "M-Pesa STK push failed — please try again shortly",
-				"stk_id":  created.STKID,
-			})
-			return
-		}
-		checkoutID, _ := pushed["CheckoutRequestID"].(string)
-		merchantID, _ := pushed["MerchantRequestID"].(string)
-		payloadJSON, _ := json.Marshal(pushed)
-		if checkoutID != "" {
-			_, _ = tx.Exec(
-				`UPDATE mpesa_stk_requests SET checkout_request_id = NULLIF($2, ''), merchant_request_id = NULLIF($3, ''),
-				 callback_payload = COALESCE(callback_payload, '{}'::jsonb) || $4::jsonb
-				 WHERE stk_id = $1`,
-				created.STKID, checkoutID, merchantID, string(payloadJSON),
-			)
-		}
-		c.JSON(http.StatusCreated, gin.H{
-			"stk_id":                 created.STKID,
-			"status":                 "PENDING",
-			"amount":                 amount,
-			"account_reference":      admissionNo,
-			"daraja_pushed":          true,
-			"checkout_request_id":    checkoutID,
-		})
-		return
-	}
-
-	c.JSON(http.StatusCreated, created)
+	// Record the STK request as PENDING. The actual Daraja STK push is
+	// dispatched asynchronously by the background stkPusher worker (see
+	// cmd/api/server.go) so no HTTP call is made while this transaction is
+	// open (no HTTP-in-tx). The client polls ParentMPESASTKStatus for the
+	// checkout_request_id once the push completes.
+	c.JSON(http.StatusCreated, gin.H{
+		"stk_id":             created.STKID,
+		"status":             "PENDING",
+		"amount":             amount,
+		"account_reference":  admissionNo,
+		"daraja_pushed":      false,
+		"checkout_request_id": "",
+	})
+	return
 }
 
 // ParentMPESASTKStatus returns the polling-safe status of an STK request

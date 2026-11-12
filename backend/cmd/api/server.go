@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/admin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/assessment"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/attendance"
@@ -23,6 +25,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/compliance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/config"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/curriculum"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
@@ -173,6 +176,91 @@ func Run() error {
 	smsSvc := sms.NewSMSService()
 	outboxWorker := newOutboxWorker(database.DB.DB, smsSvc, slog.Default())
 	go outboxWorker.Run(allocCtx)
+
+	// STK pusher: dispatches pending M-Pesa STK pushes outside any transaction
+	// (no HTTP-in-tx). Picks up requests with status PENDING and no
+	// checkout_request_id, calls Daraja, then updates the row in a separate
+	// short-lived transaction with RLS context set.
+	go func(ctx context.Context) {
+		mpesaSvc := daraja.NewMpesaService(database.DB.DB)
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				tx, err := database.BeginTxx(ctx, nil)
+				if err != nil {
+					continue
+				}
+				if _, err := tx.ExecContext(ctx, "SET LOCAL app.worker = 'on'"); err != nil {
+					tx.Rollback()
+					continue
+				}
+				rows, err := tx.QueryContext(ctx, `
+					SELECT stk_id, tenant_id, phone_number, amount, account_reference
+					FROM mpesa_stk_requests
+					WHERE status = 'PENDING' AND checkout_request_id IS NULL
+					ORDER BY created_at ASC
+					LIMIT 25
+					FOR UPDATE SKIP LOCKED`)
+				if err != nil {
+					tx.Rollback()
+					continue
+				}
+				type stkReq struct {
+                    id, tenant, phone, ref string
+                    amount                 float64
+				}
+				var reqs []stkReq
+				for rows.Next() {
+					var r stkReq
+					if err := rows.Scan(&r.id, &r.tenant, &r.phone, &r.amount, &r.ref); err == nil {
+						reqs = append(reqs, r)
+					}
+				}
+				rows.Close()
+				for _, r := range reqs {
+					_, _ = tx.ExecContext(ctx, `UPDATE mpesa_stk_requests SET status = 'SENDING' WHERE stk_id = $1`, r.id)
+				}
+				if err := tx.Commit(); err != nil {
+					continue
+				}
+				// Push outside any transaction (no HTTP-in-tx).
+				for _, r := range reqs {
+					tenantUUID, _ := uuid.Parse(r.tenant)
+					pushed, pushErr := mpesaSvc.InitiateSTKPush(ctx, tenantUUID, daraja.STKPushRequest{
+						PhoneNumber: r.phone,
+						AmountKES:   int64(r.amount),
+						AdmissionNo: r.ref,
+					})
+					updTx, err := database.BeginTxx(ctx, nil)
+					if err != nil {
+						continue
+					}
+					if _, err := updTx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", r.tenant); err != nil {
+						updTx.Rollback()
+						continue
+					}
+					if pushErr != nil {
+						_, _ = updTx.ExecContext(ctx, `
+							UPDATE mpesa_stk_requests SET status = 'FAILED', callback_payload = jsonb_build_object('error', $2)
+							 WHERE stk_id = $1`, r.id, pushErr.Error())
+					} else {
+						checkoutID, _ := pushed["CheckoutRequestID"].(string)
+						merchantID, _ := pushed["MerchantRequestID"].(string)
+						payloadJSON, _ := json.Marshal(pushed)
+						_, _ = updTx.ExecContext(ctx, `
+							UPDATE mpesa_stk_requests SET checkout_request_id = NULLIF($2, ''), merchant_request_id = NULLIF($3, ''),
+								callback_payload = COALESCE(callback_payload, '{}'::jsonb) || $4::jsonb
+								WHERE stk_id = $1`, r.id, checkoutID, merchantID, string(payloadJSON))
+					}
+					updTx.Commit()
+				}
+			}
+		}
+	}(allocCtx)
 
 	router := gin.New()
 	router.SetTrustedProxies([]string{"127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"})
