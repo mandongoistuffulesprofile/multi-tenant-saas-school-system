@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
@@ -19,10 +20,11 @@ type queryer interface {
 
 type Service struct {
 	database *db.DB
+	jwt      *auth.JWTManager
 }
 
-func NewService(database *db.DB) *Service {
-	return &Service{database: database}
+func NewService(database *db.DB, jwt *auth.JWTManager) *Service {
+	return &Service{database: database, jwt: jwt}
 }
 
 type Handler struct {

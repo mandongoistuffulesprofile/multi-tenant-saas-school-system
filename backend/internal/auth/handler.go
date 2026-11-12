@@ -42,11 +42,23 @@ type loginRequest struct {
 	TenantCode string `json:"tenant_code"`
 }
 
+// Membership represents a user's membership in a school.
+type Membership struct {
+	TenantID   string `json:"tenant_id"`
+	SchoolName string `json:"school_name"`
+	Subdomain  string `json:"subdomain"`
+	Role       string `json:"role"`
+}
+
 // Login validates a password and returns an access/refresh token pair.
 //
 // The canonical schema keeps identity in users and school membership in
 // tenant_memberships, so a user may belong to several schools with a different
 // role in each. The token is scoped to one membership.
+//
+// If the user has multiple active memberships and no tenant_code was provided,
+// all memberships are returned so the client can present a school picker.
+// If a tenant_code was provided, only that membership is used.
 func (h *Handler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -91,116 +103,143 @@ func (h *Handler) Login(c *gin.Context) {
 		}
 	}
 
-const identityPredicate = `u.is_active = true
- 		AND (u.email_norm = LOWER($1) OR LOWER(u.email) = LOWER($1) OR u.phone_number = $1)`
+	const identityPredicate = `u.is_active = true
+		AND (u.email_norm = LOWER($1) OR LOWER(u.email) = LOWER($1) OR u.phone_number = $1)`
 
- 	var (
- 		userID       string
- 		passwordHash string
- 	)
+	var (
+		userID       string
+		passwordHash string
+	)
 
- 	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate + ` LIMIT 1`
- 	args := []any{identifier}
+	query := `SELECT u.user_id::text, u.password_hash FROM users u WHERE ` + identityPredicate + ` LIMIT 1`
+	args := []any{identifier}
 
- 	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
- 	if err != nil {
- 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
- 		return
- 	}
- 	if _, err := tx.Exec(`SELECT set_config('app.current_user_role', 'SAAS_ADMIN', true)`); err != nil {
- 		tx.Rollback()
- 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
- 		return
- 	}
-
-if err := tx.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
- 		!VerifyPassword(passwordHash, req.Password) {
- 		tx.Rollback()
- 		if h.redis != nil {
- 			key := "rl:login:fail:" + strings.ToLower(identifier)
- 			n, _ := h.redis.Incr(c.Request.Context(), key).Result()
- 			if n == 1 {
- 				h.redis.Expire(c.Request.Context(), key, 15*time.Minute)
- 			}
- 		}
- 		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
- 		return
- 	}
- 	if err := tx.Commit(); err != nil {
- 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
- 		return
- 	}
- 	// Clear lockout on success.
- 	if h.redis != nil {
- 		h.redis.Del(c.Request.Context(), "rl:login:fail:"+strings.ToLower(identifier))
- 	}
-
- 	// Resolve the membership(s) that may mint a session for this user.
- 	type membership struct {
- 		TenantID string `db:"tenant_id"`
- 		Role     string `db:"role"`
- 	}
- 	// tenant_memberships is FORCE-RLS protected. Read the user's memberships in
- 	// a short transaction scoped to that user: the self-select policy allows it
- 	// and no other tenant's rows become visible during login.
- 	tx2, err := h.database.BeginTxx(c.Request.Context(), nil)
- 	if err != nil {
- 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
- 		return
- 	}
- 	defer tx2.Rollback()
- 	if _, err := tx2.Exec(
- 		`SELECT set_config('app.current_user_id', $1, true)`, userID,
- 	); err != nil {
- 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
- 		return
- 	}
-
- 	var memberships []membership
- 	if err := tx2.Select(
- 		&memberships,
- 		`SELECT tenant_id, role FROM tenant_memberships
- 		  WHERE user_id = $1 AND status = 'ACTIVE'
- 		  ORDER BY created_at`,
- 		userID,
- 	); err != nil || len(memberships) == 0 {
- 		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
- 		return
- 	}
- 	_ = tx2.Rollback()
-
-	tenantID := requestedTenant
-	roles := make([]string, 0, 1)
-	for _, m := range memberships {
-		if tenantID == "" && m.TenantID != "" {
-			tenantID = m.TenantID
-		}
-		if m.TenantID == tenantID {
-			roles = append(roles, m.Role)
-		}
+	tx, err := h.database.BeginTxx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
 	}
-	if tenantID == "" || len(roles) == 0 {
+	if _, err := tx.Exec(`SELECT set_config('app.current_user_role', 'SAAS_ADMIN', true)`); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
+	}
+
+	if err := tx.QueryRow(query, args...).Scan(&userID, &passwordHash); err != nil ||
+		!VerifyPassword(passwordHash, req.Password) {
+		tx.Rollback()
+		if h.redis != nil {
+			key := "rl:login:fail:" + strings.ToLower(identifier)
+			n, _ := h.redis.Incr(c.Request.Context(), key).Result()
+			if n == 1 {
+				h.redis.Expire(c.Request.Context(), key, 15*time.Minute)
+			}
+		}
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
+	}
+	// Clear lockout on success.
+	if h.redis != nil {
+		h.redis.Del(c.Request.Context(), "rl:login:fail:"+strings.ToLower(identifier))
+	}
+
+	// Resolve the membership(s) that may mint a session for this user.
+	type membership struct {
+		TenantID   string `db:"tenant_id"`
+		SchoolName string `db:"school_name"`
+		Subdomain  string `db:"subdomain"`
+		Role       string `db:"role"`
+	}
+	// tenant_memberships is FORCE-RLS protected. Read the user's memberships in
+	// a short transaction scoped to that user: the self-select policy allows it
+	// and no other tenant's rows become visible during login.
+	tx2, err := h.database.BeginTxx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
+	}
+	defer tx2.Rollback()
+	if _, err := tx2.Exec(
+		`SELECT set_config('app.current_user_id', $1, true)`, userID,
+	); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Database error"})
+		return
+	}
+
+	var memberships []membership
+	if err := tx2.Select(
+		&memberships,
+		`SELECT tm.tenant_id, s.school_name, s.subdomain, tm.role
+		  FROM tenant_memberships tm
+		  JOIN schools s ON s.tenant_id = tm.tenant_id
+		  WHERE tm.user_id = $1 AND tm.status = 'ACTIVE' AND s.status = 'ACTIVE'
+		  ORDER BY tm.created_at`,
+		userID,
+	); err != nil || len(memberships) == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
 		return
 	}
+	_ = tx2.Rollback()
 
-	tokenPair, err := h.jwt.GenerateTokenPair(userID, tenantID, roles)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "TOKEN_ERROR", "message": "Failed to create session"})
+	// If a specific tenant was requested, filter to that one
+	if requestedTenant != "" {
+		filtered := make([]membership, 0, 1)
+		for _, m := range memberships {
+			if m.TenantID == requestedTenant {
+				filtered = append(filtered, m)
+			}
+		}
+		if len(filtered) == 0 {
+			c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active membership for requested school"})
+			return
+		}
+		memberships = filtered
+	}
+
+	// If there's only one membership (or one was requested), auto-select it
+	// Otherwise, return all memberships for the client to show a school picker
+	if len(memberships) == 1 {
+		m := memberships[0]
+		tokenPair, err := h.jwt.GenerateTokenPair(userID, m.TenantID, []string{m.Role})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "TOKEN_ERROR", "message": "Failed to create session"})
+			return
+		}
+
+		if err := h.persistRefreshToken(userID, tokenPair.RefreshToken); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to store refresh token"})
+			return
+		}
+
+		h.setSessionCookies(c, tokenPair)
+
+		c.JSON(http.StatusOK, gin.H{
+			"token_pair": tokenPair,
+			"user_id":    userID,
+			"tenant_id":  m.TenantID,
+			"roles":      []string{m.Role},
+		})
 		return
 	}
 
-	if err := h.persistRefreshToken(userID, tokenPair.RefreshToken); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to store refresh token"})
-		return
+	// Multiple memberships and no specific tenant requested - return all for school picker
+	membershipResponses := make([]Membership, len(memberships))
+	for i, m := range memberships {
+		membershipResponses[i] = Membership{
+			TenantID:   m.TenantID,
+			SchoolName: m.SchoolName,
+			Subdomain:  m.Subdomain,
+			Role:       m.Role,
+		}
 	}
-
-	h.setSessionCookies(c, tokenPair)
 
 	c.JSON(http.StatusOK, gin.H{
-		"token_pair": tokenPair,
-		"user_id":    userID,
-		"tenant_id":  tenantID,
-		"roles":      roles,
+		"memberships": membershipResponses,
+		"user_id":     userID,
+		"requires_tenant_selection": true,
 	})
 }

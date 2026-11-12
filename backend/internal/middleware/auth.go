@@ -20,6 +20,7 @@ const (
 	ContextUserID    = "user_id"
 	ContextRoles     = "roles"
 	ContextRole      = "role"
+	ContextReadOnly  = "read_only"
 )
 
 // RequireAuthGin validates the access token from Authorization Bearer header
@@ -38,6 +39,7 @@ func RequireAuthGin(jm *auth.JWTManager) gin.HandlerFunc {
 			c.Set(ContextRole, claims.Roles[0])
 		}
 		c.Set(ContextRoles, claims.Roles)
+		c.Set(ContextReadOnly, claims.ReadOnly)
 		c.Next()
 	}
 }

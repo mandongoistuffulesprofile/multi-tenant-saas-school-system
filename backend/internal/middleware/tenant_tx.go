@@ -3,16 +3,25 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/redis/go-redis/v9"
 )
 
 type txKey struct{}
 
+const (
+	tenantStatusCacheTTL = 30 * time.Second
+	tenantStatusKeyPrefix = "tenant:status:"
+)
+
 // TenantTxMiddleware opens a request-scoped transaction, sets the tenant
 // context for RLS, and commits on success / rolls back on error.
-func TenantTxMiddleware(db *sqlx.DB) gin.HandlerFunc {
+// It also checks that the tenant is not suspended (cached in Redis).
+// If the JWT has read_only claim, the transaction is set to READ ONLY.
+func TenantTxMiddleware(db *sqlx.DB, redisClient *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tenantID := c.GetString(ContextTenantID)
 		if tenantID == "" {
@@ -20,10 +29,60 @@ func TenantTxMiddleware(db *sqlx.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Check if this is a read-only session (impersonation)
+		readOnly := false
+		if v, ok := c.Get("read_only"); ok {
+			if b, ok := v.(bool); ok {
+				readOnly = b
+			}
+		}
+
+		// Check tenant status (suspended tenants cannot make API calls)
+		if redisClient != nil {
+			cacheKey := tenantStatusKeyPrefix + tenantID
+			status, err := redisClient.Get(c.Request.Context(), cacheKey).Result()
+			if err == nil {
+				if status == "SUSPENDED" {
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+					return
+				}
+			} else if err != redis.Nil {
+				// On Redis error, fall back to DB check (fail-open for availability)
+				var dbStatus string
+				if err := db.QueryRowContext(c.Request.Context(), `SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&dbStatus); err == nil {
+					if dbStatus == "SUSPENDED" {
+						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+						return
+					}
+					// Cache the status
+					_ = redisClient.Set(c.Request.Context(), cacheKey, dbStatus, tenantStatusCacheTTL).Err()
+				}
+			} else {
+				// Cache miss - fetch from DB and cache
+				var dbStatus string
+				if err := db.QueryRowContext(c.Request.Context(), `SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&dbStatus); err == nil {
+					if dbStatus == "SUSPENDED" {
+						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+						return
+					}
+					_ = redisClient.Set(c.Request.Context(), cacheKey, dbStatus, tenantStatusCacheTTL).Err()
+				}
+			}
+		}
+
 		tx, err := db.BeginTxx(c.Request.Context(), nil)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "failed to begin transaction"})
 			return
+		}
+
+		// Set read-only mode if the token has read_only claim
+		if readOnly {
+			if _, err := tx.ExecContext(c.Request.Context(), "SET TRANSACTION READ ONLY"); err != nil {
+				tx.Rollback()
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "failed to set read-only transaction"})
+				return
+			}
 		}
 
 		if _, err := tx.ExecContext(c.Request.Context(), "SELECT set_config('app.current_tenant_id', $1, true)", tenantID); err != nil {

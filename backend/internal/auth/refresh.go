@@ -25,7 +25,7 @@ type queryer interface {
 // If q is a request-scoped transaction (from TxFromGin), queries run against it.
 func (h *Handler) loadMemberships(userID string, q queryer) ([]Membership, error) {
 	rows, err := q.Query(
-		`SELECT tm.tenant_id, s.school_name, s.subdomain, tm.role, tm.status
+		`SELECT tm.tenant_id, s.school_name, s.subdomain, tm.role
 		 FROM tenant_memberships tm
 		 JOIN schools s ON s.tenant_id = tm.tenant_id
 		 WHERE tm.user_id = $1 AND tm.status = 'ACTIVE'
@@ -40,7 +40,7 @@ func (h *Handler) loadMemberships(userID string, q queryer) ([]Membership, error
 	memberships := make([]Membership, 0)
 	for rows.Next() {
 		var m Membership
-		if err := rows.Scan(&m.TenantID, &m.SchoolName, &m.Subdomain, &m.Role, &m.Status); err != nil {
+		if err := rows.Scan(&m.TenantID, &m.SchoolName, &m.Subdomain, &m.Role); err != nil {
 			return nil, err
 		}
 		memberships = append(memberships, m)
@@ -244,26 +244,6 @@ func (h *Handler) TenantSwitch(c *gin.Context) {
 	})
 }
 
-// LoginResponse is returned by login and tenant-switch flows.
-type LoginResponse struct {
-	UserID    string    `json:"user_id"`
-	TenantID  string    `json:"tenant_id"`
-	Roles     []string  `json:"roles"`
-	TokenPair TokenPair `json:"token_pair"`
-}
-
-// Membership describes one school the current user belongs to.
-type Membership struct {
-	TenantID   string `json:"tenant_id"`
-	SchoolName string `json:"school_name"`
-	Subdomain  string `json:"subdomain"`
-	Role       string `json:"role"`
-	Status     string `json:"status"`
-}
-
-// GetMyMemberships handles GET /me/memberships
-// Auth: requires a valid access token. Lists the schools the current user
-// belongs to so the tenant picker can be rendered without a second call.
 func (h *Handler) GetMyMemberships(c *gin.Context) {
 	userID := c.GetString("user_id")
 

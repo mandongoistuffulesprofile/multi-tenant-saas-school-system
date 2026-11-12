@@ -26,6 +26,7 @@ type Claims struct {
 	TenantID  string   `json:"tenant_id,omitempty"`
 	Roles     []string `json:"roles"`
 	TokenType string   `json:"token_type,omitempty"`
+	ReadOnly  bool     `json:"read_only,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -125,4 +126,27 @@ func (jm *JWTManager) ValidateToken(tokenString string, expectedType string) (*C
 	}
 
 	return claims, nil
+}
+
+// GenerateImpersonationToken creates a short-lived, read-only access token
+// for platform admin impersonation sessions.
+func (jm *JWTManager) GenerateImpersonationToken(userID, tenantID string, roles []string, ttl time.Duration) (string, error) {
+	now := time.Now()
+	claims := &Claims{
+		UserID:    userID,
+		TenantID:  tenantID,
+		Roles:     roles,
+		TokenType: TokenTypeAccess,
+		ReadOnly:  true,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    TokenIssuer,
+			Audience:  jwt.ClaimStrings{TokenAudience},
+			Subject:   userID,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			NotBefore: jwt.NewNumericDate(now),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jm.signingKey)
 }

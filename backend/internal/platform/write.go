@@ -335,10 +335,104 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
+
+	// Generate a read-only impersonation token for the admin to use
+	// Fetch target user's roles in the target tenant
+	var roles []string
+	rows, err := h.q(c).Query(
+		`SELECT role FROM tenant_memberships
+		 WHERE user_id = $1 AND tenant_id = $2 AND status = 'ACTIVE'`,
+		req.TargetUserID, req.TargetTenantID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var role string
+			if err := rows.Scan(&role); err == nil {
+				roles = append(roles, role)
+			}
+		}
+	}
+	
+	// Get the JWT manager from the handler (we need to add it to the handler struct)
+	// For now, we'll return the session info and the frontend will call a separate endpoint
+	// to get the impersonation token. But let's add a method to get the token.
+	
+	expiresAt := time.Now().Add(time.Duration(duration) * time.Minute).UTC()
 	c.JSON(http.StatusCreated, gin.H{
-		"session_id": sessionID,
-		"expires_at": time.Now().Add(time.Duration(duration) * time.Minute).UTC(),
-		"read_only":  true,
+		"session_id":          sessionID,
+		"expires_at":          expiresAt,
+		"read_only":           true,
+		"target_user_id":      req.TargetUserID,
+		"target_tenant_id":    req.TargetTenantID,
+	})
+}
+
+// GetImpersonationToken returns a short-lived read-only access token for an
+// active impersonation session. The platform admin calls this after creating
+// the session to get the token they'll use to impersonate the target user.
+func (h *Handler) GetImpersonationToken(c *gin.Context) {
+	sessionID := c.Param("id")
+	adminUserID := c.GetString("user_id")
+
+	// Verify the session exists, is active, and belongs to this admin
+	var targetUserID, targetTenantID string
+	var expiresAt time.Time
+	var revokedAt *time.Time
+	err := h.q(c).QueryRow(
+		`SELECT target_user_id, target_tenant_id, expires_at, revoked_at
+		 FROM impersonation_sessions
+		 WHERE session_id = $1 AND admin_user_id = $2`,
+		sessionID, adminUserID).Scan(&targetUserID, &targetTenantID, &expiresAt, &revokedAt)
+	if err == sql.ErrNoRows {
+		validation.NotFound(c, "Impersonation session not found")
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if revokedAt != nil {
+		validation.Conflict(c, "Impersonation session has been revoked")
+		return
+	}
+	if time.Now().After(expiresAt) {
+		validation.Conflict(c, "Impersonation session has expired")
+		return
+	}
+
+	// Fetch target user's roles in the target tenant
+	var roles []string
+	rows, err := h.q(c).Query(
+		`SELECT role FROM tenant_memberships
+		 WHERE user_id = $1 AND tenant_id = $2 AND status = 'ACTIVE'`,
+		targetUserID, targetTenantID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var role string
+			if err := rows.Scan(&role); err == nil {
+				roles = append(roles, role)
+			}
+		}
+	}
+
+	// Generate read-only token with session's remaining TTL
+	ttl := time.Until(expiresAt)
+	if ttl <= 0 {
+		validation.Conflict(c, "Impersonation session has expired")
+		return
+	}
+	token, err := h.service.jwt.GenerateImpersonationToken(targetUserID, targetTenantID, roles, ttl)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "TOKEN_ERROR", "message": "Failed to create impersonation token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  token,
+		"expires_at":    expiresAt,
+		"read_only":     true,
+		"target_tenant_id": targetTenantID,
 	})
 }
 

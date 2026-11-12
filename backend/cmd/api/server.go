@@ -129,7 +129,7 @@ func Run() error {
 	attendanceService := attendance.NewService(database)
 	attendanceHandler := attendance.NewHandler(attendanceService)
 
-	platformService := platform.NewService(database)
+	platformService := platform.NewService(database, jwtManager)
 	platformHandler := platform.NewHandler(platformService)
 
 	financeService := finance.NewService(database)
@@ -221,8 +221,8 @@ func Run() error {
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.CORS(os.Getenv("CORS_ALLOWED_ORIGIN")))
 	router.Use(middleware.BodyLimit(2 << 20))
-	router.Use(middleware.TenantContextMiddleware(jwtManager, database))
-router.Use(middleware.TenantTxMiddleware(database.DB))
+router.Use(middleware.TenantContextMiddleware(jwtManager, database))
+	router.Use(middleware.TenantTxMiddleware(database.DB, redisClient.Client))
 
 	// Buffer GET response bodies so ETags can be computed and If-None-Match
 	// answered with 304, cutting repeat fetch payloads on metered connections.
@@ -469,12 +469,12 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 	obGroup.POST("/opening-stock", middleware.RequireRole(middleware.RoleSchoolAdministrators...), openingBalanceHandler.PostOpeningStock)
 
 	holdingGroup := apiV1.Group("/holding-tank")
-	holdingGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.TenantTxMiddleware(database.DB))
+	holdingGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.TenantTxMiddleware(database.DB, redisClient.Client))
 	holdingGroup.GET("", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ListHoldingTank)
 	holdingGroup.POST("/:id/resolve", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ResolveHoldingTank)
 
 	tokenGroup := apiV1.Group("/delegated-tokens")
-	tokenGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.TenantTxMiddleware(database.DB))
+	tokenGroup.Use(middleware.RequireAuthGin(jwtManager), middleware.TenantTxMiddleware(database.DB, redisClient.Client))
 	tokenGroup.GET("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.ListTokens)
 	tokenGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.CreateToken)
 	tokenGroup.POST("/:id/revoke", middleware.RequireRole(middleware.RoleSchoolAdministrators...), holdingtankHandler.RevokeToken)
@@ -754,6 +754,7 @@ router.Use(middleware.TenantTxMiddleware(database.DB))
 		platformGroup.GET("/impersonations", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.ListImpersonations)
 		platformGroup.POST("/impersonations", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreateImpersonation)
 		platformGroup.POST("/impersonations/:id/end", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.EndImpersonation)
+		platformGroup.GET("/impersonations/:id/token", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.GetImpersonationToken)
 		platformGroup.POST("/plans", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.CreatePlan)
 		platformGroup.PATCH("/plans/:id", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpdatePlan)
 		platformGroup.POST("/subscriptions", middleware.RequireRole(middleware.RolePlatformAdministrators...), platformHandler.UpsertSubscription)
