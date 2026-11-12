@@ -63,8 +63,15 @@ func NewService(database *db.DB) *Service {
 	return &Service{database: database}
 }
 
+func (s *Service) q(ctx context.Context) queryer {
+	if tx := middleware.TxFromContext(ctx); tx != nil {
+		return tx
+	}
+	return s.database.DB
+}
+
 func (s *Service) GetSchool(ctx context.Context, tenantID string) (*GetSchoolResponse, error) {
-	q := middleware.TxFromContext(ctx)
+	q := s.q(ctx)
 	var tid string
 	var schoolName string
 	var subdomain string
@@ -156,7 +163,7 @@ func normalizeNEMIS(code string) string {
 }
 
 func (s *Service) UpdateSchool(ctx context.Context, tenantID string, updates map[string]interface{}) (*GetSchoolResponse, error) {
-	q := middleware.TxFromContext(ctx)
+	q := s.q(ctx)
 	setParts := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -237,7 +244,7 @@ type PaymentChannel struct {
 }
 
 func (s *Service) ListPaymentChannels(ctx context.Context, tenantID string) ([]PaymentChannel, error) {
-	q := middleware.TxFromContext(ctx)
+	q := s.q(ctx)
 	rows, err := q.Query(
 		`SELECT channel_id, tenant_id, channel_type, shortcode_or_account, label,
 			environment, is_default, status, reference_format,
@@ -268,7 +275,7 @@ func (s *Service) ListPaymentChannels(ctx context.Context, tenantID string) ([]P
 }
 
 func (s *Service) CreatePaymentChannel(ctx context.Context, tenantID string, ch PaymentChannel) (*PaymentChannel, error) {
-	q := middleware.TxFromContext(ctx)
+	q := s.q(ctx)
 	err := q.QueryRow(
 		`INSERT INTO school_payment_channels (tenant_id, channel_type, shortcode_or_account, label,
 			environment, is_default, status, reference_format, routed_fee_categories, channel_token)
@@ -298,7 +305,7 @@ type FinanceSettings struct {
 }
 
 func (s *Service) GetFinanceSettings(ctx context.Context, tenantID string) (*FinanceSettings, error) {
-	q := middleware.TxFromContext(ctx)
+	q := s.q(ctx)
 	var fs FinanceSettings
 	var cats []byte
 	err := q.QueryRow(
@@ -333,7 +340,7 @@ func (s *Service) GetFinanceSettings(ctx context.Context, tenantID string) (*Fin
 }
 
 func (s *Service) UpdateFinanceSettings(ctx context.Context, tenantID string, fs FinanceSettings) error {
-	q := middleware.TxFromContext(ctx)
+	q := s.q(ctx)
 	cats, _ := json.Marshal(fs.AllowedFeeCategories)
 	_, err := q.Exec(
 		`INSERT INTO school_finance_settings (tenant_id, tuition_invoicing, optional_services,
