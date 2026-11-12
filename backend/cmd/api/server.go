@@ -663,7 +663,7 @@ func Run() error {
 
 		// Payments
 		financeGroup.GET("/payments", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListPayments)
-		financeGroup.POST("/payments", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreatePayment)
+		financeGroup.POST("/payments", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.RecordPayment)
 		financeGroup.POST("/payments/allocate", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.AllocatePayment)
 
 		// Credits

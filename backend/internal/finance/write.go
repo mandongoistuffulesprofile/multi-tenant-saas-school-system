@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
@@ -870,7 +872,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 	var req struct {
-		PaymentReference string  `json:"payment_reference" binding:"required"`
+		PaymentReference string  `json:"payment_reference"`
 		LearnerID        string  `json:"learner_id" binding:"required"`
 		Source           string  `json:"source" binding:"required"`
 		Amount           float64 `json:"amount" binding:"required"`
@@ -882,12 +884,16 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	}
 	source := strings.ToUpper(strings.TrimSpace(req.Source))
 	switch source {
-	case "CASH", "BANK", "CHEQUE", "CREDIT":
+	case "CASH", "BANK", "CHEQUE", "CREDIT", "MPESA":
 	default:
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
-			{Field: "source", Code: "INVALID_VALUE", Message: "'source' must be CASH, BANK, CHEQUE or CREDIT"},
+			{Field: "source", Code: "INVALID_VALUE", Message: "'source' must be CASH, BANK, CHEQUE, CREDIT or MPESA"},
 		})
 		return
+	}
+	reference := strings.TrimSpace(req.PaymentReference)
+	if reference == "" {
+		reference = fmt.Sprintf("PAY-%s-%s", time.Now().Format("20060102"), strings.ToUpper(uuid.NewString()[:8]))
 	}
 	if req.Amount <= 0 {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
@@ -909,7 +915,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	userID := c.GetString("user_id")
 	idempotencyKey := c.GetHeader("Idempotency-Key")
 	if idempotencyKey == "" {
-		idempotencyKey = req.PaymentReference
+		idempotencyKey = reference
 	}
 	// The unique index on idempotency_key spans the whole table, so the
 	// tenant has to be part of the key.
@@ -929,7 +935,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	err = tx.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, recorded_by, idempotency_key)
 		 VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6, $7) RETURNING payment_id`,
-		tenantID, req.PaymentReference, req.LearnerID, source, paymentAmount.StringFixed(2),
+		tenantID, reference, req.LearnerID, source, paymentAmount.StringFixed(2),
 		nullableString(userID), idempotencyKey).Scan(&paymentID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -976,12 +982,12 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 
 	// Best-effort receipt notification to primary payer guardian (idempotent).
 	idem := "payment-receipt:" + tenantID + ":" + paymentID
-	msg := fmt.Sprintf("Payment received: KES %s (Ref %s). Thank you.", paymentAmount.StringFixed(2), req.PaymentReference)
+	msg := fmt.Sprintf("Payment received: KES %s (Ref %s). Thank you.", paymentAmount.StringFixed(2), reference)
 	_, _ = tx.Exec(`
 		INSERT INTO outbound_messages (tenant_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, idempotency_key)
 		SELECT $1, 'GUARDIAN', g.guardian_id, 'SMS',
 		       COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,'')),
-		       $2, 'QUEUED', $4
+		       $2, 'QUEUED', $4::varchar
 		  FROM learner_guardians lg
 		  JOIN guardians g ON g.guardian_id = lg.guardian_id AND g.tenant_id = $1
 		  LEFT JOIN users u ON u.user_id = g.user_id
@@ -990,7 +996,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		   AND NOT EXISTS (
 		     SELECT 1 FROM outbound_messages om
 		      WHERE om.tenant_id = $1 AND om.channel = 'SMS'
-		        AND (om.idempotency_key = $4 OR (om.body_text = $2 AND om.recipient_address = COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,''))))
+		        AND (om.idempotency_key = $4::varchar OR (om.body_text = $2 AND om.recipient_address = COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,''))))
 		   )
 		 ORDER BY lg.is_primary_payer DESC NULLS LAST, lg.created_at
 		 LIMIT 1

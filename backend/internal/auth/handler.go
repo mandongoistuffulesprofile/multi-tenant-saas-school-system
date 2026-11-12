@@ -89,20 +89,6 @@ func (h *Handler) Login(c *gin.Context) {
 		tenantCode = strings.TrimSpace(req.TenantCode)
 	}
 
-	requestedTenant := ""
-	if tenantCode != "" {
-		if err := h.database.QueryRow(
-			`SELECT tenant_id FROM schools
-			  WHERE status = 'ACTIVE' AND (subdomain = $1 OR tenant_id = $1)
-			  LIMIT 1`,
-			tenantCode,
-		).Scan(&requestedTenant); err != nil {
-			// Do not reveal whether the school exists.
-			c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_CREDENTIALS", "message": "Invalid credentials"})
-			return
-		}
-	}
-
 	var (
 		userID       string
 		passwordHash string
@@ -157,6 +143,9 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	// Resolve membership and school in one query. The school row is visible
+	// through schools_member_select because app.current_user_id is set above;
+	// filtering here also avoids a pre-auth schools lookup that RLS denied.
 	var memberships []membership
 	if err := tx2.Select(
 		&memberships,
@@ -164,28 +153,14 @@ func (h *Handler) Login(c *gin.Context) {
 		  FROM tenant_memberships tm
 		  JOIN schools s ON s.tenant_id = tm.tenant_id
 		  WHERE tm.user_id = $1 AND tm.status = 'ACTIVE' AND s.status = 'ACTIVE'
+		    AND ($2 = '' OR s.subdomain = $2 OR tm.tenant_id = $2)
 		  ORDER BY tm.created_at`,
-		userID,
+		userID, tenantCode,
 	); err != nil || len(memberships) == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active school membership"})
 		return
 	}
 	_ = tx2.Rollback()
-
-	// If a specific tenant was requested, filter to that one
-	if requestedTenant != "" {
-		filtered := make([]membership, 0, 1)
-		for _, m := range memberships {
-			if m.TenantID == requestedTenant {
-				filtered = append(filtered, m)
-			}
-		}
-		if len(filtered) == 0 {
-			c.JSON(http.StatusForbidden, gin.H{"code": "NO_ACTIVE_SCHOOL", "message": "No active membership for requested school"})
-			return
-		}
-		memberships = filtered
-	}
 
 	// If there's only one membership (or one was requested), auto-select it
 	// Otherwise, return all memberships for the client to show a school picker

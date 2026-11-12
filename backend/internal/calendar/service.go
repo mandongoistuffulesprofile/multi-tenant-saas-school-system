@@ -181,7 +181,7 @@ func (h *Handler) CreateTerm(c *gin.Context) {
 	err := tx.QueryRow(
 		`INSERT INTO terms (tenant_id, year_id, term_number, term_label, start_date, end_date,
 			midterm_start, midterm_end, is_current)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING term_id`,
+		 VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, '')::date, NULLIF($8, '')::date, $9) RETURNING term_id`,
 		tenantID, req.YearID, req.TermNumber, req.TermLabel, req.StartDate, req.EndDate,
 		req.MidtermStart, req.MidtermEnd, req.IsCurrent,
 	).Scan(&termID)

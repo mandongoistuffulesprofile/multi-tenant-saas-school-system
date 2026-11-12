@@ -388,8 +388,9 @@ func (s *Service) ListInvoices(ctx context.Context, tenantID string, limit, offs
 	}
 	rows, err := q.Query(
 		`SELECT invoice_id, tenant_id, invoice_number, learner_id, academic_year_id,
-			term_id, status, currency, total_amount, amount_paid, amount_outstanding,
-			issue_date, due_date, paid_at, created_by, created_at, updated_at
+			COALESCE(term_id::text, ''), status, currency, total_amount, amount_paid, amount_outstanding,
+			COALESCE(issue_date::text, ''), COALESCE(due_date::text, ''), COALESCE(paid_at::text, ''),
+			COALESCE(created_by::text, ''), created_at, updated_at
 		 FROM invoices WHERE tenant_id = $1 ORDER BY created_at DESC
 		 LIMIT $2 OFFSET $3`,
 		tenantID, limit, offset,
@@ -456,7 +457,7 @@ func (s *Service) CreateInvoice(ctx context.Context, tenantID string, inv Invoic
 		`INSERT INTO invoices (tenant_id, invoice_number, learner_id, academic_year_id,
 			term_id, status, currency, total_amount, amount_paid, amount_outstanding,
 			issue_date, due_date, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE(NULLIF($11, ''), CURRENT_DATE), $12, $13)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE(NULLIF($11, '')::date, CURRENT_DATE), NULLIF($12, '')::date, $13)
 		 RETURNING invoice_id, created_at`,
 		tenantID, inv.InvoiceNumber, inv.LearnerID, inv.AcademicYearID,
 		nullableInvoiceString(inv.TermID), inv.Status, inv.Currency, inv.TotalAmount,
@@ -565,8 +566,8 @@ func (s *Service) ListPayments(ctx context.Context, tenantID string, limit, offs
 	}
 	rows, err := q.Query(
 		`SELECT payment_id, tenant_id, payment_reference, learner_id, source,
-			channel_id, amount, currency, status, mpesa_trans_id,
-			received_at, recorded_by, idempotency_key, created_at, updated_at
+			COALESCE(channel_id::text, ''), amount, currency, status, COALESCE(mpesa_trans_id, ''),
+			received_at, COALESCE(recorded_by::text, ''), COALESCE(idempotency_key, ''), created_at, updated_at
 		 FROM payments WHERE tenant_id = $1 ORDER BY received_at DESC
 		 LIMIT $2 OFFSET $3`,
 		tenantID, limit, offset,
@@ -590,23 +591,6 @@ func (s *Service) ListPayments(ctx context.Context, tenantID string, limit, offs
 		payments = append(payments, p)
 	}
 	return payments, nil
-}
-
-func (s *Service) CreatePayment(ctx context.Context, tenantID string, p Payment) (*Payment, error) {
-	q := middleware.TxFromContext(ctx)
-	err := q.QueryRow(
-		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source,
-			channel_id, amount, currency, status, mpesa_trans_id, recorded_by, idempotency_key)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		 RETURNING payment_id, created_at`,
-		tenantID, p.PaymentReference, p.LearnerID, p.Source, p.ChannelID,
-		p.Amount, p.Currency, p.Status, p.MPESATransID, p.RecordedBy, p.IdempotencyKey,
-	).Scan(&p.PaymentID, &p.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	p.TenantID = tenantID
-	return &p, nil
 }
 
 // ============ Payment Allocations (tenant-scoped) ============
@@ -1700,21 +1684,6 @@ func (h *Handler) ListPayments(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, payments)
-}
-
-func (h *Handler) CreatePayment(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
-	var p Payment
-	if errs := validation.BindJSON(c, &p); errs != nil {
-		validation.BadRequest(c, "Invalid request", errs)
-		return
-	}
-	created, err := h.service.CreatePayment(c.Request.Context(), tenantID, p)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
-	}
-	c.JSON(http.StatusCreated, created)
 }
 
 // Payment Allocation handler
