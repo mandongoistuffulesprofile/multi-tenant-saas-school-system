@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
+import { useApiDeduper } from "../lib/mutationDeduper";
 import DataTable from "../components/organisms/DataTable";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
@@ -22,6 +23,7 @@ export default function FinanceFeeStructuresPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const saveStructure = useApiDeduper();
   	  const [form, setForm] = useState({
 	    academic_year_id: "", grade_id: "", category_id: "", residence_type: "ALL",
 	    amount_per_term: "", amount_per_year: "", currency: "KES",
@@ -44,6 +46,7 @@ export default function FinanceFeeStructuresPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!saveStructure()) return;
     setSaving(true);
     api.post("/finance/fee-structures", {
       ...form,
@@ -53,6 +56,7 @@ export default function FinanceFeeStructuresPage() {
     }).then(() => { setOpen(false); refresh(); })
       .catch(() => {})
       .finally(() => setSaving(false));
+      saveStructure.reset();
   };
 
   return (

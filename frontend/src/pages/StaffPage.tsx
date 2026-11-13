@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../lib/authStore";
 import { api } from "../lib/api";
+import { useApiDeduper } from "../lib/mutationDeduper";
 import Card from "../components/atoms/Card";
 import Badge from "../components/atoms/Badge";
 import Button from "../components/atoms/Button";
@@ -23,6 +24,7 @@ export default function StaffPage() {
   const [saving, setSaving] = useState(false);
   const staffModalTriggerRef = useRef<HTMLButtonElement>(null);
   const staffFormEmailRef = useRef<HTMLInputElement>(null);
+  const createStaffMember = useApiDeduper();
 
   const roles = ["HEAD", "DEPUTY", "BURSAR", "CLERK", "TEACHER"];
 
@@ -34,6 +36,7 @@ export default function StaffPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!createStaffMember()) return;
     setSaving(true);
     api.post("/staff", form)
       .then(() => {
@@ -43,6 +46,7 @@ export default function StaffPage() {
       })
       .catch((err) => { toast(err.response?.data?.message || "Failed to save staff", { type: "error" }); })
       .finally(() => setSaving(false));
+      createStaffMember.reset();
   };
 
   if (state === "loading") return <ViewState state="loading" />;

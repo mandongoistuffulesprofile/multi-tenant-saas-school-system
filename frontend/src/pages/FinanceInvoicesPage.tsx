@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
+import { useApiDeduper } from "../lib/mutationDeduper";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
 import HelpTip from "../components/atoms/HelpTip";
@@ -16,9 +17,11 @@ export default function FinanceInvoicesPage() {
   const [creating, setCreating] = useState(false);
   const invoiceModalTriggerRef = useRef<HTMLButtonElement>(null);
   const invoiceFormFirstRef = useRef<HTMLSelectElement>(null);
+  const createInvoice = useApiDeduper();
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!createInvoice()) return;
     setCreating(true);
     const amount = parseFloat(invoiceForm.amount);
     if (!invoiceForm.learner_id || !Number.isFinite(amount) || amount <= 0) {
@@ -47,6 +50,7 @@ export default function FinanceInvoicesPage() {
       toast(err.response?.data?.message || "Failed to create invoice", { type: "error" });
     } finally {
       setCreating(false);
+      createInvoice.reset();
     }
   };
 

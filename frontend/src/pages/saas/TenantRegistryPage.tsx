@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useToast } from "../../components/toast/ToastProvider";
@@ -52,10 +52,21 @@ export default function TenantRegistryPage() {
   // Suspending a school locks out its whole community — require explicit
   // confirmation with the school name spelled out.
   const [pending, setPending] = useState<{ tenantId: string; schoolName: string } | null>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const requestToggle = (row: any) => {
     if (row.status === "SUSPENDED") return handleToggleStatus(row.tenant_id, row.status);
     setPending({ tenantId: row.tenant_id, schoolName: row.school_name || row.subdomain || "this school" });
   };
+
+  useEffect(() => {
+    if (!pending) return;
+    cancelButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPending(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [pending]);
 
   if (state === "loading") return <ViewState state="loading" />;
 
@@ -116,6 +127,7 @@ export default function TenantRegistryPage() {
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
+                ref={cancelButtonRef}
                 type="button"
                 onClick={() => setPending(null)}
                 className="px-4 py-2 text-sm border rounded-lg font-medium text-gray-700 hover:bg-gray-100"
@@ -124,7 +136,7 @@ export default function TenantRegistryPage() {
               </button>
               <button
                 type="button"
-                onClick={() => handleToggleStatus(pending.tenantId, "ACTIVE")}
+                onClick={() => handleToggleStatus(pending.tenantId, "SUSPENDED")}
                 className="px-4 py-2 text-sm rounded-lg font-semibold bg-slate-900 text-white hover:bg-slate-900"
               >
                 Suspend school

@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
+import { useApiDeduper } from "../lib/mutationDeduper";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
 import HelpTip from "../components/atoms/HelpTip";
@@ -16,11 +17,13 @@ export default function FinancePaymentsPage() {
   const [recording, setRecording] = useState(false);
   const payModalTriggerRef = useRef<HTMLButtonElement>(null);
   const payFormFirstRef = useRef<HTMLSelectElement>(null);
+  const recordPayment = useApiDeduper();
 
   const learnerName = (id: string) => learners.find((l) => l.id === id)?.label || null;
 
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!recordPayment()) return;
     const amount = parseFloat(payForm.amount);
     if (!payForm.learner_id || !Number.isFinite(amount) || amount <= 0) {
       toast("Select a learner and enter an amount greater than zero", { type: "error" });
@@ -45,6 +48,7 @@ export default function FinancePaymentsPage() {
       toast(fe?.[0]?.message || err.response?.data?.message || "Failed to record payment", { type: "error" });
     } finally {
       setRecording(false);
+      recordPayment.reset();
     }
   };
 
