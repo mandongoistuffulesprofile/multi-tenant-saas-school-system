@@ -109,6 +109,52 @@ func (h *Handler) ProcessRequisition(c *gin.Context) {
 	c.JSON(http.StatusOK, requisition)
 }
 
+// ApproveRequisition approves a PENDING_APPROVAL requisition and releases the
+// over-issued stock by FIFO.
+func (h *Handler) ApproveRequisition(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	requisitionID := c.Param("id")
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+
+	r, err := h.service.ApproveRequisition(c.Request.Context(), tenantID, userID, requisitionID, req.Reason)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, r)
+}
+
+// RejectRequisition rejects a PENDING_APPROVAL requisition without releasing
+// the over-issued stock.
+func (h *Handler) RejectRequisition(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	requisitionID := c.Param("id")
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+
+	r, err := h.service.RejectRequisition(c.Request.Context(), tenantID, userID, requisitionID, req.Reason)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, r)
+}
+
 // GetRequisition returns one store requisition with its issued items.
 func (h *Handler) GetRequisition(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")

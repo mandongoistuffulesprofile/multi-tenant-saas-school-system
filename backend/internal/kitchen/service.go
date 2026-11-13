@@ -420,7 +420,10 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 		}
 	}
 
-	// Determine variance status
+	// Determine variance status and compute per-item expected quantities.
+	// When an item's variance exceeds the hard threshold, the requisition is
+	// locked as PENDING_APPROVAL and stock is NOT deducted until a supervisor
+	// explicitly approves or rejects the over-issue.
 	status := "RECONCILED"
 	for _, ri := range reqItems {
 		expected := expectedMap[ri.InventoryItemID]
@@ -462,7 +465,9 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 		return nil, err
 	}
 
-	// If OK or soft warning, deduct stock by FIFO
+	// Deduct stock by FIFO only when the slip is within the safe variance band
+	// (RECONCILED or FLAGGED). PENDING_APPROVAL over-issues remain in the store
+	// until a supervisor approves or rejects them.
 	if status == "RECONCILED" || status == "FLAGGED" {
 		for _, ri := range reqItems {
 			remaining := ri.ActualIssued
@@ -516,7 +521,157 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 		}
 	}
 
+	
 	r.Status = status
+	r.BoarderCountFed = boarderCount
+	return &r, nil
+}
+
+// ApproveRequisition approves a PENDING_APPROVAL requisition and releases the
+// overissued stock by FIFO. The approval is recorded on the requisition for
+// audit so a hard over-issue cannot be released without a named approver.
+func (s *Service) ApproveRequisition(ctx context.Context, tenantID, userID, requisitionID, reason string) (*StoreRequisition, error) {
+	q := s.q(ctx)
+	tx, ok := q.(*sql.Tx)
+	if !ok {
+		return nil, errors.New("transaction required")
+	}
+
+	var r StoreRequisition
+	err := tx.QueryRow(
+		`SELECT id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status
+		 FROM daily_store_requisitions WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+		tenantID, requisitionID,
+	).Scan(&r.ID, &r.TenantID, &r.SlipNumber, &r.RequisitionDate, &r.MealType, &r.RecipeID, &r.BoarderCountFed, &r.Status)
+	if err != nil {
+		return nil, err
+	}
+	if r.Status != "PENDING_APPROVAL" {
+		return nil, errors.New("requisition is not pending approval")
+	}
+
+	rows, err := tx.Query(
+		`SELECT id, inventory_item_id, actual_issued_qty FROM store_requisition_items
+		 WHERE tenant_id = $1 AND requisition_id = $2`,
+		tenantID, requisitionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type reqItem struct {
+		ID             string
+		InventoryItemID string
+		ActualIssued   float64
+	}
+	var reqItems []reqItem
+	for rows.Next() {
+		var ri reqItem
+		if err := rows.Scan(&ri.ID, &ri.InventoryItemID, &ri.ActualIssued); err == nil {
+			reqItems = append(reqItems, ri)
+		}
+	}
+	rows.Close()
+
+	for _, ri := range reqItems {
+		remaining := ri.ActualIssued
+		lotRows, err := tx.Query(
+			`SELECT id, qty_remaining, unit_cost FROM inventory_lots
+			 WHERE tenant_id = $1 AND inventory_item_id = $2 AND qty_remaining > 0
+			 ORDER BY received_at, id FOR UPDATE`,
+			tenantID, ri.InventoryItemID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		for lotRows.Next() && remaining > 0 {
+			var lotID string
+			var lotQty float64
+			var lotCost float64
+			if err := lotRows.Scan(&lotID, &lotQty, &lotCost); err != nil {
+				lotRows.Close()
+				return nil, err
+			}
+			consume := lotQty
+			if consume > remaining {
+				consume = remaining
+			}
+			_, err = tx.Exec(
+				`UPDATE inventory_lots SET qty_remaining = qty_remaining - $1 WHERE tenant_id = $2 AND id = $3`,
+				consume, tenantID, lotID,
+			)
+			if err != nil {
+				lotRows.Close()
+				return nil, err
+			}
+			_, err = tx.Exec(
+				`INSERT INTO inventory_movements (tenant_id, lot_id, inventory_item_id, qty, unit_cost, ref_type, ref_id)
+				 VALUES ($1, $2, $3, $4, $5, 'REQUISITION', $6)`,
+				tenantID, lotID, ri.InventoryItemID, -consume, lotCost, r.ID,
+			)
+			if err != nil {
+				lotRows.Close()
+				return nil, err
+			}
+			remaining -= consume
+		}
+		lotRows.Close()
+		if remaining > 0 {
+			return nil, errors.New("insufficient stock for item " + ri.InventoryItemID)
+		}
+	}
+
+	_, err := tx.Exec(
+		`UPDATE daily_store_requisitions SET status = 'APPROVED', approved_by = $1, approval_reason = $2,
+			 approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		 WHERE tenant_id = $3 AND id = $4`,
+		nullIfEmpty(userID), nullIfEmpty(reason), tenantID, requisitionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	r.Status = "APPROVED"
+	return &r, nil
+}
+
+// RejectRequisition rejects a PENDING_APPROVAL requisition without releasing
+// the overissued stock. The over-issue stays in the store and must be
+// re-weighed/reconciled before it can be cleared.
+func (s *Service) RejectRequisition(ctx context.Context, tenantID, userID, requisitionID, reason string) (*StoreRequisition, error) {
+	q := s.q(ctx)
+	tx, ok := q.(*sql.Tx)
+	if !ok {
+		return nil, errors.New("transaction required")
+	}
+
+	var r StoreRequisition
+	err := tx.QueryRow(
+		`SELECT id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status
+		 FROM daily_store_requisitions WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+		tenantID, requisitionID,
+	).Scan(&r.ID, &r.TenantID, &r.SlipNumber, &r.RequisitionDate, &r.MealType, &r.RecipeID, &r.BoarderCountFed, &r.Status)
+	if err != nil {
+		return nil, err
+	}
+	if r.Status != "PENDING_APPROVAL" {
+		return nil, errors.New("requisition is not pending approval")
+	}
+
+	_, err := tx.Exec(
+		`UPDATE daily_store_requisitions SET status = 'REJECTED', approved_by = $1, approval_reason = $2,
+			 approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		 WHERE tenant_id = $3 AND id = $4`,
+		nullIfEmpty(userID), nullIfEmpty(reason), tenantID, requisitionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	r.Status = "REJECTED"
+	return &r, nil
+}
+
+
 	r.BoarderCountFed = boarderCount
 	return &r, nil
 }
