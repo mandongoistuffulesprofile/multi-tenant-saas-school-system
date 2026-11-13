@@ -84,5 +84,20 @@ export default defineConfig(({ command }) => {
         },
       },
     },
+    // The service worker only registers in a production build, so offline
+    // testing needs `vite preview`. Preview does not inherit `server.proxy`;
+    // without this the built app cannot reach /api on the preview origin.
+    preview: {
+      port: 4173,
+      host: "127.0.0.1",
+      proxy: {
+        "/api": {
+          target: "http://localhost:8080",
+          changeOrigin: true,
+          ws: true,
+          agent: keepAliveAgent,
+        },
+      },
+    },
   };
 });
