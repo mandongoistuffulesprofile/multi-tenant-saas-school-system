@@ -77,7 +77,6 @@ const SECTION_GROUPS: { id: string; label: string; items: SideItem[] }[] = [
       { path: "/finance/fee-categories", label: "fee_categories" },
       { path: "/finance/fee-structures", label: "fee_structures" },
       { path: "/finance/reconciliation", label: "reconciliation" },
-      { path: "/finance/board-pack", label: "board_pack" },
     ],
   },
   {
@@ -127,7 +126,6 @@ const ALL_ITEM_ROLES: Record<string, readonly string[]> = {
   "/finance/fee-categories": FINANCE_ROLES,
   "/finance/fee-structures": FINANCE_ROLES,
   "/finance/reconciliation": FINANCE_ROLES,
-  "/finance/board-pack": FINANCE_ROLES,
   "/calendar": [...ADMIN_ROLES, "TEACHER"],
   "/curriculum": [...ACADEMIC_ROLES, "TEACHER"],
   "/assessment": [...ACADEMIC_ROLES, "TEACHER"],
@@ -147,7 +145,7 @@ function sectionForPath(path: string): string | null {
 
 const LABEL_KEYS = new Set([
   "learners", "grades_streams", "teaching_allocation", "staff", "invoices", "payments",
-  "fee_categories", "fee_structures", "mpesa_ledger", "reconciliation", "board_pack",
+  "fee_categories", "fee_structures", "mpesa_ledger", "reconciliation",
   "calendar", "curriculum", "assessment", "reports", "attendance", "comms", "compliance",
   "knec", "school", "integrations", "platform", "dashboard", "profile",
 ]);
@@ -187,7 +185,6 @@ const NAV_PAGES: { keys: string; path: string }[] = [
   { keys: "fee categories classification", path: "/finance/fee-categories" },
   { keys: "fee structures matrix", path: "/finance/fee-structures" },
   { keys: "reconciliation matching", path: "/finance/reconciliation" },
-  { keys: "board pack executive pack export", path: "/finance/board-pack" },
   { keys: "calendar terms year", path: "/calendar" },
   { keys: "curriculum cbc areas", path: "/curriculum" },
   { keys: "assessment exams events", path: "/assessment" },
@@ -614,7 +611,6 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "/finance/payments": CreditCard,
   "/finance/mpesa": Smartphone,
   "/finance/reconciliation": Scale,
-  "/finance/board-pack": Landmark,
   "/grades-streams": Layers,
   "/teaching-allocation": UserCheck,
   "/curriculum": BookOpen,

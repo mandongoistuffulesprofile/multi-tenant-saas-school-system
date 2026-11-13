@@ -18,7 +18,6 @@ const SEGMENT_LABELS: Record<string, string> = {
   "fee-structures": "Fee Structures",
   reconciliation: "Reconciliation",
   "holding-tank": "Holding Tank",
-  "board-pack": "Board Pack",
   credits: "Credits",
   adjustments: "Adjustments",
   refunds: "Refunds",

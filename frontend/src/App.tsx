@@ -48,7 +48,6 @@ import FinanceInvoicesPage from "./pages/FinanceInvoicesPage";
 import FinancePaymentsPage from "./pages/FinancePaymentsPage";
 import FinanceMpesaPage from "./pages/FinanceMpesaPage";
 import NotFoundPage from "./pages/NotFoundPage";
-import BoardPackPage from "./pages/BoardPackPage";
 import FinanceReconciliationPage from "./pages/FinanceReconciliationPage";
 import HoldingTankReconciliationPage from "./pages/HoldingTankReconciliationPage";
 import FinanceCreditsPage from "./pages/FinanceCreditsPage";
@@ -159,7 +158,6 @@ export default function App() {
             <Route path="/finance/invoices" element={guard(FINANCE_ROLES, <FinanceInvoicesPage />)} />
             <Route path="/finance/payments" element={guard(FINANCE_ROLES, <FinancePaymentsPage />)} />
             <Route path="/finance/mpesa" element={guard(FINANCE_ROLES, <FinanceMpesaPage />)} />
-            <Route path="/finance/board-pack" element={guard(FINANCE_ROLES, <BoardPackPage />)} />
             <Route path="/finance/reconciliation" element={guard(FINANCE_ROLES, <FinanceReconciliationPage />)} />
             <Route path="/finance/holding-tank" element={guard(FINANCE_ROLES, <HoldingTankReconciliationPage />)} />
             <Route path="/finance/credits" element={guard(FINANCE_ROLES, <FinanceCreditsPage />)} />
