@@ -51,15 +51,29 @@ passwords and print them again.
 # Phone:  254700000002
 # Role:   TEACHER
 
-## 3. ROTATE OR RESET ANY EXISTING ACCOUNT
+## 3. TAKE CHARGE WITH YOUR OWN SaaS ADMIN
+# Create or update your own platform account and use that to sign in, instead
+# of relying on the demo SaaS admin account.
+#   cd backend && DATABASE_URL=postgres://school_admin:dev_secret_password@localhost:5432/school_system?sslmode=disable \
+#     DEV_EMAIL=you@yourdomain.test DEV_PHONE=254700000000 \
+#     DEV_ROLE=SAAS_ADMIN DEV_TENANT=platform-ops \
+#     DEV_PASSWORD="YourStrongLocalPassword1!" \
+#     go run ./cmd/devuser
+#
+# Then sign in at /auth/login with that email and password. The demo SaaS admin
+# account still exists unless you delete or rotate it yourself.
+
+## 4. ROTATE OR RESET ANY EXISTING ACCOUNT
 # Generates a new password and prints it once (or pass NEW_PASSWORD to choose):
 #   cd backend && DATABASE_URL=... go run ./cmd/setpassword -email user@example.com
-#
-# First platform/SaaS administrator: create the tenant and user with
-# cmd/devuser using DEV_ROLE=SUPER_ADMIN (or SAAS_ADMIN) and the platform
-# tenant, then sign in with the generated password.
 
-## 4. BEFORE PRODUCTION
+## 5. PWA / INSTALL PROMPT
+# The app is PWA-ready: it ships a manifest, icons and a service worker. On a
+# supported browser, opening the app home screen may trigger the browser's own
+# install prompt. The app also shows a polite “Add Shule Yetu” card when the
+# browser offers the install event.
+
+## 6. BEFORE PRODUCTION
 # - Demo/seed data is only applied with the -seed flag and is refused when
 #   APP_ENV=production.
 # - Delete demo tenants and accounts, and rotate every dev password.

@@ -11,16 +11,22 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 )
 
-// Creates (or updates) a development school and user so role-based access can
+// Creates or updates a development school and user so role-based access can
 // be exercised locally.
 //
-// Usage:
+// Use this when you want to take full charge of a local instance with your own
+// credentials instead of relying on the demo accounts.
 //
-//	DATABASE_URL=postgres://... DEV_EMAIL=teacher@skulapp.test \
-//	  DEV_PHONE=254700000002 DEV_ROLE=TEACHER DEV_TENANT=dev-school-001 \
+// Fastest local SaaS-admin bootstrap:
+//
+//	DATABASE_URL=postgres://school_admin:dev_secret_password@localhost:5432/school_system?sslmode=disable \
+//	  DEV_EMAIL=you@yourdomain.test DEV_PHONE=254700000000 \
+//	  DEV_ROLE=SAAS_ADMIN DEV_TENANT=platform-ops DEV_PASSWORD="YourStrongLocalPassword1!" \
 //	  go run ./cmd/devuser
 //
-// A random password is generated and printed once unless DEV_PASSWORD is set.
+// After that, sign in as the SaaS admin at /auth/login with the email and
+// password above. The demo accounts still exist unless you delete or rotate
+// them yourself.
 func main() {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
@@ -28,10 +34,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	email := env("DEV_EMAIL", "teacher@skulapp.test")
-	phone := env("DEV_PHONE", "254700000002")
-	role := env("DEV_ROLE", "TEACHER")
-	tenantID := env("DEV_TENANT", "dev-school-001")
+	email := env("DEV_EMAIL", "")
+	if email == "" {
+		fmt.Fprintln(os.Stderr, "DEV_EMAIL is required")
+		os.Exit(1)
+	}
+	phone := env("DEV_PHONE", "")
+	role := env("DEV_ROLE", "")
+	if role == "" {
+		fmt.Fprintln(os.Stderr, "DEV_ROLE is required")
+		os.Exit(1)
+	}
+	tenantID := env("DEV_TENANT", "")
+	if tenantID == "" {
+		fmt.Fprintln(os.Stderr, "DEV_TENANT is required")
+		os.Exit(1)
+	}
 
 	password := os.Getenv("DEV_PASSWORD")
 	generatedPassword := ""

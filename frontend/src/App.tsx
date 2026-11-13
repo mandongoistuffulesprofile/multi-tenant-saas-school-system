@@ -1,5 +1,25 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { onInstallPromptReady, requestInstall, watchInstallPrompt } from "./lib/installPrompt";
+
+function useInstallPrompt() {
+  const [ready, setReady] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const handleReady = (event: any) => {
+      if (!mounted) return;
+      setReady(true);
+    };
+    onInstallPromptReady(handleReady);
+    watchInstallPrompt();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return ready;
+}
 import { useAuthStore } from "./lib/authStore";
 import {
   ACADEMIC_ROLES,
@@ -21,7 +41,6 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import SchoolPickerPage from "./pages/SchoolPickerPage";
-import { ErrorBoundary } from "./components/organisms/ErrorBoundary";
 import SchoolProfilePage from "./pages/SchoolProfilePage";
 import IntegrationsPage from "./pages/IntegrationsPage";
 import AcademicCalendarPage from "./pages/AcademicCalendarPage";
@@ -59,6 +78,8 @@ import FinanceSTKPage from "./pages/FinanceSTKPage";
 import FinanceLearnerStatementPage from "./pages/FinanceLearnerStatementPage";
 import StructurePage from "./pages/StructurePage";
 import ProfilePage from "./pages/ProfilePage";
+import { ErrorBoundary } from "./components/organisms/ErrorBoundary";
+import PWAInstallCard from "./components/PWAInstallCard";
 
 import ParentHomePage from "./pages/parent/ParentHomePage";
 import ParentActivatePage from "./pages/parent/ParentActivatePage";
@@ -114,8 +135,11 @@ const SAAS_ROLES = ["SAAS_ADMIN", "SUPER_ADMIN"];
 const PARENT_ROLES: string[] = [Role.Parent, Role.Guardian];
 
 export default function App() {
+  const canInstall = useInstallPrompt();
   return (
     <>
+
+      <PWAInstallCard canInstall={canInstall} onInstallRequest={requestInstall} />
       <PWAUpdateBanner />
       <PWAOfflineSyncBanner />
       <ErrorBoundary>
