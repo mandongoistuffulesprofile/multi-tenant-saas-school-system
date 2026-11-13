@@ -1,9 +1,14 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useAuthStore } from "../lib/authStore";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
+import Button from "../components/atoms/Button";
+import Dialog from "../components/dialog/Dialog";
+import { useToast } from "../components/toast/ToastProvider";
+import { ACADEMIC_ROLES } from "../lib/roles";
 
 const fmt = (d: any) => {
   if (!d) return "—";
@@ -15,7 +20,13 @@ export default function AttendancePage() {
   const [registers, setRegisters] = useState<any[]>([]);
   const [marks, setMarks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ register_date: "", class_group_id: "", session_type: "MORNING", status: "OPEN" });
+  const [saving, setSaving] = useState(false);
   const { t } = useTranslation();
+  const { toast } = useToast();
+  const { roles: userRoles } = useAuthStore();
+  const canMark = userRoles.some((r) => ACADEMIC_ROLES.includes(r as any));
 
   useEffect(() => {
     Promise.all([
@@ -31,15 +42,38 @@ export default function AttendancePage() {
   const presentCount = marks.filter((m) => String(m.status).toUpperCase() === "PRESENT").length;
   const absentCount = marks.filter((m) => String(m.status).toUpperCase() === "ABSENT").length;
 
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    api.post("/attendance/registers", form)
+      .then(() => {
+        setOpen(false);
+        toast("Attendance register created", { type: "success" });
+        api.get("/attendance/registers").then((r) => setRegisters(r.data || []));
+      })
+      .catch((err) => { toast(err.response?.data?.message || "Failed to create register", { type: "error" }); })
+      .finally(() => setSaving(false));
+  };
+
+  if (loading) return (
+    <ErrorBoundary>
+      <div className="min-h-screen bg-slate-50 p-4">
+        <div className="max-w-6xl mx-auto">
+          <Skeleton rows={5} columns={4} />
+        </div>
+      </div>
+    </ErrorBoundary>
+  );
+
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-heading">Attendance</h2>
-            <a href="/teacher/attendance" className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition">
-              Take / Mark Attendance
-            </a>
+            {canMark && (
+              <Button variant="primary" onClick={() => setOpen(true)}>Create Register</Button>
+            )}
           </div>
           {loading ? (
             <Skeleton rows={5} columns={4} />

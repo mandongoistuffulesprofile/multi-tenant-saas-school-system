@@ -12,6 +12,8 @@ import { StaffRow, StaffCreateRequest } from "../lib/types";
 import { SCHOOL_ADMIN_ROLES } from "../lib/roles";
 import { useToast } from "../components/toast/ToastProvider";
 
+const roles = ["HEAD", "DEPUTY", "BURSAR", "CLERK", "TEACHER"];
+
 export default function StaffPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -23,8 +25,9 @@ export default function StaffPage() {
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<StaffCreateRequest>({
+  const [form, setForm] = useState<StaffCreateRequest & { first_name: string; last_name: string }>({
     email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "",
+    first_name: "", last_name: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -58,7 +61,7 @@ export default function StaffPage() {
           <p className="text-body">{t("staff_management.manage_staff_and_roles")}</p>
         </div>
         {canManageStaff && (
-          <Button variant="primary" onClick={() => { setForm({ email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "" }); setOpen(true); }}>
+          <Button variant="primary" onClick={() => { setForm({ email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "", first_name: "", last_name: "" }); setOpen(true); }}>
             {t("add_staff")}
           </Button>
         )}
@@ -69,6 +72,7 @@ export default function StaffPage() {
           data={staff}
           loading={false}
           columns={[
+            { key: "first_name", header: t("first_name"), render: (row) => `${row.first_name || ""} ${row.last_name || ""}`.trim() || "—", sortable: true },
             { key: "email", header: t("email"), sortable: true },
             { key: "phone_number", header: t("phone"), sortable: true },
             { key: "role", header: t("role"), sortable: true },
@@ -81,6 +85,26 @@ export default function StaffPage() {
 
       <Dialog open={open} onClose={() => setOpen(false)} title={t("add_staff")} className="max-w-lg">
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <input
+              id="first_name"
+              type="text"
+              className="input-field"
+              placeholder="First Name"
+              value={form.first_name}
+              onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+              required
+            />
+            <input
+              id="last_name"
+              type="text"
+              className="input-field"
+              placeholder="Last Name"
+              value={form.last_name}
+              onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+              required
+            />
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <input
               id="email"

@@ -16,6 +16,9 @@ const PROFILE_FIELDS: { key: string; label: string; placeholder?: string; mono?:
   { key: "county", label: "County", placeholder: "e.g. Nairobi" },
   { key: "sub_county", label: "Sub-County", placeholder: "e.g. Westlands" },
   { key: "zone_ward", label: "Zone / Ward" },
+  { key: "address", label: "Address", placeholder: "Physical address" },
+  { key: "default_locale", label: "Default Locale", placeholder: "e.g. en-KE" },
+  { key: "hosts_junior", label: "Hosts Junior School", placeholder: "true/false" },
   { key: "kra_pin", label: "KRA PIN (eTIMS receipts)", placeholder: "e.g. P051234567Z", mono: true },
   { key: "mpesa_account_format", label: "M-Pesa Account Format", placeholder: "STUDENT_ADM_NO", mono: true },
 ];
@@ -25,6 +28,9 @@ export default function SchoolProfilePage() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [stampPreview, setStampPreview] = useState<string | null>(null);
+  const [headSigPreview, setHeadSigPreview] = useState<string | null>(null);
   const { toast } = useToast();
 
   const applySchool = (data: any) => {
@@ -32,7 +38,11 @@ export default function SchoolProfilePage() {
     const next: Record<string, string> = {};
     PROFILE_FIELDS.forEach((f) => { next[f.key] = data?.[f.key] ?? ""; });
     next.school_motto = data?.school_motto ?? "";
+    next.hosts_junior = data?.hosts_junior ? "true" : "false";
     setForm(next);
+    setLogoPreview(data?.logo_url ?? null);
+    setStampPreview(data?.stamp_url ?? null);
+    setHeadSigPreview(data?.head_signature_url ?? null);
   };
 
   useEffect(() => {
@@ -119,6 +129,71 @@ export default function SchoolProfilePage() {
                 value={form.school_motto ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, school_motto: e.target.value }))}
               />
+            </div>
+            <div>
+              <label className="label">Hosts Junior School</label>
+              <select
+                className="input-field"
+                value={form.hosts_junior ?? "false"}
+                onChange={(e) => setForm((f) => ({ ...f, hosts_junior: e.target.value }))}
+              >
+                <option value="false">No</option>
+                <option value="true">Yes</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Default Locale</label>
+              <input
+                className="input-field"
+                placeholder="e.g. en-KE"
+                value={form.default_locale ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, default_locale: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="label">Physical Address</label>
+              <input
+                className="input-field"
+                placeholder="P.O. Box / Street address"
+                value={form.address ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="label">School Logo</label>
+              <div className="flex items-center gap-4">
+                {logoPreview ? (
+                  <img src={logoPreview} alt="Logo" className="w-16 h-16 rounded object-cover border" />
+                ) : (
+                  <div className="w-16 h-16 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-400">No logo</div>
+                )}
+                <input type="file" accept="image/*" className="text-sm" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => setLogoPreview(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }
+                }} />
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <label className="label">Head Signature</label>
+              <div className="flex items-center gap-4">
+                {headSigPreview ? (
+                  <img src={headSigPreview} alt="Signature" className="w-24 h-12 rounded object-cover border" />
+                ) : (
+                  <div className="w-24 h-12 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-400">No signature</div>
+                )}
+                <input type="file" accept="image/*" className="text-sm" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => setHeadSigPreview(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }
+                }} />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4 text-caption text-muted pt-2">
               <div>
