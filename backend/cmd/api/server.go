@@ -528,6 +528,13 @@ func Run() error {
 	inkindGroup.GET("/intakes", inkindHandler.ListIntakes)
 	inkindGroup.POST("/intakes/:id/void", middleware.RequireRole(middleware.RoleSchoolAdministrators...), inkindHandler.VoidIntake)
 
+	// In-kind: detail, lines, FIFO lots, current rate
+	inkindGroup.GET("/intakes/:id/verify", middleware.RequireRole(middleware.RoleFinanceStaff...), inkindHandler.VerifyIntake)
+	inkindGroup.GET("/intakes/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), inkindHandler.GetIntake)
+	inkindGroup.GET("/intakes/:id/lines", middleware.RequireRole(middleware.RoleFinanceStaff...), inkindHandler.IntakeLines)
+	inkindGroup.GET("/items/:id/lots", middleware.RequireAuthGin(jwtManager), inkindHandler.LotsForItem)
+	inkindGroup.GET("/rates/:id", middleware.RequireAuthGin(jwtManager), inkindHandler.CurrentRate)
+
 	vlGroup := apiV1.Group("/value-ledger")
 	vlGroup.Use(middleware.RequireAuthGin(jwtManager))
 	vlGroup.GET("/metrics", valueLedgerHandler.GetMetrics)

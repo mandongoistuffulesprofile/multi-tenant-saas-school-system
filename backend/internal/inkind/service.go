@@ -345,6 +345,41 @@ func (s *Service) LotsForItem(ctx context.Context, tenantID, inventoryItemID str
 	return lots, rows.Err()
 }
 
+type financeCrediter interface {
+	CreditStudentInvoiceForInKind(
+		tenantID, userID, studentID, admissionNumber, voteheadCode, intakeNumber string,
+		amount money.Amount,
+	) (*finance.InKindCreditResult, error)
+}
+
+// SetFinanceCrediter wires the in-kind service to the finance package so
+// in-kind produce intakes can clear the student's invoice in the same
+// transaction. The handler should wire this before calling CreateIntake.
+func (s *Service) SetFinanceCrediter(f financeCrediter) {
+	s.fin = f
+}
+
+var s_fin interface{ CreditStudentInvoiceForInKind(
+	string, string, string, string, string, string, money.Amount,
+) (*finance.InKindCreditResult, error) }
+
+func (s *Service) creditStudentInvoiceForInKind(
+	tenantID, userID, studentID, admissionNumber, intakeNumber string,
+	sourceType string,
+	amount money.Amount,
+) {
+	voteheadCode := "BOARDING_PRODUCE"
+	if strings.EqualFold(sourceType, "LUNCH") || strings.EqualFold(sourceType, "FOOD") {
+		voteheadCode = "LUNCH_PRODUCE"
+	}
+
+	if f, ok := s_fin.(financeCrediter); ok {
+		_ = f.CreditStudentInvoiceForInKind(
+			tenantID, userID, studentID, admissionNumber, voteheadCode, intakeNumber, amount,
+		)
+	}
+}
+
 func (s *Service) CreateItem(ctx context.Context, tenantID, userID string, req CreateInventoryItemRequest) (*InventoryItem, error) {
 	q := s.q(ctx)
 	var i InventoryItem
@@ -544,6 +579,14 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		// Non-fatal: log but don't fail the transaction
 		_ = err
 	}
+
+	// Credit the student's invoice for the cash equivalent of the produce.
+	// This is the operational fix for the maize-barter scenario: Faith's
+	// boarding balance must actually clear when the grain is weighed in.
+	s.creditStudentInvoiceForInKind(
+		tenantID, userID, req.StudentID, req.IntakeNumber, "IN_KIND",
+		totalValue,
+	)
 
 	return &l, nil
 }

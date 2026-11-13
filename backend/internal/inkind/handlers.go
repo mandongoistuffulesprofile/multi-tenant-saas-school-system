@@ -5,15 +5,18 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
 type Handler struct {
 	service *Service
+	fin     *finance.Handler
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *Service, fin *finance.Handler) *Handler {
+	return &Handler{service: service, fin: fin}
 }
 
 // ============ Rates ============
@@ -130,130 +133,23 @@ func (h *Handler) CreateIntake(c *gin.Context) {
 		return
 	}
 
-	log, err := h.service.CreateIntake(c.Request.Context(), tenantID, userID, req)
+	// Wire finance so produce intakes clear the student's invoice in the
+	// same transaction. Without this, maize/beans clear the kitchen inventory
+	// but never the fee ledger.
+	if h.fin != nil {
+		h.service.SetFinanceCrediter(h.fin)
+	}
+
+	intake, err := h.service.CreateIntake(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, log)
+	c.JSON(http.StatusCreated, intake)
 }
 
-	// POST /inkind/intakes/:id/verify
-	// Verify intake line items and mark the intake as VERIFIED.
-	gin.GET("/intakes/:id/verify", middleware.RequireRole(middleware.RoleFinanceStaff...), h.VerifyIntake)
-
-	// GET /inkind/intakes/:id
-	// Detail view for one intake, including item lines and total cash equivalent.
-	gin.GET("/intakes/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), h.GetIntake)
-
-	// GET /inkind/intakes/:id/lines
-	// Item-level lines for one intake.
-	gin.GET("/intakes/:id/lines", middleware.RequireRole(middleware.RoleFinanceStaff...), h.IntakeLines)
-
-	// GET /inkind/items/:id/lots
-	// FIFO lots for one inventory item.
-	gin.GET("/items/:id/lots", middleware.RequireAuthGin(jwtManager), h.LotsForItem)
-
-	// GET /inkind/rates/:id
-	// Current rate for one inventory item in a specific term.
-	gin.GET("/rates/:id", middleware.RequireAuthGin(jwtManager), h.CurrentRate)
-
-	// POST /inkind/intakes
-	// Create an in-kind intake log with item lines, FIFO lots and a journal entry.
-	gin.POST("/intakes", middleware.RequireRole(middleware.RoleFinanceStaff...), h.CreateIntake)
-
-	// POST /inkind/intakes/:id/void
-	// Void a pending intake and reverse the journal/lot quantity.
-	gin.POST("/intakes/:id/void", middleware.RequireRole(middleware.RoleSchoolAdministrators...), h.VoidIntake)
-}
-
-// GetIntake returns one intake log with total cash equivalent.
-func (h *Handler) GetIntake(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
-	userID := c.GetHeader("X-User-Id")
-	logID := c.Param("id")
-
-	l, err := h.service.GetIntake(c.Request.Context(), tenantID, logID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
-	}
-	if l == nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "intake not found"})
-		return
-	}
-	c.JSON(http.StatusOK, l)
-}
-
-// IntakeLines returns the item lines for one intake.
-func (h *Handler) IntakeLines(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
-	logID := c.Param("id")
-
-	items, err := h.service.IntakeLines(c.Request.Context(), tenantID, logID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, items)
-}
-
-// LotsForItem returns FIFO lots for one inventory item.
-func (h *Handler) LotsForItem(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
-	inventoryItemID := c.Param("id")
-
-	lots, err := h.service.LotsForItem(c.Request.Context(), tenantID, inventoryItemID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, lots)
-}
-
-// CurrentRate returns the active rate for one inventory item in a specific term.
-func (h *Handler) CurrentRate(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
-	inventoryItemID := c.Param("id")
-	termID := c.Query("term_id")
-	if termID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": "BAD_REQUEST", "message": "term_id is required"})
-		return
-	}
-
-	r, err := h.service.CurrentRate(c.Request.Context(), tenantID, inventoryItemID, termID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
-	}
-	if r == nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "no active rate for this item/term"})
-		return
-	}
-	c.JSON(http.StatusOK, r)
-}
-
-func (h *Handler) VoidIntake(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
-	userID := c.GetString("user_id")
-	logID := c.Param("id")
-
-	var req struct {
-		Reason string `json:"reason" binding:"required"`
-	}
-	if errs := validation.BindJSON(c, &req); errs != nil {
-		validation.BadRequest(c, "Invalid request", errs)
-		return
-	}
-
-	intake, err := h.service.VoidIntake(c.Request.Context(), tenantID, userID, logID, req.Reason)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, intake)
-}
-
+// POST /inkind/intakes/:id/verify
+// Verify intake line items and mark the intake as VERIFIED.
 func (h *Handler) VerifyIntake(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
@@ -275,6 +171,100 @@ func (h *Handler) VerifyIntake(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, log)
+}
+
+// ============ Intake detail endpoints ============
+
+// GET /inkind/intakes/:id
+// Detail view for one intake, including item lines and total cash equivalent.
+func (h *Handler) GetIntake(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	logID := c.Param("id")
+
+	l, err := h.service.GetIntake(c.Request.Context(), tenantID, logID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if l == nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "intake not found"})
+		return
+	}
+	c.JSON(http.StatusOK, l)
+}
+
+// GET /inkind/intakes/:id/lines
+// Item-level lines for one intake.
+func (h *Handler) IntakeLines(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	logID := c.Param("id")
+
+	items, err := h.service.IntakeLines(c.Request.Context(), tenantID, logID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+// GET /inkind/items/:id/lots
+// FIFO lots for one inventory item.
+func (h *Handler) LotsForItem(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	inventoryItemID := c.Param("id")
+
+	lots, err := h.service.LotsForItem(c.Request.Context(), tenantID, inventoryItemID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, lots)
+}
+
+// GET /inkind/rates/:id
+// Current rate for one inventory item in a specific term.
+func (h *Handler) CurrentRate(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	inventoryItemID := c.Param("id")
+	termID := c.Query("term_id")
+	if termID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "BAD_REQUEST", "message": "term_id is required"})
+		return
+	}
+
+	r, err := h.service.CurrentRate(c.Request.Context(), tenantID, inventoryItemID, termID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if r == nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "no active rate for this item/term"})
+		return
+	}
+	c.JSON(http.StatusOK, r)
+}
+
+// POST /inkind/intakes/:id/void
+// Void a pending intake and reverse the journal/lot quantity.
+func (h *Handler) VoidIntake(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	logID := c.Param("id")
+
+	var req struct {
+		Reason string `json:"reason" binding:"required"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+
+	intake, err := h.service.VoidIntake(c.Request.Context(), tenantID, userID, logID, req.Reason)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, intake)
 }
 
 // ============ Allocations ============
