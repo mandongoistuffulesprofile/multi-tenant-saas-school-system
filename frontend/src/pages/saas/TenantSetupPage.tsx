@@ -1528,7 +1528,7 @@ export default function TenantSetupPage() {
             {handedOff && (
               <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-[13px] text-green-900">
                 Handed off{data?.onboarding?.handed_off_at ? ` on ${String(data.onboarding.handed_off_at).slice(0, 10)}` : ""}.
-                The school admin can now manage the school.
+                The school is now the owner of this tenant. The school admin finishes the rest of the setup: admissions and learner enrolment, fee structures and payment channels, staff assignments and roles, and parent/guardian linkage.
               </div>
             )}
 
@@ -1611,7 +1611,7 @@ export default function TenantSetupPage() {
                   onChange={(e) => setHandoffAck(e.target.checked)}
                   disabled={handedOff}
                 />
-                Credentials and handoff instructions have been communicated to the School Admin.
+                Credentials and handoff instructions have been communicated to the School Admin, and the school now owns this tenant.
               </label>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
@@ -1705,11 +1705,12 @@ export default function TenantSetupPage() {
                 );
               })}
             </ol>
-            <div className="mt-3 border-t border-gray-200 px-3 pt-3 text-[13px] text-gray-600">
+                          <div className="mt-3 border-t border-gray-200 px-3 pt-3 text-[13px] text-gray-600">
               School admin:{" "}
               <span className={adminOk ? "font-medium text-green-700" : "font-medium text-red-700"}>
                 {adminOk ? "assigned ✓" : "missing !"}
               </span>
+              {" · "}After handoff the school admin finishes admissions, fee structures, staff assignments, and parent/guardian linkage.
             </div>
           </Card>
           <p className="mt-3 hidden px-1 text-[13px] text-gray-500 lg:block">
@@ -1794,9 +1795,9 @@ export default function TenantSetupPage() {
           </Card>
 
           {active === "review" && (
-            <p className="text-[13px] text-gray-600">
-              Use the button in the bar below to mark the setup ready for handoff once all required steps are complete.
-            </p>
+                          <p className="text-[13px] text-gray-600">
+                When the required steps are done, mark the school ready for handoff, then hand it over. After handoff the school admin owns this tenant and finishes admissions, fee structures, staff assignments, and parent/guardian linkage.
+              </p>
           )}
         </div>
       </div>
