@@ -295,7 +295,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 	}
 
 	_, _ = tx.Exec(
-		`UPDATE report_runs SET learner_count = $1, generated_count = $2, status = 'COMPLETED', completed_at = now()
+		`UPDATE report_runs SET learner_count = $1, generated_count = $2, status = 'COMPLETED', completed_at = now(), error_message = ''
 		 WHERE run_id = $3`, len(learners), generated, runID)
 
 	c.JSON(http.StatusCreated, gin.H{

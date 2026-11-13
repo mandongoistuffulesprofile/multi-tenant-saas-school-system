@@ -98,6 +98,22 @@ type ReportRun struct {
 	CompletedAt    string `json:"completed_at,omitempty"`
 }
 
+type reportRunRow struct {
+	RunID          string         `db:"run_id"`
+	TenantID       string         `db:"tenant_id"`
+	TemplateID     string         `db:"template_id"`
+	AcademicYearID string         `db:"academic_year_id"`
+	TermID         sql.NullString `db:"term_id"`
+	GradeID        sql.NullString `db:"grade_id"`
+	Status         string         `db:"status"`
+	LearnerCount   int            `db:"learner_count"`
+	GeneratedCount int            `db:"generated_count"`
+	ErrorMessage   sql.NullString `db:"error_message"`
+	CreatedBy      sql.NullString `db:"created_by"`
+	CreatedAt      string         `db:"created_at"`
+	CompletedAt    sql.NullString `db:"completed_at"`
+}
+
 func (h *Handler) ListReportRuns(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
@@ -119,14 +135,28 @@ func (h *Handler) ListReportRuns(c *gin.Context) {
 
 	var runs []ReportRun
 	for rows.Next() {
-		var r ReportRun
+		var r reportRunRow
 		if err := rows.Scan(&r.RunID, &r.TenantID, &r.TemplateID, &r.AcademicYearID, &r.TermID,
 			&r.GradeID, &r.Status, &r.LearnerCount, &r.GeneratedCount, &r.ErrorMessage,
 			&r.CreatedBy, &r.CreatedAt, &r.CompletedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
-		runs = append(runs, r)
+		runs = append(runs, ReportRun{
+			RunID:          r.RunID,
+			TenantID:       r.TenantID,
+			TemplateID:     r.TemplateID,
+			AcademicYearID: r.AcademicYearID,
+			TermID:         r.TermID.String,
+			GradeID:        r.GradeID.String,
+			Status:         r.Status,
+			LearnerCount:   r.LearnerCount,
+			GeneratedCount: r.GeneratedCount,
+			ErrorMessage:   r.ErrorMessage.String,
+			CreatedBy:      r.CreatedBy.String,
+			CreatedAt:      r.CreatedAt,
+			CompletedAt:    r.CompletedAt.String,
+		})
 	}
 	c.JSON(http.StatusOK, runs)
 }
