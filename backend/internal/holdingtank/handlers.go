@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Handler struct {
@@ -101,4 +103,58 @@ func (h *Handler) ListTokens(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, toks)
+}
+
+func (h *Handler) MatchHoldingEntry(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	entryID := c.Param("id")
+
+	entries, err := h.service.List(c.Request.Context(), tenantID, "UNALLOCATED", 200, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	var target *HoldingEntry
+	for i := range entries {
+		if entries[i].ID == entryID {
+			target = &entries[i]
+			break
+		}
+	}
+	if target == nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": "ENTRY_NOT_FOUND", "message": "unallocated entry not found"})
+		return
+	}
+
+	// MatchCandidates needs the inbox context for the entry. Populate the
+	// helper fields the matcher consumes from the entry and the M-Pesa inbox.
+	type holder struct {
+		HoldingEntry
+		ReceiverName  string `json:"-"`
+		ReceiverPhone string `json:"-"`
+		AccountReference string `json:"-"`
+	}
+	h := holder{
+		HoldingEntry: *target,
+	}
+	if h.Reference != "" {
+		var inboxSenderName, inboxSenderPhone, inboxAccountRef string
+		if err := h.service.q(c.Request.Context()).QueryRowContext(c.Request.Context(), `
+			SELECT sender_name, sender_phone, account_reference
+			FROM mpesa_raw_inbox
+			WHERE tenant_id = $1 AND trans_id = $2
+			LIMIT 1`, tenantID, h.Reference).Scan(&inboxSenderName, &inboxSenderPhone, &inboxAccountRef); err == nil {
+			h.ReceiverName = inboxSenderName
+			h.ReceiverPhone = inboxSenderPhone
+			h.AccountReference = inboxAccountRef
+		}
+	}
+
+	matches, err := NewMatcher(h.service.database).FindCandidates(c.Request.Context(), tenantID, h.HoldingEntry)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, matches)
 }

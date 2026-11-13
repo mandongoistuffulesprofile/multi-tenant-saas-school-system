@@ -540,6 +540,7 @@ func Run() error {
 	holdingGroup.Use(middleware.RequireAuthGin(jwtManager))
 	holdingGroup.GET("", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ListHoldingTank)
 	holdingGroup.POST("/:id/resolve", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.ResolveHoldingTank)
+	holdingGroup.GET("/:id/match", middleware.RequireRole(middleware.RoleFinanceStaff...), holdingtankHandler.MatchHoldingEntry)
 
 	tokenGroup := apiV1.Group("/delegated-tokens")
 	tokenGroup.Use(middleware.RequireAuthGin(jwtManager))
