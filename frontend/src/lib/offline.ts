@@ -189,6 +189,42 @@ export async function bumpRetry(tenantId: string, id: ID): Promise<void> {
   });
 }
 
+/* ============ Read-only collection cache ============ */
+
+// API reads fail closed offline (the service worker answers /api with 503),
+// so the marking screen needs the last successful register/learner list to
+// render after a cold offline reload.
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function cacheCollection<T>(tenantId: string, name: string, rows: T[]): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(
+      `skulapp_cache_${tenantId}_${name}`,
+      JSON.stringify({ saved_at: Date.now(), rows }),
+    );
+  } catch {
+    /* quota/private mode: cache is best-effort */
+  }
+}
+
+export function readCachedCollection<T>(tenantId: string, name: string): T[] | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(`skulapp_cache_${tenantId}_${name}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { saved_at?: number; rows?: T[] };
+    if (!Array.isArray(parsed?.rows)) return null;
+    if (Date.now() - Number(parsed.saved_at ?? 0) > CACHE_TTL_MS) {
+      localStorage.removeItem(`skulapp_cache_${tenantId}_${name}`);
+      return null;
+    }
+    return parsed.rows;
+  } catch {
+    return null;
+  }
+}
+
 export function isOnline(): boolean {
   return typeof navigator !== "undefined" ? navigator.onLine : true;
 }
