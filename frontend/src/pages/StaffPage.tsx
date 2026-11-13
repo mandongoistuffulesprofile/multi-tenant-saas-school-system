@@ -9,11 +9,17 @@ import ViewState from "../components/organisms/ViewState";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
 import { StaffRow, StaffCreateRequest } from "../lib/types";
+import { SCHOOL_ADMIN_ROLES } from "../lib/roles";
 import { useToast } from "../components/toast/ToastProvider";
 
 export default function StaffPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const { roles: userRoles } = useAuthStore();
+  // Listing staff is open to clerks, but POST /staff is limited to school
+  // administrators. Hide the action instead of letting it 403.
+  const staffRoles = ["HEAD", "DEPUTY", "BURSAR", "CLERK", "TEACHER"];
+  const canManageStaff = staffRoles.some((r) => SCHOOL_ADMIN_ROLES.includes(r as any));
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [open, setOpen] = useState(false);
@@ -21,8 +27,6 @@ export default function StaffPage() {
     email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "",
   });
   const [saving, setSaving] = useState(false);
-
-  const roles = ["HEAD", "DEPUTY", "BURSAR", "CLERK", "TEACHER"];
 
   useEffect(() => {
     api.get<StaffRow[]>("/staff")
@@ -53,9 +57,11 @@ export default function StaffPage() {
           <h1 className="text-display">{t("staff")}</h1>
           <p className="text-body">{t("staff_management.manage_staff_and_roles")}</p>
         </div>
-        <Button variant="primary" onClick={() => { setForm({ email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "" }); setOpen(true); }}>
-          {t("add_staff")}
-        </Button>
+        {canManageStaff && (
+          <Button variant="primary" onClick={() => { setForm({ email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "" }); setOpen(true); }}>
+            {t("add_staff")}
+          </Button>
+        )}
       </div>
 
       <Card>
