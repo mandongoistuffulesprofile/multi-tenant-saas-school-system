@@ -121,9 +121,18 @@ func (h *Handler) ListReportRuns(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
+	// term_id, grade_id, error_message, created_by and completed_at are all
+	// nullable. Scan them through COALESCE so a run that is still pending, or
+	// that was generated for every grade, does not turn the whole list into a
+	// 500 ("converting NULL to string is unsupported").
 	rows, err := tx.Query(
-		`SELECT run_id, tenant_id, template_id, academic_year_id, term_id, grade_id,
-			status, learner_count, generated_count, error_message, created_by, created_at, completed_at
+		`SELECT run_id, tenant_id, template_id, academic_year_id,
+		        COALESCE(term_id::text, '') AS term_id,
+		        COALESCE(grade_id, '') AS grade_id,
+		        status, learner_count, generated_count,
+		        COALESCE(error_message, '') AS error_message,
+		        COALESCE(created_by::text, '') AS created_by,
+		        created_at, COALESCE(completed_at::text, '') AS completed_at
 		 FROM report_runs WHERE tenant_id = $1 ORDER BY created_at DESC`,
 		tenantID,
 	)
