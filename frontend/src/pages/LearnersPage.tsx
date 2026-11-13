@@ -266,12 +266,23 @@ export default function LearnersPage() {
   };
 
   const handleBatchInvoice = () => {
-    toast(`Batch invoice prepared for ${selected.size} learner(s)`, { type: "info" });
+    if (selected.size === 0) return;
+    const ids = Array.from(selected).join(",");
+    window.location.href = `/finance/invoices?learners=${encodeURIComponent(ids)}`;
     setSelected(new Set());
   };
 
   const handleExportCsv = () => {
-    toast(`Exporting ${selected.size} learner record(s)`, { type: "info" });
+    const ids = Array.from(selected).join(",");
+    const url = `/exports/learners?ids=${encodeURIComponent(ids)}&format=csv`;
+    api.get(url, { responseType: "blob" }).then((r) => {
+      const blob = new Blob([r.data], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "learners.csv";
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }).catch(() => toast("Export failed", { type: "error" }));
     setSelected(new Set());
   };
 

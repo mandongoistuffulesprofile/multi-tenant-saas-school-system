@@ -90,9 +90,7 @@ import ImpersonationPage from "./pages/saas/ImpersonationPage";
 import PlatformAuditPage from "./pages/saas/PlatformAuditPage";
 
 /* Demo-ready presentation pages (self-contained, no API required). */
-import { FeesDesk } from "./pages/FeesDesk";
 import { CBCAssessment } from "./pages/CBCAssessment";
-import { StudentsDesk } from "./pages/StudentsDesk";
 import { BOMOversight } from "./pages/BOMOversight";
 
 /** Requires an authenticated session (hydrated from HttpOnly cookies via /me). */
