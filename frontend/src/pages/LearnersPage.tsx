@@ -13,6 +13,7 @@ import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
 import { useToast } from "../components/toast/ToastProvider";
 import { Learner, LearnerCreateRequest } from "../lib/types";
+import { SCHOOL_ADMIN_ROLES } from "../lib/roles";
 import { SponsorshipBadge } from "../components/learners/SponsorshipBadge";
 import { FloatingBulkDock } from "../components/ui/FloatingBulkDock";
 
@@ -64,6 +65,10 @@ type TransportZone = {
 export default function LearnersPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const { roles } = useAuthStore();
+  // Teachers and clerks may read the register, but POST /learners (and the
+  // CSV import) are restricted to school administrators.
+  const canManageLearners = roles.some((r) => SCHOOL_ADMIN_ROLES.includes(r as any));
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [learners, setLearners] = useState<Learner[]>([]);
   const [open, setOpen] = useState(false);
@@ -280,14 +285,16 @@ export default function LearnersPage() {
           <h1 className="text-display">{t("learners")}</h1>
           <p className="text-body">{t("learner_registry")}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Link to="/imports/learners" className="text-sm font-medium text-kenyan-red hover:underline">
-            Import CSV
-          </Link>
-          <Button variant="primary" onClick={() => setOpen(true)}>
-            {t("add_learner")}
-          </Button>
-        </div>
+        {canManageLearners && (
+          <div className="flex items-center gap-3">
+            <Link to="/imports/learners" className="text-sm font-medium text-kenyan-red hover:underline">
+              Import CSV
+            </Link>
+            <Button variant="primary" onClick={() => setOpen(true)}>
+              {t("add_learner")}
+            </Button>
+          </div>
+        )}
       </div>
 
       <Card>

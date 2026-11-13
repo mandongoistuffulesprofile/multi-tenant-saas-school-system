@@ -4,6 +4,8 @@ import DataTable from "../components/organisms/DataTable";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
+import { useAuthStore } from "../lib/authStore";
+import { SCHOOL_ADMIN_ROLES } from "../lib/roles";
 
 type AcademicYear = {
   year_id: string;
@@ -52,6 +54,10 @@ export default function AcademicCalendarPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<"year" | "term" | "window" | null>(null);
   const { toast } = useToast();
+  const { roles } = useAuthStore();
+  // Clerks can read the calendar, but every create endpoint is restricted to
+  // school administrators.
+  const canManageCalendar = roles.some((r) => SCHOOL_ADMIN_ROLES.includes(r as any));
 
   const [yearModal, setYearModal] = useState(false);
   const [yearForm, setYearForm] = useState({
@@ -165,17 +171,19 @@ export default function AcademicCalendarPage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <h2 className="text-heading">Academic Calendar</h2>
-            <div className="flex flex-wrap gap-2">
-              <button className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50 transition" onClick={() => setYearModal(true)}>
-                Add Academic Year
-              </button>
-              <button className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50 transition" onClick={() => setWindowModal(true)}>
-                Add Exam Window
-              </button>
-              <button className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition" onClick={openTermModal}>
-                Add Term
-              </button>
-            </div>
+            {canManageCalendar && (
+              <div className="flex flex-wrap gap-2">
+                <button className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50 transition" onClick={() => setYearModal(true)}>
+                  Add Academic Year
+                </button>
+                <button className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50 transition" onClick={() => setWindowModal(true)}>
+                  Add Exam Window
+                </button>
+                <button className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition" onClick={openTermModal}>
+                  Add Term
+                </button>
+              </div>
+            )}
           </div>
           {loading ? (
             <Skeleton rows={5} columns={4} />
