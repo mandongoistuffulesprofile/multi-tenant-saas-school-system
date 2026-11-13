@@ -1,7 +1,22 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { StatutoryLearner, exportNEMISBatchCSV } from '../utils/nemisExportEngine';
 import { maskPhoneNumber } from '../utils/kenyaFormatters';
+
+interface CapitationCompliance {
+  tenant_id: string;
+  total_enrolled: number;
+  verified_upi_count: number;
+  missing_upi_count: number;
+  at_risk_percentage: number;
+  primary_and_jss_at_risk_count: number;
+  grade_6_and_below_at_risk_count: number;
+  estimated_primary_exposure_kes: number;
+  estimated_jss_exposure_kes: number;
+  estimated_total_exposure_kes: number;
+  current_academic_year_id: string;
+  current_academic_year_label: string;
+}
 
 const MANDONGOI_REGISTER: StatutoryLearner[] = [
   {
@@ -57,11 +72,43 @@ const MANDONGOI_REGISTER: StatutoryLearner[] = [
   },
 ];
 
-export const StudentsDesk: React.FC = () => {
+export const StudentsDesk: React.FC<{ apiBase?: string }> = ({ apiBase = '' }) => {
   const [learners, setLearners] = useState<StatutoryLearner[]>(MANDONGOI_REGISTER);
+  const [capitation, setCapitation] = useState<CapitationCompliance | null>(null);
+  const [capitationError, setCapitationError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [gradeFilter, setGradeFilter] = useState('');
   const [capitationStatusFilter, setCapitationStatusFilter] = useState<'ALL' | 'VERIFIED' | 'AT_RISK'>('ALL');
+
+  useEffect(() => {
+    if (!apiBase) {
+      setCapitation(null);
+      setCapitationError(null);
+      return;
+    }
+    const controller = new AbortController();
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/finance/capitation/compliance`, {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error('capitation fetch failed');
+        const data: CapitationCompliance = await res.json();
+        if (!cancelled) setCapitation(data);
+      } catch (err) {
+        if ((err as any)?.name === 'AbortError') return;
+        if (!cancelled) setCapitationError('Could not load capitation compliance.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [apiBase]);
 
   // Multi-Vector Search Resolver
   const filteredLearners = useMemo(() => {
@@ -88,8 +135,9 @@ export const StudentsDesk: React.FC = () => {
     });
   }, [learners, searchQuery, gradeFilter, capitationStatusFilter]);
 
-  const verifiedCount = learners.filter(l => !!l.nemis_upi).length;
-  const atRiskCount = learners.length - verifiedCount;
+  const verifiedCount = capitation?.verified_upi_count ?? learners.filter(l => !!l.nemis_upi).length;
+  const atRiskCount = capitation?.missing_upi_count ?? learners.length - verifiedCount;
+  const estimatedExposure = capitation?.estimated_total_exposure_kes ?? 0;
 
   return (
     <div className="space-y-4">
@@ -143,12 +191,16 @@ export const StudentsDesk: React.FC = () => {
           </span>
         </div>
 
-        <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex justify-between items-center">
+                  <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex justify-between items-center">
           <div>
             <span className="text-blue-800 font-semibold">Makadirio ya Ruzuku ya FPE/FDSE:</span>
-            <div className="text-lg font-black text-blue-900 font-mono">KES {(verifiedCount * 1420).toLocaleString()}</div>
+            <div className="text-lg font-black text-blue-900 font-mono">KES {Math.round(estimatedExposure).toLocaleString()}</div>
           </div>
-          <span className="text-[10px] text-blue-700">Ruzuku ya Muhula 1</span>
+          <span className="text-[10px] text-blue-700">
+            {capitation?.current_academic_year_label
+              ? capitation.current_academic_year_label
+              : 'Ruzuku ya Muhula 1'}
+          </span>
         </div>
       </div>
 

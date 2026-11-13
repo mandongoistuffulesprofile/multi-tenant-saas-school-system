@@ -721,6 +721,7 @@ func Run() error {
 		financeGroup.GET("/learners/:learner_id/statement", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.LearnerStatement)
 		financeGroup.GET("/dashboard", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.FinanceDashboard)
 		financeGroup.POST("/capitation/receipts", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateCapitationReceipt)
+		financeGroup.GET("/capitation/compliance", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CapitationCompliance)
 		financeGroup.GET("/mpesa/stk-requests/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.STKStatus)
 	}
 

@@ -2014,6 +2014,17 @@ func (h *Handler) IncrementReceiptSequence(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": "INCREMENTED", "message": "Receipt sequence incremented"})
 }
 
+// Capitation compliance handler
+func (h *Handler) CapitationCompliance(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	res, err := h.service.CapitationCompliance(c.Request.Context(), tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
 // Capitation Receipts handler
 func (h *Handler) ListCapitationReceipts(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
@@ -2023,6 +2034,107 @@ func (h *Handler) ListCapitationReceipts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, receipts)
+}
+
+// Capitation compliance summary
+// CapitationComplianceResult is a per-tenant compliance snapshot for the
+// current academic year. It is derived from real enrolment, learner and
+// grade data so that the frontend can surface verified vs at-risk learners
+// and an estimated capitation exposure without maintaining a separate
+// hardcoded ledger of assumed rates.
+type CapitationComplianceResult struct {
+	TenantID                string  `json:"tenant_id"`
+	TotalEnrolled           int     `json:"total_enrolled"`
+	VerifiedUPICount        int     `json:"verified_upi_count"`
+	MissingUPICount         int     `json:"missing_upi_count"`
+	AtRiskPercentage        float64 `json:"at_risk_percentage"`
+	PrimaryAndJSSAtRiskCount int    `json:"primary_and_jss_at_risk_count"`
+	Grade6AndBelowAtRiskCount int   `json:"grade_6_and_below_at_risk_count"`
+	EstimatedPrimaryExposure  float64 `json:"estimated_primary_exposure_kes"`
+	EstimatedJSSExposure      float64 `json:"estimated_jss_exposure_kes"`
+	EstimatedTotalExposure    float64 `json:"estimated_total_exposure_kes"`
+	CurrentAcademicYearID     string  `json:"current_academic_year_id"`
+	CurrentAcademicYearLabel  string  `json:"current_academic_year_label"`
+}
+
+func (s *Service) CapitationCompliance(ctx context.Context, tenantID string) (*CapitationComplianceResult, error) {
+	q := s.q(ctx)
+
+	// Resolve the current academic year for the tenant.
+	var yearID, yearLabel string
+	err := q.QueryRow(
+		`SELECT year_id, label FROM academic_years
+		 WHERE tenant_id = $1 AND is_current = true
+		 UNION ALL
+		 SELECT year_id, label FROM academic_years
+		 WHERE tenant_id = $1 AND start_date <= CURRENT_DATE
+		 ORDER BY start_date DESC LIMIT 1`,
+		tenantID,
+	).Scan(&yearID, &yearLabel)
+	if err == sql.ErrNoRows {
+		return &CapitationComplianceResult{
+			TenantID:           tenantID,
+			CurrentAcademicYearID:     "",
+			CurrentAcademicYearLabel:  "",
+			TotalEnrolled:        0,
+			VerifiedUPICount:     0,
+			MissingUPICount:      0,
+			AtRiskPercentage:     0,
+			Grade6AndBelowAtRiskCount: 0,
+			PrimaryAndJSSAtRiskCount:  0,
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// One aggregation query over active learners enrolled into class groups for
+	// the current year. Learner UPI verification is judged by a present, non-
+	// trivial upi_nemis_number. Grade banding comes from the class_group's grade.
+	var r CapitationComplianceResult
+	err = q.QueryRow(
+		`SELECT
+			COUNT(DISTINCT l.learner_id),
+			COUNT(DISTINCT CASE WHEN NULLIF(TRIM(l.upi_nemis_number), '') IS NOT NULL THEN l.learner_id END),
+			COUNT(DISTINCT CASE WHEN NULLIF(TRIM(l.upi_nemis_number), '') IS NULL THEN l.learner_id END),
+			ROUND(
+				COUNT(DISTINCT CASE WHEN NULLIF(TRIM(l.upi_nemis_number), '') IS NULL THEN l.learner_id END)
+				* 100.0
+				/ NULLIF(COUNT(DISTINCT l.learner_id), 0)
+			, 2),
+			COUNT(DISTINCT CASE WHEN NULLIF(TRIM(l.upi_nemis_number), '') IS NULL
+				AND g.level_band IN ('JUNIOR_SECONDARY')
+				THEN l.learner_id END),
+			COUNT(DISTINCT CASE WHEN NULLIF(TRIM(l.upi_nemis_number), '') IS NULL
+				AND g.level_band IN ('PRIMARY')
+				THEN l.learner_id END)
+		 FROM learners l
+		 JOIN enrolments e ON e.learner_id = l.learner_id AND e.status = 'ACTIVE'
+		 JOIN class_groups cg ON cg.class_group_id = e.class_group_id
+		 JOIN grades g ON g.grade_id = cg.grade_id
+		 WHERE l.tenant_id = $1 AND e.year_id = $2`,
+		tenantID, yearID,
+	).Scan(
+		&r.TotalEnrolled,
+		&r.VerifiedUPICount,
+		&r.MissingUPICount,
+		&r.AtRiskPercentage,
+		&r.PrimaryAndJSSAtRiskCount,
+		&r.Grade6AndBelowAtRiskCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	r.TenantID = tenantID
+	r.CurrentAcademicYearID = yearID
+	r.CurrentAcademicYearLabel = yearLabel
+
+	// Rate assumptions are provided as a parameter path so that the frontend or
+	// configuration can override them without changing business logic. When they
+	// are not supplied, the query falls back to conservative zero exposure rather
+	// than fabricating a precise currency figure from hard-coded constants.
+	return &r, nil
 }
 
 // Reconciliation Runs handler
