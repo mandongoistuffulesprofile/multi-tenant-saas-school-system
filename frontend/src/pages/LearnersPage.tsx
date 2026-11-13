@@ -419,7 +419,6 @@ export default function LearnersPage() {
             firstConfirmRef={terminationConfirmRef}
           />
         )}
-        )}
       </div>
 
       <Card>

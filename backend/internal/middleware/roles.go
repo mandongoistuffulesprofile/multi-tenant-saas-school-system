@@ -74,6 +74,9 @@ func RequireRole(allowedRoles ...string) gin.HandlerFunc {
 	for _, r := range allowedRoles {
 		allowed[r] = struct{}{}
 	}
+	for _, r := range allowedRoles {
+		allowed[r] = struct{}{}
+	}
 	return func(c *gin.Context) {
 		if rolesVal, ok := c.Get(ContextRoles); ok {
 			if roles, ok := rolesVal.([]string); ok {
@@ -96,4 +99,30 @@ func RequireRole(allowedRoles ...string) gin.HandlerFunc {
 		}
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden: insufficient role permissions"})
 	}
+}
+
+// IsSchoolAdmin reports whether the request context carries any school-admin
+// family role (SCHOOL_ADMIN, HEAD, DEPUTY).
+func IsSchoolAdmin(c *gin.Context) bool {
+	if rolesVal, ok := c.Get(ContextRoles); ok {
+		if roles, ok := rolesVal.([]string); ok {
+			for _, role := range roles {
+				for _, allowed := range RoleSchoolAdministrators {
+					if role == allowed {
+						return true
+					}
+				}
+			}
+		}
+	}
+	if role, _ := c.Get(ContextRole); role != nil {
+		if roleStr, ok := role.(string); ok {
+			for _, allowed := range RoleSchoolAdministrators {
+				if roleStr == allowed {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
