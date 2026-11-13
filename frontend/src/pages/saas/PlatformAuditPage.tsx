@@ -32,7 +32,21 @@ export default function PlatformAuditPage() {
     (l.tenant_id || "").toString().toLowerCase().includes(search.toLowerCase())
   );
 
-  if (state === "loading") return <ViewState state="loading" />;
+  if (state === "loading") {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="h-8 w-56 bg-slate-100 rounded-lg animate-pulse" />
+        <Card className="p-4">
+          <div className="h-9 w-full max-w-sm bg-slate-100 rounded animate-pulse mb-3" />
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-6 border-t border-slate-100 animate-pulse" />
+            ))}
+          </div>
+        </Card>
+      </div>
+    );
+  }
   if (state === "error") return <ViewState state="error" message={'Failed to load audit trail'} />;
   if (filtered.length === 0) return <ViewState state="empty" message={'No audit logs'} />;
 

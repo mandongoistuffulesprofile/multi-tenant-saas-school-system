@@ -28,6 +28,8 @@ export default function FinanceFeeStructuresPage() {
 	    is_mandatory: true, payment_frequency: "PER_TERM", due_day: "5",
 	  });
   const [loading, setLoading] = useState(true);
+  const feeStructureModalTriggerRef = useRef<HTMLButtonElement>(null);
+  const feeStructureFormFirstRef = useRef<HTMLSelectElement>(null);
   const { t } = useTranslation();
   const { toast } = useToast();
 
@@ -59,7 +61,11 @@ export default function FinanceFeeStructuresPage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <h2 className="text-heading">Fee Structures</h2>
-            <Button variant="primary" onClick={() => setOpen(true)}>Add Fee Structure</Button>
+            <Button
+              ref={feeStructureModalTriggerRef}
+              variant="primary"
+              onClick={() => setOpen(true)}
+            >Add Fee Structure</Button>
           </div>
           {loading ? (
             <Skeleton rows={5} columns={6} />
@@ -91,11 +97,24 @@ export default function FinanceFeeStructuresPage() {
                   { key: "is_mandatory", header: "Mandatory", render: (r) => r.is_mandatory ? "Yes" : "No" },
                 ]}
               />
-              <Dialog open={open} onClose={() => setOpen(false)} title="Add Fee Structure" className="max-w-lg">
+              <Dialog
+                open={open}
+                onClose={() => setOpen(false)}
+                title="Add Fee Structure"
+                className="max-w-lg"
+                initialFocusRef={feeStructureFormFirstRef}
+                returnFocusRef={feeStructureModalTriggerRef}
+              >
                 <form onSubmit={handleSubmit} className="space-y-4">
                   	                  <div>
 	                    <label className="label">Category</label>
-	                    <select className="input-field" value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
+	                    <select
+	                      ref={feeStructureFormFirstRef}
+	                      className="input-field"
+	                      value={form.category_id}
+	                      onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+	                      required
+	                    >
 	                      <option value="">Select category…</option>
 	                      {categories.map((c) => <option key={c.category_id} value={c.category_id}>{c.name} ({c.code})</option>)}
 	                    </select>

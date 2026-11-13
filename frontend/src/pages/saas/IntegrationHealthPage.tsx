@@ -27,7 +27,20 @@ export default function IntegrationHealthPage() {
     };
   }, []);
 
-  if (state === "loading") return <ViewState state="loading" />;
+  if (state === "loading") {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="h-8 w-56 bg-slate-100 rounded-lg animate-pulse" />
+        <Card className="p-4">
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-6 border-t border-slate-100 animate-pulse" />
+            ))}
+          </div>
+        </Card>
+      </div>
+    );
+  }
   if (state === "error") return <ViewState state="error" message={'Failed to load integration health'} />;
 
   return (

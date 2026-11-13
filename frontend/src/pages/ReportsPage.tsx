@@ -51,26 +51,48 @@ export default function ReportsPage() {
       setTemplates(tRes.data || []);
       setRuns(rRes.data || []);
       setCards(cRes.data || []);
-    }).catch(() => {})
-      .finally(() => setLoading(false));
+    }).catch(() => {
+      setLoadError(true);
+    }).finally(() => setLoading(false));
   }, []);
+
+  const [loadError, setLoadError] = useState(false);
 
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-heading">Reports</h2>
-        <button
-          className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
-          onClick={() => handleGenerateRun()}
-          disabled={generating}
-        >
-          {generating ? "Generating…" : "Generate Report Cards"}
-        </button>
-      </div>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-heading">Reports</h2>
+            <div className="flex items-center gap-3">
+              {templates.length === 0 && !loading && !loadError ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  No report template is configured for this school, so report cards cannot be generated.
+                </div>
+              ) : null}
+              <button
+                className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
+                onClick={() => handleGenerateRun()}
+                disabled={generating || templates.length === 0 || loadError}
+              >
+                {generating ? "Generating…" : templates.length === 0 ? "No template configured" : "Generate Report Cards"}
+              </button>
+            </div>
+          </div>
           {loading ? (
             <Skeleton rows={5} columns={5} />
+          ) : loadError ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-6 mb-6">
+              <p className="text-sm text-red-700">
+                Could not load report templates, runs or cards.
+              </p>
+              <button
+                className="mt-3 text-sm font-medium text-kenyan-red hover:underline"
+                onClick={() => { setLoadError(false); setLoading(true); }}
+              >
+                Retry
+              </button>
+            </div>
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">

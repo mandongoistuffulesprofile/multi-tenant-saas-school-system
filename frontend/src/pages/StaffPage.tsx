@@ -21,6 +21,8 @@ export default function StaffPage() {
     email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "",
   });
   const [saving, setSaving] = useState(false);
+  const staffModalTriggerRef = useRef<HTMLButtonElement>(null);
+  const staffFormEmailRef = useRef<HTMLInputElement>(null);
 
   const roles = ["HEAD", "DEPUTY", "BURSAR", "CLERK", "TEACHER"];
 
@@ -53,7 +55,11 @@ export default function StaffPage() {
           <h1 className="text-display">{t("staff")}</h1>
           <p className="text-body">{t("staff_management.manage_staff_and_roles")}</p>
         </div>
-        <Button variant="primary" onClick={() => { setForm({ email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "" }); setOpen(true); }}>
+        <Button
+          ref={staffModalTriggerRef}
+          variant="primary"
+          onClick={() => { setForm({ email: "", phone_number: "", role: "TEACHER", subjects: [], employment_date: "" }); setOpen(true); }}
+        >
           {t("add_staff")}
         </Button>
       </div>
@@ -73,10 +79,18 @@ export default function StaffPage() {
         />
       </Card>
 
-      <Dialog open={open} onClose={() => setOpen(false)} title={t("add_staff")} className="max-w-lg">
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t("add_staff")}
+        className="max-w-lg"
+        initialFocusRef={staffFormEmailRef}
+        returnFocusRef={staffModalTriggerRef}
+      >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <input
+              ref={staffFormEmailRef}
               id="email"
               type="email"
               className="input-field"

@@ -69,6 +69,8 @@ export default function LearnersPage() {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<any>({ ...EMPTY_LEARNER_FORM });
+  const firstStepInputRef = useRef<HTMLInputElement>(null);
+  const addLearnerButtonRef = useRef<HTMLButtonElement>(null);
   const resetWizard = () => {
     setForm({ ...EMPTY_LEARNER_FORM });
     setFeeChecks({});
@@ -284,7 +286,11 @@ export default function LearnersPage() {
           <Link to="/imports/learners" className="text-sm font-medium text-kenyan-red hover:underline">
             Import CSV
           </Link>
-          <Button variant="primary" onClick={() => setOpen(true)}>
+          <Button
+            ref={addLearnerButtonRef}
+            variant="primary"
+            onClick={() => setOpen(true)}
+          >
             {t("add_learner")}
           </Button>
         </div>
@@ -365,14 +371,26 @@ export default function LearnersPage() {
         />
       )}
 
-      <Dialog open={open} onClose={() => { setOpen(false); resetWizard(); }} title={t("add_learner")} className="max-w-2xl">
+      <Dialog
+        open={open}
+        onClose={() => { setOpen(false); resetWizard(); }}
+        title={t("add_learner")}
+        className="max-w-2xl"
+        initialFocusRef={firstStepInputRef}
+        returnFocusRef={addLearnerButtonRef}
+      >
         <form onSubmit={handleSubmit} className="space-y-6">
           {step === 0 && (
             <>
               <div className="text-caption text-muted">{t("wizard.step_personal")}</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label={t("admission_number")} required>
-                  <Input required value={form.admission_number} onChange={(e) => setForm({ ...form, admission_number: e.target.value })} />
+                  <Input
+                    ref={firstStepInputRef}
+                    required
+                    value={form.admission_number}
+                    onChange={(e) => setForm({ ...form, admission_number: e.target.value })}
+                  />
                 </FormField>
                 <FormField label="UPI / NEMIS No.">
                   <Input value={form.upi_nemis_number} onChange={(e) => setForm({ ...form, upi_nemis_number: e.target.value })} />

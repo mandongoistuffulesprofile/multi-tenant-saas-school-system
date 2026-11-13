@@ -24,9 +24,15 @@ export default function AttendancePage() {
     ]).then(([rRes, mRes]) => {
       setRegisters(rRes.data || []);
       setMarks(mRes.data || []);
-    }).catch(() => {})
-      .finally(() => setLoading(false));
+    }).catch(() => {
+      // The page is the only real entrypoint for attendance/list/marks for
+      // non-teachers, so a silent failure is misleading: it renders as "no
+      // data" with no explanation. Surface it as an error with retry.
+      setError(true);
+    }).finally(() => setLoading(false));
   }, []);
+
+  const [error, setError] = useState(false);
 
   const presentCount = marks.filter((m) => String(m.status).toUpperCase() === "PRESENT").length;
   const absentCount = marks.filter((m) => String(m.status).toUpperCase() === "ABSENT").length;
@@ -43,6 +49,18 @@ export default function AttendancePage() {
           </div>
           {loading ? (
             <Skeleton rows={5} columns={4} />
+          ) : error ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-6">
+              <p className="text-sm text-red-700">
+                Could not load attendance registers or marks.
+              </p>
+              <button
+                className="mt-3 text-sm font-medium text-kenyan-red hover:underline"
+                onClick={() => { setError(false); setLoading(true); }}
+              >
+                Retry
+              </button>
+            </div>
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">

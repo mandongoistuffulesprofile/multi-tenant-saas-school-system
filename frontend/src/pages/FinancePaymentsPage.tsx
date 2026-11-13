@@ -14,6 +14,8 @@ export default function FinancePaymentsPage() {
   const [learners, setLearners] = useState<{ id: string; label: string }[]>([]);
   const [payForm, setPayForm] = useState({ learner_id: "", amount: "", payment_method: "CASH", reference: "" });
   const [recording, setRecording] = useState(false);
+  const payModalTriggerRef = useRef<HTMLButtonElement>(null);
+  const payFormFirstRef = useRef<HTMLSelectElement>(null);
 
   const learnerName = (id: string) => learners.find((l) => l.id === id)?.label || null;
 
@@ -82,7 +84,11 @@ export default function FinancePaymentsPage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-heading">Payments</h2>
-            <button className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition" onClick={() => setPayModal(true)}>
+            <button
+              ref={payModalTriggerRef}
+              className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition"
+              onClick={() => setPayModal(true)}
+            >
               Record Payment
             </button>
           </div>
@@ -101,11 +107,19 @@ export default function FinancePaymentsPage() {
               ]}
             />
           )}
-          <Dialog open={payModal} onClose={() => setPayModal(false)} title="Record Payment" className="max-w-md">
+          <Dialog
+            open={payModal}
+            onClose={() => setPayModal(false)}
+            title="Record Payment"
+            className="max-w-md"
+            initialFocusRef={payFormFirstRef}
+            returnFocusRef={payModalTriggerRef}
+          >
                 <form onSubmit={handleRecordPayment}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
                     <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner<HelpTip text="Only active learners in this school are listed. The receipt is posted against this learner's account." /></span>
                     <select
+                      ref={payFormFirstRef}
                       required
                       value={payForm.learner_id}
                       onChange={(e) => setPayForm({ ...payForm, learner_id: e.target.value })}

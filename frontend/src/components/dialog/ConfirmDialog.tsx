@@ -1,4 +1,4 @@
-import React, { ReactNode } from "react";
+import React, { ReactNode, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 interface ConfirmDialogProps {
@@ -23,6 +23,15 @@ export default function ConfirmDialog({
   destructive = false,
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onCancel]);
 
   if (!open) return null;
 

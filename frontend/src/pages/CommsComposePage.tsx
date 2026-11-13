@@ -35,6 +35,7 @@ export default function CommsComposePage() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [reloadKey, setReloadKey] = useState(0);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   // Load templates and grades once on mount (never during render).
   useEffect(() => {
@@ -59,6 +60,24 @@ export default function CommsComposePage() {
       alive = false;
     };
   }, [reloadKey]);
+
+  useEffect(() => {
+    if (loadState !== "content") return;
+    // On the first stable composition load, focus the message body so the
+    // writer can continue typing immediately. Do not focus on intermediate
+    // template reloads mid-editing.
+    const t0 = performance.now();
+    const raf = requestAnimationFrame(() => {
+      if (document.activeElement !== bodyRef.current) {
+        bodyRef.current?.focus();
+      }
+      // Keep this effect cheap and visual; never block render.
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("CommsCompose: autofocused body", performance.now() - t0);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [loadState]);
 
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplate(templateId);
@@ -244,6 +263,7 @@ export default function CommsComposePage() {
           <div>
             <label className="label">Message Body</label>
             <textarea
+              ref={bodyRef}
               className="input-field min-h-[160px] resize-y"
               value={body}
               onChange={(e) => setBody(e.target.value)}

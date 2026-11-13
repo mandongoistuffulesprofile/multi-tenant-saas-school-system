@@ -27,9 +27,12 @@ export default function CompliancePage() {
       setLogs(lRes.data || []);
       setDSR(dRes.data || []);
       setBreaches(bRes.data || []);
-    }).catch(() => {})
-      .finally(() => setLoading(false));
+    }).catch(() => {
+      setError(true);
+    }).finally(() => setLoading(false));
   }, []);
+
+  const [error, setError] = useState(false);
 
   return (
     <ErrorBoundary>
@@ -38,6 +41,18 @@ export default function CompliancePage() {
           <h2 className="text-heading mb-6">Compliance (ODPC)</h2>
           {loading ? (
             <Skeleton rows={5} columns={5} />
+          ) : error ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-6 mb-6">
+              <p className="text-sm text-red-700">
+                Could not load compliance data.
+              </p>
+              <button
+                className="mt-3 text-sm font-medium text-kenyan-red hover:underline"
+                onClick={() => { setError(false); setLoading(true); }}
+              >
+                Retry
+              </button>
+            </div>
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-6">

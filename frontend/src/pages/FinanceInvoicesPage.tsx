@@ -14,6 +14,8 @@ export default function FinanceInvoicesPage() {
   const invoiceFormInit = () => ({ learner_id: "", term_id: "", amount: "", due_date: "" });
   const [invoiceForm, setInvoiceForm] = useState<{ learner_id: string; term_id: string; amount: string; due_date: string }>(invoiceFormInit);
   const [creating, setCreating] = useState(false);
+  const invoiceModalTriggerRef = useRef<HTMLButtonElement>(null);
+  const invoiceFormFirstRef = useRef<HTMLSelectElement>(null);
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,13 +93,25 @@ export default function FinanceInvoicesPage() {
             />
           )}
           <div style={{ marginTop: "1rem" }}>
-            <button className="btn-primary" onClick={() => setModalOpen(true)}>Generate Invoice</button>
+            <button
+            ref={invoiceModalTriggerRef}
+            className="btn-primary"
+            onClick={() => setModalOpen(true)}
+          >Generate Invoice</button>
           </div>
-          <Dialog open={modalOpen} onClose={() => setModalOpen(false)} title="Generate Invoice" className="max-w-md">
+          <Dialog
+            open={modalOpen}
+            onClose={() => setModalOpen(false)}
+            title="Generate Invoice"
+            className="max-w-md"
+            initialFocusRef={invoiceFormFirstRef}
+            returnFocusRef={invoiceModalTriggerRef}
+          >
                 <form onSubmit={handleCreateInvoice}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
                     <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner<HelpTip text="Only active learners in this school are listed. The invoice is issued in this tenant's name and currency." /></span>
                     <select
+                      ref={invoiceFormFirstRef}
                       required
                       value={invoiceForm.learner_id}
                       onChange={(e) => setInvoiceForm({ ...invoiceForm, learner_id: e.target.value })}

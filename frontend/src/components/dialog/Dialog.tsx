@@ -6,9 +6,21 @@ interface DialogProps {
   title?: string;
   children: ReactNode;
   className?: string;
+  /** When provided, focus this element when the dialog opens. */
+  initialFocusRef?: React.RefObject<HTMLElement | null>;
+  /** When provided, return focus here when the dialog closes. */
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
-export default function Dialog({ open, onClose, title, children, className }: DialogProps) {
+export default function Dialog({
+  open,
+  onClose,
+  title,
+  children,
+  className,
+  initialFocusRef,
+  returnFocusRef,
+}: DialogProps) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -17,11 +29,21 @@ export default function Dialog({ open, onClose, title, children, className }: Di
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     document.addEventListener("keydown", onKeyDown);
+
+    const focusTarget = initialFocusRef?.current;
+    if (focusTarget && document.body.contains(focusTarget)) {
+      focusTarget.focus({ preventScroll: true });
+    }
+
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", onKeyDown);
+      const returnTarget = returnFocusRef?.current;
+      if (returnTarget && document.body.contains(returnTarget)) {
+        returnTarget.focus({ preventScroll: true });
+      }
     };
-  }, [open, onClose]);
+  }, [open, onClose, initialFocusRef, returnFocusRef]);
 
   if (!open) return null;
 

@@ -128,7 +128,82 @@ export default function OperationsCentrePage() {
     }
   };
 
-  if (state === "loading") return <ViewState state="loading" />;
+  if (state === "loading") {
+    return (
+      <div className="p-4 space-y-6">
+        <div className="h-8 w-56 bg-slate-100 rounded-lg animate-pulse" />
+
+        {pendingHelp > 0 && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          >
+            <span className="mt-0.5 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-2 text-xs font-bold text-white">
+              {pendingHelp}
+            </span>
+            <div>
+              <strong>
+                {pendingHelp} user{pendingHelp === 1 ? "" : "s"} need password help.
+              </strong>{" "}
+              Verify their identity, then issue a one-time reset code in the Password assistance
+              section below.
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {[
+            { title: 'Active Tenants', kind: 'kpi' },
+            { title: 'API Success Rate', kind: 'kpi' },
+            { title: 'MRR', kind: 'kpi' },
+            { title: 'Alerts', kind: 'kpi' },
+            { title: 'Password Help', kind: 'kpi' },
+          ].map((panel) => (
+            <div key={panel.title} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="h-3 w-24 bg-slate-100 rounded animate-pulse mb-3" />
+              <div className="h-7 w-16 bg-slate-200 rounded animate-pulse" />
+            </div>
+          ))}
+        </div>
+
+        <Card className="p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="h-5 w-40 bg-slate-100 rounded animate-pulse mb-2" />
+              <div className="h-4 w-3/4 bg-slate-100 rounded animate-pulse" />
+            </div>
+            <div className="h-5 w-20 bg-slate-100 rounded animate-pulse" />
+          </div>
+
+          <div className="h-4 w-full bg-slate-100 rounded animate-pulse mb-3" />
+
+          <div className="h-4 w-3/4 bg-slate-100 rounded animate-pulse mb-4" />
+
+          <form className="flex flex-col gap-2 sm:flex-row">
+            <div className="h-9 flex-1 bg-slate-100 rounded animate-pulse" />
+            <div className="h-9 w-24 bg-slate-100 rounded animate-pulse" />
+          </form>
+
+          <div className="mt-4 space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-6 border-t border-slate-100 animate-pulse" />
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <div className="h-5 w-40 bg-slate-100 rounded animate-pulse mb-3" />
+          <div className="h-6 bg-slate-100 rounded animate-pulse" />
+          <div className="mt-2 space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-6 border-t border-slate-100 animate-pulse" />
+            ))}
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   // Logical fix: "Active Tenants" counts tenants, and MRR is derived from what
   // tenants actually subscribe to — never from the plan catalog.
