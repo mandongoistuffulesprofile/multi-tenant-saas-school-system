@@ -397,8 +397,11 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 
 	var transactionAmount float64
 	var billRef, status string
+	// Lock the transaction row so two concurrent match requests cannot both
+	// pass the status check and create duplicate payments for the same money.
 	err := tx.QueryRow(
-		`SELECT amount, COALESCE(bill_ref, ''), status FROM mpesa_transactions WHERE trans_id = $1 AND tenant_id = $2`,
+		`SELECT amount, COALESCE(bill_ref, ''), status FROM mpesa_transactions
+		 WHERE trans_id = $1 AND tenant_id = $2 FOR UPDATE`,
 		transactionID, tenantID).Scan(&transactionAmount, &billRef, &status)
 	if err == sql.ErrNoRows {
 		validation.NotFound(c, "Transaction not found")
@@ -481,22 +484,44 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		return
 	}
 
-	_, _ = tx.Exec(
+	// Every subsequent write must succeed. Ignoring these errors used to leave a
+	// committed payment with no allocation (or an invoice that was never
+	// updated) while the transaction was still marked MATCHED.
+	if _, err := tx.Exec(
 		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 		 VALUES ($1, $2, $3, $4, $5)`,
-		tenantID, paymentID, req.InvoiceID, amount, nullableString(userID))
+		tenantID, paymentID, req.InvoiceID, amount, nullableString(userID)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
-	_, _ = tx.Exec(
+	res, err := tx.Exec(
 		`UPDATE invoices SET amount_paid = amount_paid + $1,
 		   amount_outstanding = amount_outstanding - $1,
 		   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
 		   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
 		   updated_at = now()
 		 WHERE invoice_id = $2 AND tenant_id = $3`, amount, req.InvoiceID, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if affected, _ := res.RowsAffected(); affected == 0 {
+		validation.NotFound(c, "Invoice not found")
+		return
+	}
 
-	_, _ = tx.Exec(
+	res, err = tx.Exec(
 		`UPDATE mpesa_transactions SET status = 'MATCHED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,
 		transactionID, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if affected, _ := res.RowsAffected(); affected == 0 {
+		validation.NotFound(c, "Transaction not found")
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"payment_id": paymentID, "transaction_id": transactionID, "status": "MATCHED"})
 }
