@@ -19,10 +19,11 @@
  */
 
 const BUILD_REVISION = '__BUILD_REVISION__';
-const PRECACHE_ASSETS = __PRECACHE_ASSETS__;
+const BUILD_REVISION_LOCAL = BUILD_REVISION === '__BUILD_REVISION__' ? 'dev-local' : BUILD_REVISION;
+const PRECACHE_ASSETS = __PRECACHE_ASSETS__ || [];
 
-const SHELL_CACHE = `shule-shell-${BUILD_REVISION}`;
-const ASSET_CACHE = `shule-assets-${BUILD_REVISION}`;
+const SHELL_CACHE = `shule-shell-${BUILD_REVISION_LOCAL}`;
+const ASSET_CACHE = `shule-assets-${BUILD_REVISION_LOCAL}`;
 const CACHE_PREFIXES = ['shule-shell-', 'shule-assets-', 'shuleyetu-'];
 
 const STATIC_ASSETS = [
@@ -42,7 +43,8 @@ const PRECACHE = [...STATIC_ASSETS, ...PRECACHE_ASSETS];
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then((cache) =>
-      // One optional asset must not fail the whole install.
+      // In dev, PRECACHE_ASSETS is empty and the build tokens are placeholders.
+      // Precache only the static shell so local dev can still exercise the SW.
       Promise.all(
         PRECACHE.map((url) =>
           cache.add(new Request(url, { cache: 'reload' })).catch((err) => {
@@ -50,7 +52,9 @@ self.addEventListener('install', (event) => {
           })
         )
       )
-    )
+    ).catch((err) => {
+      console.warn('[SW] precache open failed:', err);
+    })
   );
 });
 
@@ -124,6 +128,15 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // During local dev, precache placeholders are not replaced, so treat the
+  // asset cache as best-effort and allow the app shell to fail open if needed.
+  if (self.__TEST__ || BUILD_REVISION === '__BUILD_REVISION__') {
+    if (request.mode === 'navigate') {
+      event.respondWith(fetch(request).catch(() => caches.match('/index.html')));
+      return;
+    }
+  }
 
   if (isPrivateApi(url.pathname)) {
     event.respondWith(
