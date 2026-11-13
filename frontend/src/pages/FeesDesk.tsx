@@ -229,6 +229,7 @@ export const FeesDesk: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
         isOpen={isOrphanOpen}
         onClose={() => setIsOrphanOpen(false)}
         unmatchedList={unmatchedList}
+        apiBase={apiBase ?? ''}
         onClaim={(txId, adm, vh) => {
           showToast(`Muamala ${txId} umelinganishwa rasmi na ${adm}`);
           setUnmatchedList(unmatchedList.filter(t => t.trans_id !== txId));
