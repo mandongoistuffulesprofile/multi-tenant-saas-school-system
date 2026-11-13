@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import { clearOfflineData } from "./offline";
+import {
+  attachOfflineTenant,
+  clearOfflineData,
+  detachOfflineTenant,
+  forgetOfflineTenantStorage,
+} from "./offline";
 
 interface AuthState {
   token: string | null;
@@ -83,10 +88,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     persistSession(userId, tenantId, roles);
     set({ token, refreshToken, userId, tenantId, roles, hydrated: true });
   },
-  clearAuth: () => {
+  clearAuth: async () => {
     const { tenantId } = get();
     if (tenantId) {
-      void clearOfflineData(tenantId).catch(() => { /* ignore */ });
+      void detachOfflineTenant().catch(() => { /* ignore */ });
+      void forgetOfflineTenantStorage().catch(() => { /* ignore */ });
     }
     clearCachedSession();
     set({ token: null, refreshToken: null, userId: null, tenantId: null, roles: [], hydrated: true });
