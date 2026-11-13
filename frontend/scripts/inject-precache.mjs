@@ -46,14 +46,19 @@ const revision = createHash("sha256").update(assets.join("\n")).digest("hex").sl
 let worker = fs.readFileSync(swPath, "utf8");
 for (const token of ["__BUILD_REVISION__", "__PRECACHE_ASSETS__"]) {
   const occurrences = worker.split(token).length - 1;
-  if (occurrences !== 1) {
+  if (token === "__PRECACHE_ASSETS__" && occurrences !== 1) {
     throw new Error(
       `[precache] dist/sw.js must contain exactly one ${token} (found ${occurrences}); the worker template changed`,
     );
   }
+  if (occurrences === 0) {
+    throw new Error(
+      `[precache] dist/sw.js must contain at least one ${token} (found 0); the worker template changed`,
+    );
+  }
 }
 worker = worker
-  .replace("__BUILD_REVISION__", revision)
+  .replaceAll("__BUILD_REVISION__", revision)
   .replace("__PRECACHE_ASSETS__", JSON.stringify(assets, null, 2));
 
 fs.writeFileSync(swPath, worker);
