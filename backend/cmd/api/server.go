@@ -506,6 +506,7 @@ func Run() error {
 	kitchenGroup.GET("/recipes", kitchenHandler.ListRecipes)
 	kitchenGroup.POST("/recipes", middleware.RequireRole(middleware.RoleSchoolAdministrators...), kitchenHandler.CreateRecipe)
 	kitchenGroup.POST("/requisitions", middleware.RequireRole(middleware.RoleFinanceStaff...), kitchenHandler.CreateRequisition)
+	kitchenGroup.GET("/requisitions/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), kitchenHandler.GetRequisition)
 	kitchenGroup.POST("/requisitions/:id/process", middleware.RequireRole(middleware.RoleFinanceStaff...), kitchenHandler.ProcessRequisition)
 	adminGroup := apiV1.Group("/admin")
 	adminGroup.Use(middleware.RequireAuthGin(jwtManager))

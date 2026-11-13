@@ -138,6 +138,101 @@ func (h *Handler) CreateIntake(c *gin.Context) {
 	c.JSON(http.StatusCreated, log)
 }
 
+	// POST /inkind/intakes/:id/verify
+	// Verify intake line items and mark the intake as VERIFIED.
+	gin.GET("/intakes/:id/verify", middleware.RequireRole(middleware.RoleFinanceStaff...), h.VerifyIntake)
+
+	// GET /inkind/intakes/:id
+	// Detail view for one intake, including item lines and total cash equivalent.
+	gin.GET("/intakes/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), h.GetIntake)
+
+	// GET /inkind/intakes/:id/lines
+	// Item-level lines for one intake.
+	gin.GET("/intakes/:id/lines", middleware.RequireRole(middleware.RoleFinanceStaff...), h.IntakeLines)
+
+	// GET /inkind/items/:id/lots
+	// FIFO lots for one inventory item.
+	gin.GET("/items/:id/lots", middleware.RequireAuthGin(jwtManager), h.LotsForItem)
+
+	// GET /inkind/rates/:id
+	// Current rate for one inventory item in a specific term.
+	gin.GET("/rates/:id", middleware.RequireAuthGin(jwtManager), h.CurrentRate)
+
+	// POST /inkind/intakes
+	// Create an in-kind intake log with item lines, FIFO lots and a journal entry.
+	gin.POST("/intakes", middleware.RequireRole(middleware.RoleFinanceStaff...), h.CreateIntake)
+
+	// POST /inkind/intakes/:id/void
+	// Void a pending intake and reverse the journal/lot quantity.
+	gin.POST("/intakes/:id/void", middleware.RequireRole(middleware.RoleSchoolAdministrators...), h.VoidIntake)
+}
+
+// GetIntake returns one intake log with total cash equivalent.
+func (h *Handler) GetIntake(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetHeader("X-User-Id")
+	logID := c.Param("id")
+
+	l, err := h.service.GetIntake(c.Request.Context(), tenantID, logID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if l == nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "intake not found"})
+		return
+	}
+	c.JSON(http.StatusOK, l)
+}
+
+// IntakeLines returns the item lines for one intake.
+func (h *Handler) IntakeLines(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	logID := c.Param("id")
+
+	items, err := h.service.IntakeLines(c.Request.Context(), tenantID, logID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+// LotsForItem returns FIFO lots for one inventory item.
+func (h *Handler) LotsForItem(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	inventoryItemID := c.Param("id")
+
+	lots, err := h.service.LotsForItem(c.Request.Context(), tenantID, inventoryItemID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, lots)
+}
+
+// CurrentRate returns the active rate for one inventory item in a specific term.
+func (h *Handler) CurrentRate(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	inventoryItemID := c.Param("id")
+	termID := c.Query("term_id")
+	if termID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "BAD_REQUEST", "message": "term_id is required"})
+		return
+	}
+
+	r, err := h.service.CurrentRate(c.Request.Context(), tenantID, inventoryItemID, termID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if r == nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "no active rate for this item/term"})
+		return
+	}
+	c.JSON(http.StatusOK, r)
+}
+
 func (h *Handler) VoidIntake(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")

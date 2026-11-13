@@ -108,3 +108,20 @@ func (h *Handler) ProcessRequisition(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, requisition)
 }
+
+// GetRequisition returns one store requisition with its issued items.
+func (h *Handler) GetRequisition(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	requisitionID := c.Param("id")
+
+	r, err := h.service.GetRequisition(c.Request.Context(), tenantID, requisitionID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if r == nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "requisition not found"})
+		return
+	}
+	c.JSON(http.StatusOK, r)
+}

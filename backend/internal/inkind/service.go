@@ -253,6 +253,98 @@ func (s *Service) ListItems(ctx context.Context, tenantID string, itemType strin
 	return items, rows.Err()
 }
 
+// IntakeLines returns the item-level detail for one intake log, including the
+// rate that was snapshotted at intake time and any verified quantity.
+func (s *Service) IntakeLines(ctx context.Context, tenantID, logID string) ([]InKindIntakeItem, error) {
+	q := s.q(ctx)
+	rows, err := q.Query(
+		`SELECT id, tenant_id, intake_log_id, inventory_item_id, quantity, unit, rate_per_unit, cash_equivalent,
+			 quality_grade, verified_quantity, verified_by, verified_at, notes, created_at
+		 FROM in_kind_intake_items WHERE tenant_id = $1 AND intake_log_id = $2
+		 ORDER BY id`,
+		tenantID, logID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []InKindIntakeItem
+	for rows.Next() {
+		var item InKindIntakeItem
+		if err := rows.Scan(&item.ID, &item.TenantID, &item.IntakeLogID, &item.InventoryItemID, &item.Quantity,
+			&item.Unit, &item.RatePerUnit, &item.CashEquivalent,
+			&item.QualityGrade, &item.VerifiedQuantity, &item.VerifiedBy, &item.VerifiedAt, &item.Notes, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// CurrentRate returns the active in-kind rate for an item in a specific term.
+func (s *Service) CurrentRate(ctx context.Context, tenantID, inventoryItemID, termID string) (*InKindRate, error) {
+	q := s.q(ctx)
+	var r InKindRate
+	err := q.QueryRow(
+		`SELECT r.id, r.tenant_id, r.inventory_item_id, i.name, i.unit, r.rate_per_unit, r.is_current,
+			 r.term_id, r.created_by, r.created_at
+		 FROM in_kind_rates r JOIN inventory_items i ON i.tenant_id = r.tenant_id AND i.id = r.inventory_item_id
+		 WHERE r.tenant_id = $1 AND r.inventory_item_id = $2 AND r.term_id = $3 AND r.is_current = true
+		 LIMIT 1`,
+		tenantID, inventoryItemID, termID,
+	).Scan(&r.ID, &r.TenantID, &r.InventoryItemID, &r.CommodityName, &r.Unit,
+		&r.RatePerUnit, &r.IsActive, &r.TermID, &r.CreatedBy, &r.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+type InventoryLot struct {
+	ID             string  `json:"id"`
+	TenantID       string  `json:"tenant_id"`
+	InventoryItemID string `json:"inventory_item_id"`
+	SourceType     string  `json:"source_type"`
+	SourceID       string  `json:"source_id"`
+	QtyReceived    float64 `json:"qty_received"`
+	QtyRemaining   float64 `json:"qty_remaining"`
+	UnitCost       string  `json:"unit_cost"`
+	ReceivedAt     string  `json:"received_at"`
+}
+
+// LotsForItem returns FIFO lots for one inventory item, including only lots
+// that still have remaining quantity.
+func (s *Service) LotsForItem(ctx context.Context, tenantID, inventoryItemID string) ([]InventoryLot, error) {
+	q := s.q(ctx)
+	rows, err := q.Query(
+		`SELECT il.id, il.tenant_id, il.inventory_item_id, il.source_type, il.source_id,
+			 il.qty_received, il.qty_remaining, il.unit_cost, il.received_at
+		 FROM inventory_lots il
+		 WHERE il.tenant_id = $1 AND il.inventory_item_id = $2 AND il.qty_remaining > 0
+		 ORDER BY il.received_at, il.id`,
+		tenantID, inventoryItemID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var lots []InventoryLot
+	for rows.Next() {
+		var lot InventoryLot
+		if err := rows.Scan(&lot.ID, &lot.TenantID, &lot.InventoryItemID, &lot.SourceType, &lot.SourceID,
+			&lot.QtyReceived, &lot.QtyRemaining, &lot.UnitCost, &lot.ReceivedAt); err != nil {
+			return nil, err
+		}
+		lots = append(lots, lot)
+	}
+	return lots, rows.Err()
+}
+
 func (s *Service) CreateItem(ctx context.Context, tenantID, userID string, req CreateInventoryItemRequest) (*InventoryItem, error) {
 	q := s.q(ctx)
 	var i InventoryItem

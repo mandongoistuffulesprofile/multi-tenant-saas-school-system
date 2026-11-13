@@ -56,6 +56,7 @@ import FinanceAdjustmentsPage from "./pages/FinanceAdjustmentsPage";
 import FinanceRefundsPage from "./pages/FinanceRefundsPage";
 import FeesDeskPage from "./pages/FeesDeskPage";
 import InKindIntakePage from "./pages/InKindIntakePage";
+import KitchenRequisitionBoard from "./pages/KitchenRequisitionBoard";
 import PlatformPage from "./pages/PlatformPage";
 import ProfilePage from "./pages/ProfilePage";
 
@@ -170,6 +171,7 @@ export default function App() {
             <Route path="/finance/refunds" element={guard(FINANCE_ROLES, <FinanceRefundsPage />)} />
             <Route path="/fees/desk" element={guard(FINANCE_ROLES, <FeesDeskPage />)} />
             <Route path="/finance/in-kind" element={guard(FINANCE_ROLES, <InKindIntakePage />)} />
+            <Route path="/finance/kitchen" element={guard(FINANCE_ROLES, <KitchenRequisitionBoard />)} />
             <Route path="/platform" element={guard(SCHOOL_ADMIN_ROLES, <PlatformPage />)} />
 
             {/* Backwards-compatible aliases: bookmarks, PWA shortcuts and older

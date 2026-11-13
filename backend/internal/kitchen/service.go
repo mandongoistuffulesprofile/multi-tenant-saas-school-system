@@ -103,6 +103,72 @@ func (s *Service) q(ctx context.Context) queryer {
 	return s.database
 }
 
+type RequisitionWithItems struct {
+	Requisition  StoreRequisition
+	Items        []StoreRequisitionItem
+	RecipeName   *string `json:"recipe_name,omitempty"`
+	TotalIssuedKg float64 `json:"total_issued_kg"`
+}
+
+func (s *Service) GetRequisition(ctx context.Context, tenantID, requisitionID string) (*RequisitionWithItems, error) {
+	q := s.q(ctx)
+	var r StoreRequisition
+	err := q.QueryRow(
+		`SELECT id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status,
+			 approved_by, approved_at, approval_reason, created_by, created_at, updated_at
+		 FROM daily_store_requisitions WHERE tenant_id = $1 AND id = $2`,
+		tenantID, requisitionID,
+	).Scan(&r.ID, &r.TenantID, &r.SlipNumber, &r.RequisitionDate, &r.MealType, &r.RecipeID, &r.BoarderCountFed,
+		&r.Status, &r.ApprovedBy, &r.ApprovedAt, &r.ApprovalReason, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.RecipeID != nil && *r.RecipeID != "" {
+		var recipeName string
+		if err := q.QueryRow(
+			`SELECT name FROM meal_recipes WHERE tenant_id = $1 AND id = $2`,
+			tenantID, *r.RecipeID,
+		).Scan(&recipeName) == nil {
+			r.RecipeName = &recipeName
+		}
+	}
+
+	rows, err := q.Query(
+		`SELECT id, tenant_id, requisition_id, inventory_item_id, expected_qty, actual_issued_qty,
+			 variance_qty, variance_pct, unit_cost_at_time, notes, created_at
+		 FROM store_requisition_items WHERE tenant_id = $1 AND requisition_id = $2
+		 ORDER BY id`,
+		tenantID, requisitionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []StoreRequisitionItem
+	for rows.Next() {
+		var item StoreRequisitionItem
+		if err := rows.Scan(&item.ID, &item.TenantID, &item.RequisitionID, &item.InventoryItemID, &item.ExpectedQty,
+			&item.ActualIssuedQty, &item.VarianceQty, &item.VariancePct, &item.UnitCostAtTime, &item.Notes, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	var totalIssued float64
+	for _, item := range items {
+		totalIssued += item.ActualIssuedQty
+	}
+
+	return &RequisitionWithItems{
+		Requisition:  r,
+		Items:        items,
+		RecipeName:   r.RecipeName,
+		TotalIssuedKg: totalIssued,
+	}, nil
+}
+
 func (s *Service) ListRecipes(ctx context.Context, tenantID string, mealType string, includeInactive bool) ([]MealRecipe, error) {
 	q := s.q(ctx)
 	query := `SELECT id, tenant_id, name, meal_type, is_active, created_by, created_at, updated_at
