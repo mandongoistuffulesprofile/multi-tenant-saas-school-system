@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { EnterpriseDataTable, Column } from '../components/EnterpriseDataTable';
 import { AuditConfirmationModal } from '../components/AuditConfirmationModal';
 import { ThermalReceiptModal } from '../components/ThermalReceiptModal';
 import { UnallocatedMpesaModal, UnmatchedTransaction } from '../components/UnallocatedMpesaModal';
 import { SiblingSplitModal } from '../components/SiblingSplitModal';
 import { formatKES } from '../utils/kenyaFormatters';
+import { api } from '../lib/api';
 
 interface FeeRecord {
   id: string;
@@ -21,60 +24,16 @@ interface FeeRecord {
   last_mpesa_ref: string;
 }
 
-const MANDONGOI_FEES: FeeRecord[] = [
-  {
-    id: '1',
-    admission_number: 'ADM-MND-0582',
-    student_name: 'Brian Baraka Kasamba',
-    grade: 'Grade 5',
-    residency: 'Boarding (Mwingi North Wing)',
-    parent_name: 'Kasamba Kitheka',
-    parent_phone: '0718786067',
-    tuition_balance: 0,
-    boarding_balance: 10000,
-    lunch_balance: 4500,
-    total_balance: 14500,
-    last_mpesa_ref: 'RKD9821X9A',
-  },
-  {
-    id: '2',
-    admission_number: 'ADM-MND-0501',
-    student_name: 'Wanjiku Kamau',
-    grade: 'Grade 7',
-    residency: 'Day',
-    parent_name: 'Kamau Njoroge',
-    parent_phone: '0722112233',
-    tuition_balance: 0,
-    boarding_balance: 0,
-    lunch_balance: 1500,
-    total_balance: 1500,
-    last_mpesa_ref: 'QKD712XY6Z',
-  },
-  {
-    id: '3',
-    admission_number: 'ADM-MND-0490',
-    student_name: 'Faith Achieng',
-    grade: 'Grade 8',
-    residency: 'Boarding (Hostel A)',
-    parent_name: 'Odhiambo Kevin',
-    parent_phone: '0733445566',
-    tuition_balance: 2000,
-    boarding_balance: 8000,
-    lunch_balance: 3000,
-    total_balance: 13000,
-    last_mpesa_ref: 'SDF4190KL2',
-  },
-];
+export interface FeeRecordApi extends FeeRecord {
+  ar_receipt?: string;
+}
 
-const INITIAL_UNMATCHED: UnmatchedTransaction[] = [
-  { id: '1', trans_id: 'RKA90123ZZ', sender_name: 'Kasamba Kitheka', phone: '0718786067', amount: 10000, timestamp: '2026-10-22T09:12:00Z', account_ref_entered: 'BRIAN BARAKA' },
-];
-
-export const FeesDesk: React.FC = () => {
+export const FeesDesk: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
+  const { t } = useTranslation();
+  const resolvedBase = apiBase ?? (typeof import.meta !== 'undefined' ? (import.meta.env?.VITE_API_BASE || import.meta.env?.REACT_APP_API_BASE) : undefined) ?? '';
   const [feesData, setFeesData] = useState<FeeRecord[]>(MANDONGOI_FEES);
   const [unmatchedList, setUnmatchedList] = useState<UnmatchedTransaction[]>(INITIAL_UNMATCHED);
-  const [isDarajaOnline, setIsDarajaOnline] = useState<boolean>(false); // Daraja offline fallback toggle
-
+  const [isDarajaOnline, setIsDarajaOnline] = useState<boolean>(false);
   const [isWaiverOpen, setIsWaiverOpen] = useState(false);
   const [isThermalOpen, setIsThermalOpen] = useState(false);
   const [isOrphanOpen, setIsOrphanOpen] = useState(false);
@@ -83,6 +42,23 @@ export const FeesDesk: React.FC = () => {
   const [selectedRecord, setSelectedRecord] = useState<FeeRecord | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!resolvedBase) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${resolvedBase}/finance/invoices?limit=1000`, { headers: { Accept: 'application/json' } });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!alive) return;
+        setFeesData(Array.isArray(body) ? body : MANDONGOI_FEES);
+      } catch {
+        // keep demo data when the backend is unreachable
+      }
+    })();
+    return () => { alive = false; };
+  }, [resolvedBase]);
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 6000);
@@ -90,7 +66,6 @@ export const FeesDesk: React.FC = () => {
 
   const handleTriggerSTK = (student: FeeRecord) => {
     if (!isDarajaOnline) {
-      // Graceful local simulation when Daraja has connectivity issues
       const mockRef = 'SIM-' + Math.random().toString(36).substring(2, 9).toUpperCase();
       showToast(`⚡ Hali ya Ndani (Local Mode): Malipo ya KES 10,000 yamethibitishwa kienyeji kwa ${student.student_name}. Ref: ${mockRef}`);
       
@@ -284,3 +259,92 @@ export const FeesDesk: React.FC = () => {
     </div>
   );
 };
+
+// Source-only LIPA dashboard chart — no backend calls, no secrets.
+function LIPTrendChart({ data }: { data: Record<string, number>[] }) {
+  const totals = data.map(d => ({
+    ...d,
+    total: (d.expected ?? 0) + (d.actual ?? 0),
+  }));
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4">
+      <h3 className="text-xs font-black text-slate-900 tracking-tight mb-1">Lipa Na M-Pesa — Trend Overview</h3>
+      <p className="text-[10px] text-slate-500 mb-3">
+        Hedhi ya malipo kwa muda mfupi, ikilinganishwa na malipo yaliyotarajiwa.
+      </p>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={totals}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey="date" stroke="#94a3b8" tick={{ fontSize: 11 }} />
+          <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} />
+          <Tooltip labelFormatter={() => ''} />
+          <Line type="monotone" dataKey="expected" stroke="#3b82f6" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="actual" stroke="#10b981" strokeWidth={2} dot={false} />
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="mt-3 flex justify-end text-[10px] text-slate-500">
+        <span className="inline-block w-3 h-3 rounded-full bg-blue-500 mr-1" />Malipo yaliyotarajiwa
+        <span className="inline-block w-3 h-3 rounded-full bg-emerald-500 ml-3 mr-1" />Malipo halisi
+      </div>
+    </div>
+  );
+}
+
+const MANDONGOI_FEES: FeeRecord[] = [
+  {
+    id: '1',
+    admission_number: 'ADM-MND-0582',
+    student_name: 'Brian Baraka Kasamba',
+    grade: 'Grade 5',
+    residency: 'Boarding (Mwingi North Wing)',
+    parent_name: 'Kasamba Kitheka',
+    parent_phone: '0718786067',
+    tuition_balance: 0,
+    boarding_balance: 10000,
+    lunch_balance: 4500,
+    total_balance: 14500,
+    last_mpesa_ref: 'RKD9821X9A',
+  },
+  {
+    id: '2',
+    admission_number: 'ADM-MND-0501',
+    student_name: 'Wanjiku Kamau',
+    grade: 'Grade 7',
+    residency: 'Day',
+    parent_name: 'Kamau Njoroge',
+    parent_phone: '0722112233',
+    tuition_balance: 0,
+    boarding_balance: 0,
+    lunch_balance: 1500,
+    total_balance: 1500,
+    last_mpesa_ref: 'QKD712XY6Z',
+  },
+  {
+    id: '3',
+    admission_number: 'ADM-MND-0490',
+    student_name: 'Faith Achieng',
+    grade: 'Grade 8',
+    residency: 'Boarding (Hostel A)',
+    parent_name: 'Odhiambo Kevin',
+    parent_phone: '0733445566',
+    tuition_balance: 2000,
+    boarding_balance: 8000,
+    lunch_balance: 3000,
+    total_balance: 13000,
+    last_mpesa_ref: 'SDF4190KL2',
+  },
+];
+
+const INITIAL_UNMATCHED: UnmatchedTransaction[] = [
+  { id: '1', trans_id: 'RKA90123ZZ', sender_name: 'Kasamba Kitheka', phone: '0718786067', amount: 10000, timestamp: '2026-10-22T09:12:00Z', account_ref_entered: 'BRIAN BARAKA' },
+];
+
+const MOCK_LIPA_TREND = [
+  { date: 'Mon', expected: 42000, actual: 38500 },
+  { date: 'Tue', expected: 51000, actual: 49200 },
+  { date: 'Wed', expected: 38000, actual: 40800 },
+  { date: 'Thu', expected: 60000, actual: 57400 },
+  { date: 'Fri', expected: 55000, actual: 54000 },
+  { date: 'Sat', expected: 25000, actual: 27100 },
+];

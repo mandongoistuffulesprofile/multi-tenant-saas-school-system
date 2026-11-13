@@ -54,6 +54,7 @@ import HoldingTankReconciliationPage from "./pages/HoldingTankReconciliationPage
 import FinanceCreditsPage from "./pages/FinanceCreditsPage";
 import FinanceAdjustmentsPage from "./pages/FinanceAdjustmentsPage";
 import FinanceRefundsPage from "./pages/FinanceRefundsPage";
+import FeesDeskPage from "./pages/FeesDeskPage";
 import PlatformPage from "./pages/PlatformPage";
 import ProfilePage from "./pages/ProfilePage";
 
@@ -166,6 +167,7 @@ export default function App() {
             <Route path="/finance/credits" element={guard(FINANCE_ROLES, <FinanceCreditsPage />)} />
             <Route path="/finance/adjustments" element={guard(FINANCE_ROLES, <FinanceAdjustmentsPage />)} />
             <Route path="/finance/refunds" element={guard(FINANCE_ROLES, <FinanceRefundsPage />)} />
+            <Route path="/fees/desk" element={guard(FINANCE_ROLES, <FeesDeskPage />)} />
             <Route path="/platform" element={guard(SCHOOL_ADMIN_ROLES, <PlatformPage />)} />
 
             {/* Backwards-compatible aliases: bookmarks, PWA shortcuts and older
