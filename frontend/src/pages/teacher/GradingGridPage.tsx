@@ -7,7 +7,7 @@ import Badge from "../../components/atoms/Badge";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
-import { saveAssessmentResult, getAssessmentResults, getDeviceId } from "../../lib/offline";
+import { recordOfflineAssessment, getAssessmentResults, getDeviceId } from "../../lib/offline";
 import { Learner, AssessmentResult, LevelCode } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
@@ -56,7 +56,7 @@ export default function GradingGridPage() {
       await Promise.all(
         entries.map((e) => {
           const clientId = `${selectedEvent}:${e.learner_id}:${e.sub_strand_id || event.learning_area_id}`;
-          return saveAssessmentResult(tenantId!, {
+          return recordOfflineAssessment(tenantId!, {
             id: clientId,
             client_uuid: clientId,
             learner_id: e.learner_id,
@@ -150,7 +150,7 @@ export default function GradingGridPage() {
     const key = `${learnerId}|${event.learning_area_id}`;
     setCells((c) => ({ ...c, [key]: level }));
     const clientId = `${selectedEvent}:${learnerId}:${event.learning_area_id}`;
-    saveAssessmentResult(tenantId!, {
+    recordOfflineAssessment(tenantId!, {
       id: clientId,
       client_uuid: clientId,
       learner_id: learnerId,

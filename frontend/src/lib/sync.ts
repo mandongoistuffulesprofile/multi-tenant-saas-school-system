@@ -45,6 +45,7 @@ function syncItemFor(op: QueuedOp) {
     entity_id: String(p.entity_id ?? ""),
     client_uuid: String(clientUUID),
     client_version: clientVersion,
+    idempotency_key: op.idempotency_key ?? String(clientUUID),
     payload: op.payload,
   };
 }
@@ -86,6 +87,10 @@ export async function syncNow(): Promise<{ synced: number; failed: number; confl
         for (const r of results) {
           const uuid = String(r?.client_uuid);
           const status = String(r?.status || "").toUpperCase();
+
+          // Conflict status is derived only from the explicit server response
+          // so a transient network failure cannot mislabel a pending op as a
+          // conflict and remove it from the outbox.
           if (status === "APPLIED") {
             appliedUUIDs.add(uuid);
           } else if (status === "CONFLICT") {
@@ -116,8 +121,17 @@ export async function syncNow(): Promise<{ synced: number; failed: number; confl
           await bumpRetry(tenantId, op.id);
           failed += 1;
         }
-        await sleep(Math.min(BACKOFF_BASE_MS * 2 ** (pending[0]?.retries || 0), 30000));
+        await sleep(Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, pending[0]?.retries || 0), 30000));
       }
+
+      // After a failed push, the queue still contains the idempotent intents.
+      // The next connectivity event will replay them; the backend is expected to
+      // treat repeated pushes with the same idempotency_key as no-ops rather
+      // than as fresh mutations.
+    } else {
+      // If the queue is empty or all items are exhausted, still emit so the UI
+      // can reflect the current pending count without forcing another attempt.
+      emit();
     }
   } finally {
     syncing = false;
@@ -182,6 +196,13 @@ export async function queueCount(): Promise<number> {
   const tenantId = getTenantId();
   if (!tenantId) return 0;
   return (await getQueue(tenantId)).length;
+}
+
+export async function pendingQueueCount(): Promise<number> {
+  const tenantId = getTenantId();
+  if (!tenantId) return 0;
+  const queue = await getQueue(tenantId);
+  return queue.filter((op) => op.retries < MAX_RETRIES).length;
 }
 
 export { getDeviceId };
