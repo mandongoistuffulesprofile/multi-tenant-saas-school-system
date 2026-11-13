@@ -2,41 +2,161 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
+import Dialog from "../components/dialog/Dialog";
+import HelpTip from "../components/atoms/HelpTip";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
+import { useToast } from "../components/toast/ToastProvider";
+
+type Invoice = {
+  invoice_id: string;
+  invoice_number?: string;
+  learner_id?: string;
+  amount_outstanding?: number;
+  total_amount?: number;
+  status?: string;
+};
 
 export default function FinanceAdjustmentsPage() {
   const [adjustments, setAdjustments] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const { t } = useTranslation();
+  const { toast } = useToast();
+
+  const adjustmentFormInit = () => ({ invoice_id: "", adjustment_type: "DISCOUNT", amount: "", reason: "" });
+  const [adjustmentForm, setAdjustmentForm] = useState<{ invoice_id: string; adjustment_type: string; amount: string; reason: string }>(adjustmentFormInit());
 
   useEffect(() => {
-    api.get("/finance/adjustments")
-      .then((res) => setAdjustments(res.data || []))
-      .catch(() => setAdjustments([]))
-      .finally(() => setLoading(false));
+    api.get("/finance/adjustments").then((res) => {
+      setAdjustments(res.data || []);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+    api.get("/finance/invoices", { params: { limit: 500, offset: 0 } }).then((res) => {
+      const rows: any[] = Array.isArray(res.data) ? res.data : [];
+      setInvoices(rows.filter((i) => Number(i.amount_outstanding || 0) > 0 && String(i.status || "").toUpperCase() !== "PAID"));
+    }).catch(() => {});
   }, []);
+
+  const invoiceLabel = (id: string) => {
+    const inv = invoices.find((i) => i.invoice_id === id);
+    return inv ? `${inv.invoice_number || inv.invoice_id} · KES ${inv.amount_outstanding?.toLocaleString()} · ${inv.learner_id}` : id;
+  };
+
+  const handleCreateAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(adjustmentForm.amount);
+    if (!adjustmentForm.invoice_id || !Number.isFinite(amount) || amount <= 0 || !adjustmentForm.reason.trim()) {
+      toast("Select an invoice, enter an amount greater than zero, and provide a reason", { type: "error" });
+      return;
+    }
+    setCreating(true);
+    try {
+      await api.post("/finance/adjustments", {
+        invoice_id: adjustmentForm.invoice_id,
+        adjustment_type: adjustmentForm.adjustment_type,
+        amount,
+        reason: adjustmentForm.reason.trim(),
+      });
+      toast("Adjustment created", { type: "success" });
+      setModalOpen(false);
+      setAdjustmentForm(adjustmentFormInit());
+      api.get("/finance/adjustments").then((r) => setAdjustments(Array.isArray(r.data) ? r.data : []));
+    } catch (err: any) {
+      toast(err.response?.data?.message || "Failed to create adjustment", { type: "error" });
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-heading mb-6">Adjustments</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-heading">Adjustments</h2>
+            <button className="btn-primary" onClick={() => setModalOpen(true)}>Create Adjustment</button>
+          </div>
           {loading ? (
-            <Skeleton rows={5} columns={5} />
+            <Skeleton rows={5} columns={6} />
           ) : (
             <DataTable
               data={adjustments}
-              loading={loading}
+              emptyMessage="No adjustments found"
               columns={[
                 { key: "adjustment_reference", header: "Reference" },
-                { key: "invoice_id", header: "Invoice", render: (r) => r.invoice_id || "—" },
+                { key: "invoice_id", header: "Invoice", render: (r) => r.invoice_id ? invoiceLabel(r.invoice_id) : "—" },
+                { key: "adjustment_type", header: "Type" },
                 { key: "amount", header: "Amount", render: (r) => `KES ${r.amount}` },
-                { key: "direction", header: "Direction", render: (r) => r.direction || "—" },
                 { key: "reason", header: "Reason", render: (r) => r.reason || "—" },
+                { key: "created_at", header: "Created", render: (r) => r.created_at ? new Date(r.created_at).toLocaleDateString() : "—" },
               ]}
             />
           )}
+          <Dialog open={modalOpen} onClose={() => setModalOpen(false)} title="Create Adjustment" className="max-w-md">
+            <form onSubmit={handleCreateAdjustment}>
+              <label style={{ display: "block", marginBottom: "0.75rem" }}>
+                <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Invoice<HelpTip text="Select an invoice with outstanding balance to adjust." /></span>
+                <select
+                  required
+                  value={adjustmentForm.invoice_id}
+                  onChange={(e) => setAdjustmentForm({ ...adjustmentForm, invoice_id: e.target.value })}
+                  style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
+                >
+                  <option value="">Select invoice…</option>
+                  {invoices.map((inv) => (
+                    <option key={inv.invoice_id} value={inv.invoice_id}>
+                      {inv.invoice_number || inv.invoice_id} · KES {Number(inv.amount_outstanding || 0).toLocaleString()} · {inv.learner_id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: "block", marginBottom: "0.75rem" }}>
+                <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Type</span>
+                <select
+                  value={adjustmentForm.adjustment_type}
+                  onChange={(e) => setAdjustmentForm({ ...adjustmentForm, adjustment_type: e.target.value })}
+                  style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
+                >
+                  <option value="DISCOUNT">Discount</option>
+                  <option value="SURCHARGE">Surcharge</option>
+                  <option value="WAIVER">Waiver</option>
+                  <option value="CORRECTION">Correction</option>
+                </select>
+              </label>
+              <label style={{ display: "block", marginBottom: "0.75rem" }}>
+                <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Amount (KES)<HelpTip text="Positive amount. DISCOUNT/WAIVER reduce outstanding; SURCHARGE increases it." /></span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  value={adjustmentForm.amount}
+                  onChange={(e) => setAdjustmentForm({ ...adjustmentForm, amount: e.target.value })}
+                  style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
+                />
+              </label>
+              <label style={{ display: "block", marginBottom: "0.75rem" }}>
+                <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Reason<HelpTip text="Reason for the adjustment." /></span>
+                <input
+                  type="text"
+                  required
+                  value={adjustmentForm.reason}
+                  onChange={(e) => setAdjustmentForm({ ...adjustmentForm, reason: e.target.value })}
+                  placeholder="e.g. Early payment discount, fee correction"
+                  style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
+                />
+              </label>
+              <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
+                <button type="button" onClick={() => setModalOpen(false)} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={creating}>
+                  {creating ? "Creating…" : "Create"}
+                </button>
+              </div>
+            </form>
+          </Dialog>
         </div>
       </div>
     </ErrorBoundary>

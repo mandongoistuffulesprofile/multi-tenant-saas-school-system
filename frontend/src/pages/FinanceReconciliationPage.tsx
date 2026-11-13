@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
+import Dialog from "../components/dialog/Dialog";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import Button from "../components/atoms/Button";
@@ -32,6 +33,10 @@ export default function FinanceReconciliationPage() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [matchInvoice, setMatchInvoice] = useState<Record<string, string>>({});
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [refundTxn, setRefundTxn] = useState<Txn | null>(null);
+  const [refundReason, setRefundReason] = useState("");
+  const [flagging, setFlagging] = useState(false);
   const { toast } = useToast();
 
   const load = async () => {
@@ -72,18 +77,26 @@ export default function FinanceReconciliationPage() {
     }
   };
 
-  const doFlagRefund = async (txn: Txn) => {
-    const reason = window.prompt("Reason for refund flag", "Unmatched / wrong bill reference");
-    if (!reason) return;
-    setActing(txn.trans_id);
+  const openRefundFlag = (txn: Txn) => {
+    setRefundTxn(txn);
+    setRefundReason("Unmatched / wrong bill reference");
+    setRefundModalOpen(true);
+  };
+
+  const doFlagRefund = async () => {
+    if (!refundTxn || !refundReason.trim()) return;
+    setFlagging(true);
     try {
-      await api.post(`/finance/reconciliation/transactions/${txn.trans_id}/flag-refund`, { reason });
-      toast(`Flagged ${txn.external_trans_id || txn.trans_id} for refund`, { type: "success" });
+      await api.post(`/finance/reconciliation/transactions/${refundTxn.trans_id}/flag-refund`, { reason: refundReason.trim() });
+      toast(`Flagged ${refundTxn.external_trans_id || refundTxn.trans_id} for refund`, { type: "success" });
+      setRefundModalOpen(false);
+      setRefundTxn(null);
+      setRefundReason("");
       await load();
     } catch (e: any) {
       toast(e?.response?.data?.message || "Failed to flag refund", { type: "error" });
     } finally {
-      setActing(null);
+      setFlagging(false);
     }
   };
 
@@ -127,7 +140,7 @@ export default function FinanceReconciliationPage() {
                         <Button size="sm" variant="secondary" loading={acting === r.trans_id} disabled={!matchInvoice[r.trans_id] || acting === r.trans_id} onClick={() => doMatch(r)}>
                           Match
                         </Button>
-                        <Button size="sm" variant="ghost" disabled={acting === r.trans_id} onClick={() => doFlagRefund(r)}>
+                        <Button size="sm" variant="ghost" disabled={acting === r.trans_id} onClick={() => openRefundFlag(r)}>
                           Flag refund
                         </Button>
                       </div>
@@ -155,6 +168,34 @@ export default function FinanceReconciliationPage() {
               />
             )}
           </section>
+
+          {/* Flag Refund Modal */}
+          <Dialog open={refundModalOpen} onClose={() => { setRefundModalOpen(false); setRefundTxn(null); setRefundReason(""); }} title="Flag for Refund" className="max-w-md">
+            {refundTxn && (
+              <div>
+                <p className="text-sm text-gray-600 mb-4">
+                  Flag <strong>{refundTxn.external_trans_id || refundTxn.trans_id}</strong> (KES {Number(refundTxn.amount || 0).toLocaleString()}) for refund.
+                </p>
+                <label style={{ display: "block", marginBottom: "0.75rem" }}>
+                  <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Reason</span>
+                  <textarea
+                    required
+                    rows={3}
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    placeholder="Enter reason for refund flag…"
+                    style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
+                  />
+                </label>
+                <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
+                  <button type="button" onClick={() => { setRefundModalOpen(false); setRefundTxn(null); setRefundReason(""); }} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
+                  <button type="button" className="btn-primary" disabled={flagging} onClick={doFlagRefund}>
+                    {flagging ? "Flagging…" : "Flag for Refund"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </Dialog>
         </div>
       </div>
     </ErrorBoundary>

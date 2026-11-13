@@ -49,12 +49,15 @@ import FinanceFeeStructuresPage from "./pages/FinanceFeeStructuresPage";
 import FinanceInvoicesPage from "./pages/FinanceInvoicesPage";
 import FinancePaymentsPage from "./pages/FinancePaymentsPage";
 import FinanceMpesaPage from "./pages/FinanceMpesaPage";
-import NotFoundPage from "./pages/NotFoundPage";
 import FinanceReconciliationPage from "./pages/FinanceReconciliationPage";
 import HoldingTankReconciliationPage from "./pages/HoldingTankReconciliationPage";
 import FinanceCreditsPage from "./pages/FinanceCreditsPage";
 import FinanceAdjustmentsPage from "./pages/FinanceAdjustmentsPage";
 import FinanceRefundsPage from "./pages/FinanceRefundsPage";
+import FinanceCapitationPage from "./pages/FinanceCapitationPage";
+import FinanceReceiptSequencesPage from "./pages/FinanceReceiptSequencesPage";
+import FinanceSTKPage from "./pages/FinanceSTKPage";
+import FinanceLearnerStatementPage from "./pages/FinanceLearnerStatementPage";
 import ProfilePage from "./pages/ProfilePage";
 
 import ParentHomePage from "./pages/parent/ParentHomePage";
@@ -167,6 +170,10 @@ export default function App() {
             <Route path="/finance/credits" element={guard(FINANCE_ROLES, <FinanceCreditsPage />)} />
             <Route path="/finance/adjustments" element={guard(FINANCE_ROLES, <FinanceAdjustmentsPage />)} />
             <Route path="/finance/refunds" element={guard(FINANCE_ROLES, <FinanceRefundsPage />)} />
+            <Route path="/finance/capitation" element={guard(FINANCE_ROLES, <FinanceCapitationPage />)} />
+            <Route path="/finance/receipt-sequences" element={guard(FINANCE_ROLES, <FinanceReceiptSequencesPage />)} />
+            <Route path="/finance/stk" element={guard(FINANCE_ROLES, <FinanceSTKPage />)} />
+            <Route path="/finance/statement" element={guard(FINANCE_ROLES, <FinanceLearnerStatementPage />)} />
 
             {/* Backwards-compatible aliases: bookmarks, PWA shortcuts and older
                 links must keep resolving after routes are renamed. */}
