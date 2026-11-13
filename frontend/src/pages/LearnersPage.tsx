@@ -72,6 +72,8 @@ export default function LearnersPage() {
   const [state, setState] = useState<"loading" | "content" | "error">("loading");
   const [learners, setLearners] = useState<Learner[]>([]);
   const [open, setOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingLearner, setEditingLearner] = useState<Learner | null>(null);
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<any>({ ...EMPTY_LEARNER_FORM });
   const resetWizard = () => {
@@ -79,7 +81,7 @@ export default function LearnersPage() {
     setFeeChecks({});
     setStep(0);
   };
-	  const [zones, setZones] = useState<TransportZone[]>([]);
+  const [zones, setZones] = useState<TransportZone[]>([]);
   const [categories, setCategories] = useState<{ category_id: string; name: string; is_tuition?: boolean }[]>([]);
   const [structures, setStructures] = useState<any[]>([]);
   const [gradeOptions, setGradeOptions] = useState<string[]>(GRADES);
@@ -92,10 +94,14 @@ export default function LearnersPage() {
   const [streamFilter, setStreamFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  const loadLearners = async () => {
+    const r = await api.get<Learner[]>("/learners");
+    setLearners(Array.isArray(r.data) ? r.data : []);
+    setState("content");
+  };
+
   useEffect(() => {
-    api.get<Learner[]>("/learners")
-      .then((r) => { setLearners(Array.isArray(r.data) ? r.data : []); setState("content"); })
-      .catch(() => setState("error"));
+    loadLearners().catch(() => setState("error"));
     const safety = setTimeout(() => setState((s) => (s === "loading" ? "content" : s)), 2500);
     return () => clearTimeout(safety);
   }, []);
@@ -105,14 +111,14 @@ export default function LearnersPage() {
   // grade. The fee-option API stores a structure_id, not just a category.
   useEffect(() => {
     const safe = (p: string) => api.get(p).then((r) => r.data).catch(() => null);
-    	    Promise.all([
-	      safe("/finance/fee-categories"),
-	      safe("/finance/fee-structures"),
-	      safe("/structure/grades"),
-	      safe("/structure/streams"),
-	      safe("/transport/zones"),
-	    ]).then(([cats, structs, grades, streams, transportZones]) => {
-	      if (Array.isArray(transportZones)) setZones(transportZones);
+    Promise.all([
+      safe("/finance/fee-categories"),
+      safe("/finance/fee-structures"),
+      safe("/structure/grades"),
+      safe("/structure/streams"),
+      safe("/transport/zones"),
+    ]).then(([cats, structs, grades, streams, transportZones]) => {
+      if (Array.isArray(transportZones)) setZones(transportZones);
       const list = Array.isArray(cats) ? cats : [];
       setCategories(list.map((c: any) => ({ category_id: c.category_id, name: c.name || c.code, is_tuition: c.is_tuition })));
       const defaults: Record<string, boolean> = {};
@@ -206,15 +212,15 @@ export default function LearnersPage() {
       gender: form.gender,
       status: form.status,
       admitted_on: form.admitted_on,
-      	      boarding_type: form.boarding_type,
-	      residence_type: form.residence_type,
-	      kemis_upi: form.kemis_upi,
-	      knec_assessment_no: form.knec_assessment_no,
-	      sne_category: form.sne_category,
-	      transport_zone_id: form.transport_zone_id,
-	      transport_trip_type: form.transport_trip_type,
-	      grade_label: form.grade_label,
-	      stream_name: form.stream_name,
+      boarding_type: form.boarding_type,
+      residence_type: form.residence_type,
+      kemis_upi: form.kemis_upi,
+      knec_assessment_no: form.knec_assessment_no,
+      sne_category: form.sne_category,
+      transport_zone_id: form.transport_zone_id,
+      transport_trip_type: form.transport_trip_type,
+      grade_label: form.grade_label,
+      stream_name: form.stream_name,
       guardians: form.guardian_phone ? [{
         full_name: form.guardian_name || `${form.last_name} Guardian`,
         phone_number: form.guardian_phone,
@@ -224,45 +230,97 @@ export default function LearnersPage() {
       }] : []
     };
     try {
-      const res = await api.post("/learners", payload);
-      // Persist opted-in fee categories from step 2 onto the new learner.
-      // The API stores a structure_id, so only send categories that have a
-      // matching structure for the selected grade. A failed fee option must
-      // not make the learner look like it was not admitted.
-      const learnerId = res?.data?.learner_id;
-      let savedOptions = 0;
-      let skippedOptions = 0;
-      if (learnerId) {
-        for (const [categoryId, checked] of Object.entries(feeChecks)) {
-          if (!checked) continue;
-          const structure = structureForCategory(categoryId);
-          if (!structure) { skippedOptions++; continue; }
-          try {
-            await api.post(`/finance/learners/${learnerId}/fee-options`, {
-              category_id: categoryId,
-              structure_id: structure.structure_id,
-              opted_in: true,
-            });
-            savedOptions++;
-          } catch {
-            skippedOptions++;
+      if (isEditMode && editingLearner) {
+        await api.patch(`/learners/${editingLearner.learner_id}`, payload);
+        toast("Learner updated", { type: "success" });
+      } else {
+        const res = await api.post("/learners", payload);
+        const learnerId = res?.data?.learner_id;
+        let savedOptions = 0;
+        let skippedOptions = 0;
+        if (learnerId) {
+          for (const [categoryId, checked] of Object.entries(feeChecks)) {
+            if (!checked) continue;
+            const structure = structureForCategory(categoryId);
+            if (!structure) { skippedOptions++; continue; }
+            try {
+              await api.post(`/finance/learners/${learnerId}/fee-options`, {
+                category_id: categoryId,
+                structure_id: structure.structure_id,
+                opted_in: true,
+              });
+              savedOptions++;
+            } catch {
+              skippedOptions++;
+            }
           }
         }
+        const skippedNote = skippedOptions ? ` · ${skippedOptions} fee option(s) skipped (no fee structure configured)` : "";
+        toast(
+          `Learner admitted${savedOptions ? ` with ${savedOptions} fee category(ies)` : ""}${skippedNote}`,
+          { type: skippedOptions ? "info" : "success" },
+        );
       }
       setOpen(false);
+      setIsEditMode(false);
+      setEditingLearner(null);
       resetWizard();
-      const skippedNote = skippedOptions ? ` · ${skippedOptions} fee option(s) skipped (no fee structure configured)` : "";
-      toast(
-        `Learner admitted${savedOptions ? ` with ${savedOptions} fee category(ies)` : ""}${skippedNote}`,
-        { type: skippedOptions ? "info" : "success" },
-      );
       const r = await api.get<Learner[]>("/learners").catch(() => null);
       if (r) setLearners(Array.isArray(r.data) ? r.data : []);
     } catch (err: any) {
-      toast(err.response?.data?.message || "Failed to create learner", { type: "error" });
+      toast(err.response?.data?.message || "Failed to save learner", { type: "error" });
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDeactivate = async (learnerId: string) => {
+    if (!confirm("Deactivate this learner? They will no longer appear in active lists.")) return;
+    try {
+      await api.patch(`/learners/${learnerId}`, { status: "INACTIVE" });
+      toast("Learner deactivated", { type: "success" });
+      await loadLearners();
+    } catch (err: any) {
+      toast(err.response?.data?.message || "Failed to deactivate", { type: "error" });
+    }
+  };
+
+  const openCreate = () => {
+    setIsEditMode(false);
+    setEditingLearner(null);
+    resetWizard();
+    setOpen(true);
+  };
+
+  const openEdit = (l: Learner) => {
+    setIsEditMode(true);
+    setEditingLearner(l);
+    setStep(0);
+    setForm({
+      admission_number: l.admission_number,
+      upi_nemis_number: l.upi_nemis_number || "",
+      first_name: l.first_name,
+      middle_name: l.middle_name || "",
+      last_name: l.last_name,
+      date_of_birth: l.date_of_birth || "",
+      gender: l.gender || "",
+      status: l.status || "ACTIVE",
+      admitted_on: l.admitted_on || "",
+      boarding_type: l.residence_type?.startsWith("BOARDER") ? "BOARDING" : "DAY",
+      residence_type: l.residence_type || "DAY_SCHOLAR_WITH_LUNCH",
+      kemis_upi: l.kemis_upi || "",
+      knec_assessment_no: l.knec_assessment_no || "",
+      sne_category: l.sne_category || "NONE",
+      transport_zone_id: l.transport_zone_id || "",
+      transport_trip_type: l.transport_trip_type || "NONE",
+      grade_label: l.grade_label || "",
+      stream_name: l.stream_name || "",
+      guardian_name: "",
+      guardian_phone: l.guardian_phone || "",
+      guardian_email: "",
+      guardian_relationship: "PARENT",
+    });
+    setOpen(true);
   };
 
   const handleBatchInvoice = () => {
@@ -287,7 +345,7 @@ export default function LearnersPage() {
   };
 
   if (state === "loading") return <ViewState state="loading" />;
-  if (state === "error") return <ViewState state="error" onRetry={() => setState("loading")} />;
+  if (state === "error") return <ViewState state="error" onRetry={() => loadLearners()} />;
 
   return (
     <div className="space-y-6">
@@ -301,7 +359,7 @@ export default function LearnersPage() {
             <Link to="/imports/learners" className="text-sm font-medium text-kenyan-red hover:underline">
               Import CSV
             </Link>
-            <Button variant="primary" onClick={() => setOpen(true)}>
+            <Button variant="primary" onClick={openCreate}>
               {t("add_learner")}
             </Button>
           </div>
@@ -317,14 +375,14 @@ export default function LearnersPage() {
             <label className="label">{t("grade")}</label>
             <select className="input-field" value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
               <option value="">{t("all_grades")}</option>
-              {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
+              {gradeOptions.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
           <div>
             <label className="label">{t("stream")}</label>
             <select className="input-field" value={streamFilter} onChange={(e) => setStreamFilter(e.target.value)}>
               <option value="">{t("all_streams")}</option>
-              {STREAMS.map((s) => <option key={s} value={s}>{s}</option>)}
+              {streamOptions.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         </div>
@@ -347,13 +405,13 @@ export default function LearnersPage() {
             { key: "first_name", header: t("first_name"), sortable: true },
             { key: "last_name", header: t("last_name"), sortable: true },
             { key: "grade_label", header: t("grade"), sortable: true },
-            	            { key: "stream_name", header: t("stream"), sortable: true },
-	            {
-	              key: "residence_type",
-	              header: "Residence",
-	              render: (row) => RESIDENCE_OPTIONS.find((o) => o.value === row.residence_type)?.label ?? "—",
-	            },
-	            { key: "guardian_phone", header: t("phone"), sortable: true },
+            { key: "stream_name", header: t("stream"), sortable: true },
+            {
+              key: "residence_type",
+              header: "Residence",
+              render: (row) => RESIDENCE_OPTIONS.find((o) => o.value === row.residence_type)?.label ?? "—",
+            },
+            { key: "guardian_phone", header: t("phone"), sortable: true },
             {
               key: "sponsorship",
               header: t("sponsorship"),
@@ -361,6 +419,14 @@ export default function LearnersPage() {
               render: (row) => <SponsorshipBadge />,
             },
             { key: "status", header: t("status"), render: (row) => <Badge variant="default">{row.status}</Badge> },
+            { key: "actions", header: "Actions", sortable: false, render: (row) => canManageLearners ? (
+              <div className="flex gap-2">
+                <button className="px-3 py-1 text-sm text-kenyan-red hover:underline" onClick={() => openEdit(row)}>Edit</button>
+                {row.status === "ACTIVE" && <button className="px-3 py-1 text-sm text-red-600 hover:underline" onClick={() => handleDeactivate(row.learner_id)}>Deactivate</button>}
+              </div>
+            ) : (
+              "—"
+            )},
           ]}
           emptyMessage={t("no_learners")}
           keyField="learner_id"
@@ -383,7 +449,7 @@ export default function LearnersPage() {
         />
       )}
 
-      <Dialog open={open} onClose={() => { setOpen(false); resetWizard(); }} title={t("add_learner")} className="max-w-2xl">
+      <Dialog open={open} onClose={() => { setOpen(false); setIsEditMode(false); setEditingLearner(null); resetWizard(); }} title={isEditMode ? "Edit Learner" : t("add_learner")} className="max-w-2xl">
         <form onSubmit={handleSubmit} className="space-y-6">
           {step === 0 && (
             <>
@@ -422,116 +488,116 @@ export default function LearnersPage() {
                   </select>
                 </FormField>
               </div>
-              	              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-	                <FormField label="Learner Mode / Residence" required>
-	                  <select
-	                    className="input-field"
-	                    value={form.residence_type}
-	                    onChange={(e) => {
-	                      const residence = e.target.value;
-	                      setForm({
-	                        ...form,
-	                        residence_type: residence,
-	                        boarding_type: residence.startsWith("BOARDER") ? "BOARDING" : "DAY",
-	                        transport_trip_type: residence.startsWith("DAY_SCHOLAR") ? form.transport_trip_type : "NONE",
-	                        transport_zone_id: residence.startsWith("DAY_SCHOLAR") ? form.transport_zone_id : "",
-	                      });
-	                    }}
-	                  >
-	                    {RESIDENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-	                  </select>
-	                </FormField>
-	                <FormField label="Special Needs (SNE)">
-	                  <select className="input-field" value={form.sne_category} onChange={(e) => setForm({ ...form, sne_category: e.target.value })}>
-	                    {SNE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-	                  </select>
-	                </FormField>
-	              </div>
-              	              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-	                <FormField label={t("grade")}>
-	                  <select className="input-field" value={form.grade_label} onChange={(e) => setForm({ ...form, grade_label: e.target.value })}>
-	                    {gradeOptions.map((g) => <option key={g} value={g}>{g}</option>)}
-	                  </select>
-	                </FormField>
-	                <FormField label={t("stream")}>
-	                  <select className="input-field" value={form.stream_name} onChange={(e) => setForm({ ...form, stream_name: e.target.value })}>
-	                    {streamOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-	                  </select>
-	                </FormField>
-	              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label="Learner Mode / Residence" required>
+                  <select
+                    className="input-field"
+                    value={form.residence_type}
+                    onChange={(e) => {
+                      const residence = e.target.value;
+                      setForm({
+                        ...form,
+                        residence_type: residence,
+                        boarding_type: residence.startsWith("BOARDER") ? "BOARDING" : "DAY",
+                        transport_trip_type: residence.startsWith("DAY_SCHOLAR") ? form.transport_trip_type : "NONE",
+                        transport_zone_id: residence.startsWith("DAY_SCHOLAR") ? form.transport_zone_id : "",
+                      });
+                    }}
+                  >
+                    {RESIDENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </FormField>
+                <FormField label="Special Needs (SNE)">
+                  <select className="input-field" value={form.sne_category} onChange={(e) => setForm({ ...form, sne_category: e.target.value })}>
+                    {SNE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </FormField>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label={t("grade")}>
+                  <select className="input-field" value={form.grade_label} onChange={(e) => setForm({ ...form, grade_label: e.target.value })}>
+                    {gradeOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </FormField>
+                <FormField label={t("stream")}>
+                  <select className="input-field" value={form.stream_name} onChange={(e) => setForm({ ...form, stream_name: e.target.value })}>
+                    {streamOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </FormField>
+              </div>
 
-	              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-4">
-	                <div className="text-caption font-semibold uppercase tracking-wide text-emerald-800">
-	                  Ministry of Education & National Examination IDs
-	                </div>
-	                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-	                  <FormField label="NEMIS UPI">
-	                    <Input
-	                      placeholder="e.g. M7X9K2P1"
-	                      className="font-mono uppercase"
-	                      value={form.upi_nemis_number}
-	                      onChange={(e) => setForm({ ...form, upi_nemis_number: e.target.value.toUpperCase() })}
-	                    />
-	                  </FormField>
-	                  <FormField label="KEMIS UPI">
-	                    <Input
-	                      placeholder="e.g. K3M8S2P4"
-	                      className="font-mono uppercase"
-	                      value={form.kemis_upi}
-	                      onChange={(e) => setForm({ ...form, kemis_upi: e.target.value.toUpperCase() })}
-	                    />
-	                  </FormField>
-	                </div>
-	                <FormField label="KNEC Assessment No (KPSEA / KJSEA)">
-	                  <Input
-	                    placeholder="e.g. 20401021/045"
-	                    className="font-mono"
-	                    value={form.knec_assessment_no}
-	                    onChange={(e) => setForm({ ...form, knec_assessment_no: e.target.value })}
-	                  />
-	                </FormField>
-	              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-4">
+                <div className="text-caption font-semibold uppercase tracking-wide text-emerald-800">
+                  Ministry of Education & National Examination IDs
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField label="NEMIS UPI">
+                    <Input
+                      placeholder="e.g. M7X9K2P1"
+                      className="font-mono uppercase"
+                      value={form.upi_nemis_number}
+                      onChange={(e) => setForm({ ...form, upi_nemis_number: e.target.value.toUpperCase() })}
+                    />
+                  </FormField>
+                  <FormField label="KEMIS UPI">
+                    <Input
+                      placeholder="e.g. K3M8S2P4"
+                      className="font-mono uppercase"
+                      value={form.kemis_upi}
+                      onChange={(e) => setForm({ ...form, kemis_upi: e.target.value.toUpperCase() })}
+                    />
+                  </FormField>
+                </div>
+                <FormField label="KNEC Assessment No (KPSEA / KJSEA)">
+                  <Input
+                    placeholder="e.g. 20401021/045"
+                    className="font-mono"
+                    value={form.knec_assessment_no}
+                    onChange={(e) => setForm({ ...form, knec_assessment_no: e.target.value })}
+                  />
+                </FormField>
+              </div>
 
-	              {String(form.residence_type).startsWith("DAY_SCHOLAR") && (
-	                <div className="rounded-xl border border-slate-200 p-4 space-y-4">
-	                  <div className="text-caption font-semibold uppercase tracking-wide text-slate-700">
-	                    Transport (zoned day-scholar routes)
-	                  </div>
-	                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-	                    <FormField label="Route / Zone">
-	                      <select
-	                        className="input-field"
-	                        value={form.transport_zone_id}
-	                        onChange={(e) => setForm({ ...form, transport_zone_id: e.target.value })}
-	                      >
-	                        <option value="">No transport required</option>
-	                        {zones.map((z) => (
-	                          <option key={z.zone_id} value={z.zone_id}>
-	                            {z.zone_name} (KES {Number(z.two_way_fee).toLocaleString()})
-	                          </option>
-	                        ))}
-	                      </select>
-	                    </FormField>
-	                    <FormField label="Trip Pattern">
-	                      <select
-	                        className="input-field"
-	                        disabled={!form.transport_zone_id}
-	                        value={form.transport_trip_type}
-	                        onChange={(e) => setForm({ ...form, transport_trip_type: e.target.value })}
-	                      >
-	                        {TRIP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-	                      </select>
-	                    </FormField>
-	                  </div>
-	                  {zones.length === 0 && (
-	                    <p className="text-xs text-gray-500">
-	                      No transport zones configured yet. Add them via the transport zones API before assigning a route.
-	                    </p>
-	                  )}
-	                </div>
-	              )}
+              {String(form.residence_type).startsWith("DAY_SCHOLAR") && (
+                <div className="rounded-xl border border-slate-200 p-4 space-y-4">
+                  <div className="text-caption font-semibold uppercase tracking-wide text-slate-700">
+                    Transport (zoned day-scholar routes)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField label="Route / Zone">
+                      <select
+                        className="input-field"
+                        value={form.transport_zone_id}
+                        onChange={(e) => setForm({ ...form, transport_zone_id: e.target.value })}
+                      >
+                        <option value="">No transport required</option>
+                        {zones.map((z) => (
+                          <option key={z.zone_id} value={z.zone_id}>
+                            {z.zone_name} (KES {Number(z.two_way_fee).toLocaleString()})
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                    <FormField label="Trip Pattern">
+                      <select
+                        className="input-field"
+                        disabled={!form.transport_zone_id}
+                        value={form.transport_trip_type}
+                        onChange={(e) => setForm({ ...form, transport_trip_type: e.target.value })}
+                      >
+                        {TRIP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </FormField>
+                  </div>
+                  {zones.length === 0 && (
+                    <p className="text-xs text-gray-500">
+                      No transport zones configured yet. Add them via the transport zones API before assigning a route.
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
-                <Button variant="secondary" onClick={() => { setOpen(false); resetWizard(); }}>{t("cancel")}</Button>
+                <Button variant="secondary" onClick={() => { setOpen(false); setIsEditMode(false); setEditingLearner(null); resetWizard(); }}>{t("cancel")}</Button>
                 <Button variant="primary" onClick={nextStep}>{t("next")} →</Button>
               </div>
             </>
@@ -593,7 +659,7 @@ export default function LearnersPage() {
               </Card>
               <div className="flex justify-between pt-4">
                 <Button variant="secondary" onClick={prevStep}>← {t("back")}</Button>
-                <Button variant="primary" type="submit" loading={saving}>{t("save_learner")}</Button>
+                <Button variant="primary" type="submit" loading={saving}>{isEditMode ? t("update_learner") : t("save_learner")}</Button>
               </div>
             </>
           )}
