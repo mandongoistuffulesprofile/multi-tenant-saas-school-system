@@ -3,6 +3,7 @@ import { CBCRubricSelector } from '../components/CBCRubricSelector';
 import { CBCLevel, CBC_RUBRIC_CONFIG } from '../utils/kenyaFormatters';
 // @ts-ignore
 import CBCRubricAssessment from '../components/CBCRubricAssessment';
+import { BroadsheetGrid } from './BroadsheetGrid';
 
 interface LearnerAssessment {
   id: string;
@@ -87,6 +88,10 @@ export const CBCAssessment: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* CBC broadsheet data desk: keyboard-driven grade entry with live
+          CBC rubric conversion and draft auto-save per class. */}
+      <BroadsheetGrid classId={`CBC-${assessments[0]?.strand ?? 'IntegratedScience'}`} />
 
       {/* Offline-first CBC rubric engine (IndexedDB -> /assessments/cbc/bulk-sync).
           Mounted here so the feature lives inside the existing routed view. */}
