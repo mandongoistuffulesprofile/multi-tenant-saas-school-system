@@ -19,6 +19,7 @@ export interface QueuedOp {
   endpoint: string;
   method: "POST" | "PUT" | "PATCH" | "DELETE";
   payload: unknown;
+  idempotency_key?: string | null;
   created_at: string;
   retries: number;
   last_attempt?: string | null;
@@ -230,8 +231,17 @@ export async function clearOfflineData(tenantId: string): Promise<void> {
 const QUEUE_STORE = "sync_queue";
 
 async function enqueueOp(tenantId: string, op: Omit<QueuedOp, "id" | "created_at" | "retries">): Promise<void> {
+  const intentKey =
+    (op as any)?.idempotency_key ??
+    (() => {
+      const p = op.payload as any;
+      if (p?.id != null) return String(p.id);
+      if (p?.entity_id != null) return String(p.entity_id);
+      return crypto.randomUUID();
+    })();
+
   await tx(tenantId, QUEUE_STORE, "readwrite", (os) =>
-    os.add({ ...op, id: crypto.randomUUID(), created_at: new Date().toISOString(), retries: 0 })
+    os.add({ ...op, id: crypto.randomUUID(), idempotency_key: intentKey, created_at: new Date().toISOString(), retries: 0 })
   );
 }
 
