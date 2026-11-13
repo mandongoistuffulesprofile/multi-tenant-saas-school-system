@@ -58,6 +58,7 @@ import FinanceCapitationPage from "./pages/FinanceCapitationPage";
 import FinanceReceiptSequencesPage from "./pages/FinanceReceiptSequencesPage";
 import FinanceSTKPage from "./pages/FinanceSTKPage";
 import FinanceLearnerStatementPage from "./pages/FinanceLearnerStatementPage";
+import StructurePage from "./pages/StructurePage";
 import ProfilePage from "./pages/ProfilePage";
 
 import ParentHomePage from "./pages/parent/ParentHomePage";
@@ -143,7 +144,8 @@ export default function App() {
             <Route path="/staff" element={guard(ADMIN_ROLES, <StaffPage />)} />
             <Route path="/learners" element={guard(ACADEMIC_ROLES, <LearnersPage />)} />
             <Route path="/imports/learners" element={guard(SCHOOL_ADMIN_ROLES, <ImportLearnersPage />)} />
-            <Route path="/grades-streams" element={guard(SCHOOL_ADMIN_ROLES, <GradesStreamsPage />)} />
+            <Route path="/grades-streams" element={guard(SCHOOL_ADMIN_ROLES, <StructurePage />)} />
+            <Route path="/structure" element={guard(SCHOOL_ADMIN_ROLES, <StructurePage />)} />
             <Route path="/teaching-allocation" element={guard(SCHOOL_ADMIN_ROLES, <TeachingAllocationPage />)} />
             <Route path="/curriculum" element={guard(ACADEMIC_ROLES, <CurriculumPage />)} />
             <Route path="/assessment" element={guard(ACADEMIC_ROLES, <AssessmentPage />)} />
