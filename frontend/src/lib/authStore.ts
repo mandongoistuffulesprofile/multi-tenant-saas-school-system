@@ -105,6 +105,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   restoreCachedSession: () => {
     const cached = readCachedSession();
     if (!cached) return false;
+    if (cached.tenantId) {
+      void attachOfflineTenant(cached.tenantId).catch(() => { /* ignore */ });
+    }
     set({
       userId: cached.userId,
       tenantId: cached.tenantId,
