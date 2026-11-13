@@ -5,17 +5,37 @@ import DataTable from "../components/organisms/DataTable";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
+type ConsentNotice = {
+  notice_id: string;
+  notice_code: string;
+  title: string;
+  content_text: string;
+  version: number;
+  is_active: boolean;
+  requires_renewal: boolean;
+  renewal_period_days: number | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export default function ConsentNoticesPage() {
-  const [notices, setNotices] = useState<any[]>([]);
+  const [notices, setNotices] = useState<ConsentNotice[]>([]);
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
 
   useEffect(() => {
-    api.get("/compliance/consent-notices")
+    api.get<ConsentNotice[]>("/compliance/consent-notices")
       .then((res) => setNotices(res.data || []))
       .catch(() => setNotices([]))
       .finally(() => setLoading(false));
   }, []);
+
+  const statusBadge = (isActive: boolean) => {
+    return isActive
+      ? <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Active</span>
+      : <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Inactive</span>;
+  };
 
   return (
     <ErrorBoundary>
@@ -28,11 +48,12 @@ export default function ConsentNoticesPage() {
             <DataTable
               data={notices}
               columns={[
+                { key: "notice_code", header: "Code", render: (r) => r.notice_code },
                 { key: "title", header: "Title" },
-                { key: "version", header: "Version", render: (r) => r.version || "—" },
-                { key: "channel", header: "Channel", render: (r) => r.channel || "—" },
-                { key: "is_required", header: "Required", render: (r) => r.is_required ? "Yes" : "No" },
-                { key: "status", header: "Status" },
+                { key: "version", header: "Version", render: (r) => String(r.version) },
+                { key: "requires_renewal", header: "Renewal Required", render: (r) => r.requires_renewal ? "Yes" : "No" },
+                { key: "renewal_period_days", header: "Renewal Period (days)", render: (r) => r.renewal_period_days?.toString() || "—" },
+                { key: "is_active", header: "Status", render: (r) => statusBadge(r.is_active) },
               ]}
             />
           )}
