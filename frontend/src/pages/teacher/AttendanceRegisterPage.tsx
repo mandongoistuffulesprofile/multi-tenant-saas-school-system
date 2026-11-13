@@ -7,7 +7,7 @@ import Badge from "../../components/atoms/Badge";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
-import { saveAttendanceMark, getAttendanceMarks, getDeviceId, cacheCollection, readCachedCollection } from "../../lib/offline";
+import { recordOfflineAttendance, getAttendanceMarks, getDeviceId, cacheCollection, readCachedCollection } from "../../lib/offline";
 import { AttendanceRegister, AttendanceMark, Learner } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
@@ -191,11 +191,11 @@ export default function AttendanceRegisterPage() {
           if (entries.length === 0) return;
           try {
             await api.post("/attendance/marks/batch", { register_id: selected.register_id, marks: entries.map(({ learner_id, status, register_id, client_uuid, device_id, client_ts }) => ({ learner_id, status, register_id, client_uuid, device_id, client_ts })) });
-            await Promise.all(entries.map((e) => saveAttendanceMark(tenantId!, e as any, { enqueue: false })));
+            await Promise.all(entries.map((e) => recordOfflineAttendance(tenantId!, e as any, { enqueue: false })));
             toast("Attendance saved successfully!", { type: "success" });
           } catch (e) {
             // Persist each mark locally and queue for sync/retry.
-            await Promise.all(entries.map((e) => saveAttendanceMark(tenantId!, e as any)));
+            await Promise.all(entries.map((e) => recordOfflineAttendance(tenantId!, e as any)));
             toast("Saved offline. Will sync when online.", { type: "warning" });
           }
         }}>

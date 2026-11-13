@@ -19,6 +19,7 @@ export interface QueuedOp {
   endpoint: string;
   method: "POST" | "PUT" | "PATCH" | "DELETE";
   payload: unknown;
+  idempotency_key?: string | null;
   created_at: string;
   retries: number;
   last_attempt?: string | null;
@@ -32,36 +33,40 @@ const STORE_SCHEMAS: Record<StoreName, { keyPath: string; autoIncrement: boolean
   sync_queue: { keyPath: "id", autoIncrement: true },
 };
 
-let dbPromise: Promise<IDBDatabase> | null = null;
-let currentTenantId: string | null = null;
+const TENANT_KEY = "skulapp_offline_current_tenant";
+
+let dbPromiseByTenant: Map<string, Promise<IDBDatabase>> = new Map();
+let attachedTenantId: string | null = null;
 
 function getDBName(tenantId: string): string {
   return `skulapp_offline_${tenantId}`;
 }
 
-function openDB(tenantId: string): Promise<IDBDatabase> {
-  if (dbPromise && currentTenantId === tenantId) return dbPromise;
-  currentTenantId = tenantId;
-  const dbName = getDBName(tenantId);
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(dbName, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      for (const [name, schema] of Object.entries(STORE_SCHEMAS)) {
-        if (!db.objectStoreNames.contains(name)) {
-          db.createObjectStore(name, { keyPath: schema.keyPath, autoIncrement: schema.autoIncrement });
+function ensureTenantDB(tenantId: string): Promise<IDBDatabase> {
+  let p = dbPromiseByTenant.get(tenantId);
+  if (!p) {
+    p = new Promise((resolve, reject) => {
+      const dbName = getDBName(tenantId);
+      const req = indexedDB.open(dbName, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        for (const [name, schema] of Object.entries(STORE_SCHEMAS)) {
+          if (!db.objectStoreNames.contains(name)) {
+            db.createObjectStore(name, { keyPath: schema.keyPath, autoIncrement: schema.autoIncrement });
+          }
         }
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error("IndexedDB blocked"));
-  });
-  return dbPromise;
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error("IndexedDB blocked"));
+    });
+    dbPromiseByTenant.set(tenantId, p);
+  }
+  return p;
 }
 
 async function tx<T>(tenantId: string, store: StoreName, mode: IDBTransactionMode, fn: (store: IDBObjectStore) => void): Promise<T | undefined> {
-  const database = await openDB(tenantId);
+  const database = await ensureTenantDB(tenantId);
   return new Promise((resolve, reject) => {
     const t = database.transaction([store], mode);
     const os = t.objectStore(store);
@@ -78,7 +83,7 @@ async function tx<T>(tenantId: string, store: StoreName, mode: IDBTransactionMod
 }
 
 async function getAll<T>(tenantId: string, store: StoreName): Promise<T[]> {
-  const database = await openDB(tenantId);
+  const database = await ensureTenantDB(tenantId);
   return new Promise((resolve, reject) => {
     const t = database.transaction([store], "readonly");
     const os = t.objectStore(store);
@@ -100,12 +105,68 @@ async function clearStore(tenantId: string, store: StoreName): Promise<void> {
   await tx(tenantId, store, "readwrite", (os) => os.clear());
 }
 
-/* ============ Record access ============ */
+/* ============ Tenant-scoped offline service ============ */
 
-export async function getAssessmentResults(tenantId: string): Promise<StoredRecord<any>[]> {
-  return getAll(tenantId, "assessment_results");
+/**
+ * The offline layer is already namespaced by tenant at the IndexedDB level,
+ * but shared staffroom PCs still leak data when the UI caches a tenant id once
+ * and never re-derives it on auth/visibility change. This small service makes
+ * the tenant boundary explicit: modules attach to a tenant, and the app detaches
+ * on logout so no queued ops from the previous session can be replayed under the
+ * next login.
+ */
+export async function attachOfflineTenant(tenantId: string): Promise<void> {
+  if (!tenantId) throw new Error("offline: tenantId required");
+  await ensureTenantDB(tenantId);
+  attachedTenantId = tenantId;
 }
-export async function saveAssessmentResult(tenantId: string, result: any, opts?: { enqueue?: boolean }): Promise<void> {
+
+export async function detachOfflineTenant(): Promise<void> {
+  if (!attachedTenantId) return;
+  try {
+    await clearOfflineData(attachedTenantId);
+  } catch {
+    /* best-effort: a shared PC still needs the current tenant gone */
+  }
+  attachedTenantId = null;
+}
+
+export function currentOfflineTenantId(): string | null {
+  return attachedTenantId;
+}
+
+export async function getOfflineTenantIdFromStorage(): Promise<string | null> {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const tenant = localStorage.getItem(TENANT_KEY);
+    if (!tenant) return null;
+    const parsed = JSON.parse(tenant);
+    return typeof parsed === "string" && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function rememberOfflineTenant(tenantId: string): Promise<void> {
+  if (!tenantId) return;
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(TENANT_KEY, JSON.stringify(tenantId));
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function forgetOfflineTenantStorage(): Promise<void> {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.removeItem(TENANT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function recordOfflineAssessment(tenantId: string, result: any, opts?: { enqueue?: boolean }): Promise<void> {
   const id = String(result.id ?? crypto.randomUUID());
   const payload = { ...result, id, client_uuid: result.client_uuid ?? id };
   const shouldEnqueue = opts?.enqueue !== false;
@@ -120,14 +181,8 @@ export async function saveAssessmentResult(tenantId: string, result: any, opts?:
     await enqueueOp(tenantId, { type: "create", endpoint: "/assessment/results", method: "POST", payload });
   }
 }
-export async function deleteAssessmentResult(tenantId: string, id: ID): Promise<void> {
-  await deleteRecord(tenantId, "assessment_results", id);
-}
 
-export async function getAttendanceMarks(tenantId: string): Promise<StoredRecord<any>[]> {
-  return getAll(tenantId, "attendance_marks");
-}
-export async function saveAttendanceMark(tenantId: string, mark: any, opts?: { enqueue?: boolean }): Promise<void> {
+export async function recordOfflineAttendance(tenantId: string, mark: any, opts?: { enqueue?: boolean }): Promise<void> {
   const id = String(mark.id ?? crypto.randomUUID());
   const payload = { ...mark, id, client_uuid: mark.client_uuid ?? id, client_ts: mark.client_ts ?? new Date().toISOString() };
   const shouldEnqueue = opts?.enqueue !== false;
@@ -142,11 +197,26 @@ export async function saveAttendanceMark(tenantId: string, mark: any, opts?: { e
     await enqueueOp(tenantId, { type: "create", endpoint: "/attendance/marks", method: "POST", payload });
   }
 }
+
+/* ============ Legacy record access (tenant-aware) ============ */
+
+export async function getAssessmentResults(tenantId: string): Promise<StoredRecord<any>[]> {
+  return getAll(tenantId, "assessment_results");
+}
+export async function getAttendanceMarks(tenantId: string): Promise<StoredRecord<any>[]> {
+  return getAll(tenantId, "attendance_marks");
+}
+
+export async function deleteAssessmentResult(tenantId: string, id: ID): Promise<void> {
+  await deleteRecord(tenantId, "assessment_results", id);
+}
+
 export async function deleteAttendanceMark(tenantId: string, id: ID): Promise<void> {
   await deleteRecord(tenantId, "attendance_marks", id);
 }
 
 export async function clearOfflineData(tenantId: string): Promise<void> {
+  if (!tenantId) return;
   for (const store of ["assessment_results", "attendance_marks", "sync_queue"] as StoreName[]) {
     await clearStore(tenantId, store);
   }
@@ -157,12 +227,22 @@ export async function clearOfflineData(tenantId: string): Promise<void> {
 const QUEUE_STORE = "sync_queue";
 
 async function enqueueOp(tenantId: string, op: Omit<QueuedOp, "id" | "created_at" | "retries">): Promise<void> {
+  const intentKey =
+    (op as any)?.idempotency_key ??
+    (() => {
+      const p = op.payload as any;
+      if (p?.id != null) return String(p.id);
+      if (p?.entity_id != null) return String(p.entity_id);
+      return crypto.randomUUID();
+    })();
+
   await tx(tenantId, QUEUE_STORE, "readwrite", (os) =>
-    os.add({ ...op, id: crypto.randomUUID(), created_at: new Date().toISOString(), retries: 0 })
+    os.add({ ...op, id: crypto.randomUUID(), idempotency_key: intentKey, created_at: new Date().toISOString(), retries: 0 })
   );
 }
 
 export async function getQueue(tenantId: string): Promise<QueuedOp[]> {
+  if (!tenantId) return [];
   return (await getAll(tenantId, QUEUE_STORE)) as QueuedOp[];
 }
 
@@ -171,7 +251,7 @@ export async function removeFromQueue(tenantId: string, id: ID): Promise<void> {
 }
 
 export async function bumpRetry(tenantId: string, id: ID): Promise<void> {
-  const database = await openDB(tenantId);
+  const database = await ensureTenantDB(tenantId);
   await new Promise((resolve, reject) => {
     const t = database.transaction([QUEUE_STORE], "readwrite");
     const os = t.objectStore(QUEUE_STORE);
