@@ -42,6 +42,8 @@ import CompliancePage from "./pages/CompliancePage";
 import BreachRegisterPage from "./pages/BreachRegisterPage";
 import ConsentNoticesPage from "./pages/ConsentNoticesPage";
 import DsrRequestsPage from "./pages/DsrRequestsPage";
+import RetentionPoliciesPage from "./pages/RetentionPoliciesPage";
+import DPIAPage from "./pages/DPIAPage";
 import FinanceFeeCategoriesPage from "./pages/FinanceFeeCategoriesPage";
 import FinanceFeeStructuresPage from "./pages/FinanceFeeStructuresPage";
 import FinanceInvoicesPage from "./pages/FinanceInvoicesPage";
@@ -152,6 +154,8 @@ export default function App() {
             <Route path="/compliance/breach-register" element={guard(SCHOOL_ADMIN_ROLES, <BreachRegisterPage />)} />
             <Route path="/compliance/consent-notices" element={guard(SCHOOL_ADMIN_ROLES, <ConsentNoticesPage />)} />
             <Route path="/compliance/dsr-requests" element={guard(SCHOOL_ADMIN_ROLES, <DsrRequestsPage />)} />
+            <Route path="/compliance/retention-policies" element={guard(SCHOOL_ADMIN_ROLES, <RetentionPoliciesPage />)} />
+            <Route path="/compliance/dpia" element={guard(SCHOOL_ADMIN_ROLES, <DPIAPage />)} />
 
             <Route path="/finance/fee-categories" element={guard(FINANCE_ROLES, <FinanceFeeCategoriesPage />)} />
             <Route path="/finance/fee-structures" element={guard(FINANCE_ROLES, <FinanceFeeStructuresPage />)} />

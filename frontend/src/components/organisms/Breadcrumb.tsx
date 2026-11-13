@@ -41,6 +41,8 @@ const SEGMENT_LABELS: Record<string, string> = {
   "breach-register": "Breach Register",
   "consent-notices": "Consent Notices",
   "dsr-requests": "DSR Requests",
+  "retention-policies": "Retention Policies",
+  dpia: "DPIA",
   school: "School",
   integrations: "Integrations",
   platform: "Platform",
