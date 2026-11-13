@@ -7,7 +7,7 @@ import Badge from "../../components/atoms/Badge";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
-import { saveAttendanceMark, getAttendanceMarks, getDeviceId } from "../../lib/offline";
+import { recordOfflineAttendance, getAttendanceMarks, getDeviceId, cacheCollection, readCachedCollection } from "../../lib/offline";
 import { AttendanceRegister, AttendanceMark, Learner } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
@@ -30,13 +30,44 @@ export default function AttendanceRegisterPage() {
   const [marks, setMarks] = useState<Record<string, string>>({}); // learnerId -> mark
 
   useEffect(() => {
-    api.get<AttendanceRegister[]>("/attendance/registers")
-      .then((r) => { setRegisters(Array.isArray(r.data) ? r.data : []); setState("content"); })
-      .catch(() => setState("error"));
-    api.get<Learner[]>("/learners")
-      .then((r) => { setLearners(Array.isArray(r.data) ? r.data : []); })
-      .catch(() => {});
-  }, []);
+    if (!tenantId) return;
+    let alive = true;
+
+    const load = async () => {
+      const [regRes, learnerRes] = await Promise.allSettled([
+        api.get<AttendanceRegister[]>("/attendance/registers"),
+        api.get<Learner[]>("/learners"),
+      ]);
+      if (!alive) return;
+
+      let nextRegisters: AttendanceRegister[] = [];
+      let nextLearners: Learner[] = [];
+      let ready = false;
+
+      if (regRes.status === "fulfilled") {
+        nextRegisters = Array.isArray(regRes.value.data) ? regRes.value.data : [];
+        cacheCollection(tenantId, "attendance_registers", nextRegisters);
+        ready = true;
+      } else {
+        nextRegisters = readCachedCollection<AttendanceRegister>(tenantId, "attendance_registers") ?? [];
+        if (nextRegisters.length > 0) ready = true;
+      }
+
+      if (learnerRes.status === "fulfilled") {
+        nextLearners = Array.isArray(learnerRes.value.data) ? learnerRes.value.data : [];
+        cacheCollection(tenantId, "learners", nextLearners);
+      } else {
+        nextLearners = readCachedCollection<Learner>(tenantId, "learners") ?? [];
+      }
+
+      setRegisters(nextRegisters);
+      setLearners(nextLearners);
+      setState(ready ? "content" : "error");
+    };
+
+    void load();
+    return () => { alive = false; };
+  }, [tenantId]);
 
   useEffect(() => {
     if (!selected || !tenantId) return;
@@ -160,11 +191,11 @@ export default function AttendanceRegisterPage() {
           if (entries.length === 0) return;
           try {
             await api.post("/attendance/marks/batch", { register_id: selected.register_id, marks: entries.map(({ learner_id, status, register_id, client_uuid, device_id, client_ts }) => ({ learner_id, status, register_id, client_uuid, device_id, client_ts })) });
-            await Promise.all(entries.map((e) => saveAttendanceMark(tenantId!, e as any, { enqueue: false })));
+            await Promise.all(entries.map((e) => recordOfflineAttendance(tenantId!, e as any, { enqueue: false })));
             toast("Attendance saved successfully!", { type: "success" });
           } catch (e) {
             // Persist each mark locally and queue for sync/retry.
-            await Promise.all(entries.map((e) => saveAttendanceMark(tenantId!, e as any)));
+            await Promise.all(entries.map((e) => recordOfflineAttendance(tenantId!, e as any)));
             toast("Saved offline. Will sync when online.", { type: "warning" });
           }
         }}>

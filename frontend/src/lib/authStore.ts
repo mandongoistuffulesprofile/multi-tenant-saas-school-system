@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { clearOfflineData } from "./offline";
+import { attachOfflineTenant, detachOfflineTenant, forgetOfflineTenantStorage } from "./offline";
 
 interface AuthState {
   token: string | null;
@@ -81,12 +81,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrated: false,
   setAuth: (token, refreshToken, userId, tenantId, roles) => {
     persistSession(userId, tenantId, roles);
+    if (tenantId) {
+      void attachOfflineTenant(tenantId).catch(() => { /* ignore */ });
+    }
     set({ token, refreshToken, userId, tenantId, roles, hydrated: true });
   },
   clearAuth: () => {
     const { tenantId } = get();
     if (tenantId) {
-      void clearOfflineData(tenantId).catch(() => { /* ignore */ });
+      void detachOfflineTenant().catch(() => { /* ignore */ });
+      void forgetOfflineTenantStorage().catch(() => { /* ignore */ });
     }
     clearCachedSession();
     set({ token: null, refreshToken: null, userId: null, tenantId: null, roles: [], hydrated: true });
@@ -94,12 +98,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setTenant: (tenantId, roles) => {
     const { userId } = get();
     persistSession(userId ?? "", tenantId, roles);
+    void attachOfflineTenant(tenantId).catch(() => { /* ignore */ });
     set({ tenantId, roles });
   },
   setHydrated: (hydrated) => set({ hydrated }),
   restoreCachedSession: () => {
     const cached = readCachedSession();
     if (!cached) return false;
+    if (cached.tenantId) {
+      void attachOfflineTenant(cached.tenantId).catch(() => { /* ignore */ });
+    }
     set({
       userId: cached.userId,
       tenantId: cached.tenantId,

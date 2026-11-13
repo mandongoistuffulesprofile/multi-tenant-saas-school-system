@@ -5,7 +5,7 @@ import { I18nextProvider } from "react-i18next";
 import App from "./App";
 import i18n from "./i18n";
 import "./styles/index.css";
-import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ErrorBoundary } from "./components/organisms/ErrorBoundary";
 import { ToastProvider } from "./components/toast/ToastProvider";
 import { installSyncHooks, registerBackgroundSync } from "./lib/sync";
 import { registerServiceWorker } from "./serviceWorkerRegistration";

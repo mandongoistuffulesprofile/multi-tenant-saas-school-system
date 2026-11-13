@@ -2,7 +2,8 @@
 #
 # One-command local development launcher.
 #
-#   ./launch_all.sh
+#   ./launch_all.sh              # Vite dev server (no service worker)
+#   PWA=1 ./launch_all.sh        # production build + preview (offline-capable)
 #
 # What it does:
 #   1. Uses the local PostgreSQL/Redis if they are already running.
@@ -12,6 +13,10 @@
 #      generated passwords once. Set RESET_DEMO_PASSWORD=1 to rotate them.
 #   4. Starts the Go API on :8080 and Vite on :5173, waits for both health
 #      checks, then prints the URLs and credentials.
+#
+# PWA=1 builds the frontend and serves dist via `vite preview`. The service
+# worker only registers in a production build, so this is the mode to use for
+# offline testing. It needs port 5173 free: a Vite dev server has no worker.
 #
 # It never kills whatever is already listening on 5432/6379, and it reuses a
 # healthy API/frontend on 8080/5173 instead of starting duplicates.
@@ -31,6 +36,7 @@ REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
 API_PORT="${PORT:-8080}"
 WEB_PORT="${FRONTEND_PORT:-5173}"
 SEED="${SEED:-1}"
+PWA="${PWA:-0}"
 RESET_DEMO_PASSWORD="${RESET_DEMO_PASSWORD:-0}"
 
 JWT_SIGNING_KEY="${JWT_SIGNING_KEY:-dev-signing-key-change-in-production-min-32-chars}"
@@ -256,6 +262,9 @@ fi
 # 6. Frontend
 # ---------------------------------------------------------------------------
 if web_healthy; then
+  if [ "$PWA" = "1" ] && ! curl -fsS "http://127.0.0.1:${WEB_PORT}/sw.js" 2>/dev/null | grep -q "BUILD_REVISION = '"; then
+    die "Port ${WEB_PORT} is serving a Vite dev build (no service worker). Stop it and re-run with PWA=1."
+  fi
   ok "Frontend is already running on http://127.0.0.1:${WEB_PORT}."
 elif port_open "$WEB_PORT"; then
   die "Port ${WEB_PORT} is in use by a process that is not our frontend. Stop it and re-run."
@@ -264,11 +273,21 @@ else
     say "Installing frontend dependencies (first run only)..."
     ( cd "$FRONTEND" && npm ci )
   fi
-  say "Starting the frontend on :${WEB_PORT}..."
-  (
-    cd "$FRONTEND"
-    exec ./node_modules/.bin/vite --host 127.0.0.1 --port "$WEB_PORT" --strictPort
-  ) >"$LOG_DIR/frontend.log" 2>&1 &
+  if [ "$PWA" = "1" ]; then
+    say "Building the frontend (PWA mode)..."
+    ( cd "$FRONTEND" && npm run build )
+    say "Starting the production frontend on :${WEB_PORT}..."
+    (
+      cd "$FRONTEND"
+      exec ./node_modules/.bin/vite preview --host 127.0.0.1 --port "$WEB_PORT" --strictPort
+    ) >"$LOG_DIR/frontend.log" 2>&1 &
+  else
+    say "Starting the frontend on :${WEB_PORT}..."
+    (
+      cd "$FRONTEND"
+      exec ./node_modules/.bin/vite --host 127.0.0.1 --port "$WEB_PORT" --strictPort
+    ) >"$LOG_DIR/frontend.log" 2>&1 &
+  fi
   WEB_PID=$!
   if ! wait_for 60 web_healthy; then
     tail -n 40 "$LOG_DIR/frontend.log" >&2 || true
@@ -284,6 +303,11 @@ printf '\n\033[1;32m============================================================
 printf '\033[1;32m  SkulApp is running\033[0m\n'
 printf '\033[1;32m============================================================\033[0m\n'
 printf '  Frontend : http://127.0.0.1:%s\n' "$WEB_PORT"
+if [ "$PWA" = "1" ]; then
+  printf '  Mode     : PWA production build (service worker enabled)\n'
+else
+  printf '  Mode     : Vite dev (no service worker; not offline-capable)\n'
+fi
 printf '  API      : http://127.0.0.1:%s/health\n' "$API_PORT"
 printf '  Logs     : %s/backend.log , %s/frontend.log\n' "$LOG_DIR" "$LOG_DIR"
 printf '\n'
@@ -300,6 +324,8 @@ printf '  Passwords are shown once. To rotate them:\n'
 printf '    RESET_DEMO_PASSWORD=1 ./launch_all.sh\n'
 printf '  Run without demo data:\n'
 printf '    SEED=0 ./launch_all.sh\n'
+printf '  Offline-capable PWA (service worker):\n'
+printf '    PWA=1 ./launch_all.sh\n'
 printf '  Stop: Ctrl+C\n'
 printf '\033[1;32m============================================================\033[0m\n\n'
 
