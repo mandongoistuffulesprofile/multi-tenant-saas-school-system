@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
+import { useApiDeduper } from "../lib/mutationDeduper";
 import { useToast } from "../components/toast/ToastProvider";
 
 interface Template {
@@ -36,6 +37,7 @@ export default function CommsComposePage() {
   const { toast } = useToast();
   const [reloadKey, setReloadKey] = useState(0);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const createAndSendBroadcast = useApiDeduper();
 
   // Load templates and grades once on mount (never during render).
   useEffect(() => {
@@ -108,6 +110,7 @@ export default function CommsComposePage() {
   });
 
   const handleCreateAndSend = async (sendNow: boolean) => {
+    if (!createAndSendBroadcast()) return;
     const problem = validate();
     setComposeError(problem);
     if (problem) return;
@@ -143,6 +146,7 @@ export default function CommsComposePage() {
       toast(msg, { type: "error" });
     } finally {
       setSaving(false);
+      createAndSendBroadcast.reset();
     }
   };
 

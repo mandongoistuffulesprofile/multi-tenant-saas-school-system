@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../lib/authStore";
 import { api } from "../lib/api";
+import { useApiDeduper } from "../lib/mutationDeduper";
 import Card from "../components/atoms/Card";
 import Badge from "../components/atoms/Badge";
 import Button from "../components/atoms/Button";
@@ -84,6 +85,7 @@ export default function LearnersPage() {
   const [gradeIdByLabel, setGradeIdByLabel] = useState<Record<string, string>>({});
   const [feeChecks, setFeeChecks] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
+  const admitLearner = useApiDeduper();
   const [q, setQ] = useState("");
   const [gradeFilter, setGradeFilter] = useState("");
   const [streamFilter, setStreamFilter] = useState("");
@@ -192,6 +194,7 @@ export default function LearnersPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!admitLearner()) return;
     setSaving(true);
     const payload = {
       admission_number: form.admission_number,
@@ -259,6 +262,7 @@ export default function LearnersPage() {
       toast(err.response?.data?.message || "Failed to create learner", { type: "error" });
     } finally {
       setSaving(false);
+      admitLearner.reset();
     }
   };
 
