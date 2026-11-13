@@ -35,13 +35,11 @@ export async function applyServiceWorkerUpdate(): Promise<void> {
 }
 
 export function registerServiceWorker() {
-  if (
-    typeof window === "undefined" ||
-    !("serviceWorker" in navigator) ||
-    !import.meta.env.PROD
-  ) {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
     return;
   }
+
+  const isProd = import.meta.env.PROD;
 
   hadController = Boolean(navigator.serviceWorker.controller);
 
@@ -74,7 +72,11 @@ export function registerServiceWorker() {
         });
       })
       .catch((err) => {
-        console.error("Service worker registration failed:", err);
+        if (isProd) {
+          console.error("Service worker registration failed:", err);
+        } else {
+          console.warn("Service worker registration skipped in dev:", err);
+        }
       });
   });
 }
