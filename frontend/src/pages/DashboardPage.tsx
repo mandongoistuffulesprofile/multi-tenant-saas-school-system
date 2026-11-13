@@ -291,6 +291,12 @@ export default function DashboardPage() {
         term_id: "current",
         template_id: defaultTemplate.template_id,
       });
+
+      // When a school has more than one academic year configured, the report
+      // run may be for the current year or for a specific historical year. The
+      // dashboard keeps using the server-side default (current/latest year, all
+      // grades) for the quick “generate cards” action so the Deputy Head can
+      // start generation on opening day without extra configuration.
       toast("Report card generation started", { type: "success" });
       setReportOpen(false);
       await load();

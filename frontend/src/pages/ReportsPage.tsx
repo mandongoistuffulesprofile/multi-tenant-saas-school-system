@@ -22,19 +22,33 @@ export default function ReportsPage() {
       toast("No report template is configured for this school.", { type: "error" });
       return;
     }
+
+    // The backend accepts term_id and template_id, with optional academic_year_id
+    // and grade_id. We omit academic_year_id and grade_id here so the server
+    // resolves the current (or latest) academic year and generates for every
+    // grade. That is the default opening-day workflow: pick the default template
+    // and generate cards for the current term.
+    const payload: any = {
+      term_id: termId || "current",
+      template_id: template.template_id,
+    };
+
     setGenerating(true);
     try {
-      await api.post("/reports/runs", {
-        term_id: termId || "current",
-        template_id: template.template_id,
-      });
+      await api.post("/reports/runs", payload);
       toast("Report cards generation initiated!", { type: "success" });
-      const [rRes, cRes] = await Promise.all([
-        api.get("/reports/runs"),
-        api.get("/reports/cards"),
-      ]);
+      // Reload runs and cards after the run is queued. Fetch runs first so
+      // the recent run appears before the cards gallery; if cards fails, the
+      // run list still refreshes.
+      const rRes = await api.get("/reports/runs");
       setRuns(Array.isArray(rRes.data) ? rRes.data : []);
-      setCards(Array.isArray(cRes.data) ? cRes.data : []);
+
+      try {
+        const cRes = await api.get("/reports/cards");
+        setCards(Array.isArray(cRes.data) ? cRes.data : []);
+      } catch {
+        // cards can lag behind the run on slow connections; leave existing cards
+      }
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to generate report run", { type: "error" });
     } finally {
