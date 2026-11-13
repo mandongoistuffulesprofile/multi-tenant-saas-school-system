@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
+import { MpesaIcon } from "../components/icons/PaymentIcons";
 
 export default function IntegrationsPage() {
   const [channels, setChannels] = useState<any[]>([]);
@@ -67,17 +68,23 @@ export default function IntegrationsPage() {
                   <div className="text-center py-8 text-gray-500">No payment channels configured</div>
                 ) : (
                   <div className="space-y-3">
-                    {channels.map((ch: any) => (
-                      <div key={ch.id || ch.name} className="flex justify-between items-center p-4 border border-gray-200 rounded-xl">
-                        <div>
-                          <div className="font-medium text-gray-900">{ch.name}</div>
-                          <div className="text-caption">{ch.channel} • {ch.provider}</div>
+                    {channels.map((ch: any) => {
+                      const isMpesa = String(ch.channel || '').toLowerCase().includes('mpesa') || String(ch.provider || '').toLowerCase().includes('mpesa');
+                      return (
+                        <div key={ch.id || ch.name} className="flex justify-between items-center p-4 border border-gray-200 rounded-xl">
+                          <div className="flex items-center gap-3">
+                            {isMpesa && <MpesaIcon size={26} className="shrink-0" />}
+                            <div>
+                              <div className="font-medium text-gray-900">{ch.name}</div>
+                              <div className="text-caption">{ch.channel} • {ch.provider}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {statusBadge(ch.status)}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {statusBadge(ch.status)}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

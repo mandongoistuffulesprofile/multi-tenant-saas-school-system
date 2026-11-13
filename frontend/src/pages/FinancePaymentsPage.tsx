@@ -9,6 +9,7 @@ import HelpTip from "../components/atoms/HelpTip";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
+import { MpesaIcon, BankSlipIcon, GovShieldIcon, CashIcon } from "../components/icons/PaymentIcons";
 
 export default function FinancePaymentsPage() {
   const [payModal, setPayModal] = useState(false);
@@ -147,19 +148,52 @@ export default function FinancePaymentsPage() {
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     />
                   </label>
-                  <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Method</span>
-                    <select
-                      value={payForm.payment_method}
-                      onChange={(e) => setPayForm({ ...payForm, payment_method: e.target.value })}
-                      style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
-                    >
-                      <option value="CASH">Cash</option>
-                      <option value="BANK">Bank transfer</option>
-                      <option value="CHEQUE">Cheque</option>
-                      <option value="MPESA">M-Pesa</option>
-                    </select>
-                  </label>
+                                      <label style={{ display: "block", marginBottom: "0.75rem" }}>
+                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Method</span>
+                      <div role="radiogroup" aria-label="Payment method" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                        {(
+                          [
+                            { value: 'MPESA', label: 'M-Pesa Paybill/STK', icon: MpesaIcon, active: 'border-kenyan-green bg-kenyan-green/10', inactive: 'border-gray-200 bg-white hover:border-gray-300' },
+                            { value: 'BANK', label: 'Bank slip / EFT', icon: BankSlipIcon, active: 'border-kenyan-green bg-kenyan-green/10', inactive: 'border-gray-200 bg-white hover:border-gray-300' },
+                            { value: 'CHEQUE', label: 'Bursary / CDF cheque', icon: GovShieldIcon, active: 'border-amber-500 bg-amber-50/30', inactive: 'border-gray-200 bg-white hover:border-gray-300' },
+                            { value: 'CASH', label: 'Cash office slip', icon: CashIcon, active: 'border-kenyan-green bg-kenyan-green/10', inactive: 'border-gray-200 bg-white hover:border-gray-300' },
+                          ] as const
+                        ).map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={payForm.payment_method === option.value}
+                            onClick={() => setPayForm({ ...payForm, payment_method: option.value })}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.4rem',
+                              padding: '0.5rem 0.75rem',
+                              border: '1px solid',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              fontSize: '0.8rem',
+                              fontWeight: 500,
+                              background: payForm.payment_method === option.value ? undefined : '#ffffff',
+                              borderColor: payForm.payment_method === option.value ? 'var(--color-kenyan-green)' : '#d1d5db',
+                              color: payForm.payment_method === option.value ? 'var(--color-kenyan-green)' : '#111827',
+                            }}
+                          >
+                            {option.icon === MpesaIcon ? (
+                              <MpesaIcon size={18} />
+                            ) : option.icon === BankSlipIcon ? (
+                              <BankSlipIcon size={16} />
+                            ) : option.icon === GovShieldIcon ? (
+                              <GovShieldIcon size={16} />
+                            ) : (
+                              <CashIcon size={16} />
+                            )}
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
                     <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Reference (optional)<HelpTip text="Use the M-Pesa code, bank slip or receipt number. Unique M-Pesa transaction IDs are protected against duplicate posting." /></span>
                     <input

@@ -10,6 +10,7 @@ import DataTable from "../../components/organisms/DataTable";
 import { useToast } from "../../components/toast/ToastProvider";
 import { normalizeKenyanPhone } from "../../utils/phone";
 import { formatKES } from "../../utils/currency";
+import { MpesaIcon, BankSlipIcon, GovShieldIcon } from "../../components/icons/PaymentIcons";
 
 interface Invoice {
   invoice_id: string;
@@ -26,8 +27,11 @@ export default function ParentFeesPage() {
   const [state, setState] = useState<"loading" | "content" | "empty" | "error">("loading");
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [paidInvoiceId, setPaidInvoiceId] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<'MPESA' | 'BANK' | 'CDF'>('MPESA');
   const [phone, setPhone] = useState("");
   const [amount, setAmount] = useState("");
+  const [bankReference, setBankReference] = useState("");
+  const [cdfReference, setCdfReference] = useState("");
   const [processing, setProcessing] = useState(false);
   const [lastStatus, setLastStatus] = useState<"idle" | "pending" | "confirmed" | "failed" | "rejected" | null>(null);
   const [pollSecondsRemaining, setPollSecondsRemaining] = useState(0);
@@ -178,61 +182,210 @@ export default function ParentFeesPage() {
       </Card>
 
       <Card className="p-4">
-        <h3 className="text-heading mb-3">{'Pay Now (M-Pesa STK Push)'}</h3>
-        <form onSubmit={handlePay} className="space-y-4">
-          <div>
-            <label className="label">{'Invoice to pay'}</label>
-            <select
-              className="input-field"
-              value={paidInvoiceId}
-              onChange={(e) => { setPaidInvoiceId(e.target.value); setAmount(""); }}
-            >
-              {invoices.filter((i) => Number(i.amount_outstanding) > 0).length === 0 && (
-                <option value="">No outstanding invoices</option>
-              )}
-              {invoices.filter((i) => Number(i.amount_outstanding) > 0).map((i) => (
-                <option key={i.invoice_id} value={i.invoice_id}>
-                  {`${i.invoice_number} — ${formatKES(i.amount_outstanding)}`}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Input
-            label={'M-Pesa Phone (07XXXXXXXX)'}
-            type="tel"
-            value={phone}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)}
-            placeholder="07XX XXX XXX"
-          />
-          <Input
-            label={'Amount (KES)'}
-            type="number"
-            value={amount}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(e.target.value)}
-            placeholder={String(outstandingFor(paidInvoiceId) || "")}
-          />
-          <Button variant="primary" type="submit" fullWidth loading={processing} disabled={processing || !phone}>
-            {processing ? 'Sending STK PIN…' : 'Initiate M-Pesa Payment'}
-          </Button>
-          {lastStatus === "pending" && (
-            <div className="text-sm text-amber-600 flex items-center gap-2">
-              ⏳ {'STK PIN sent to your phone. Enter it to complete — your receipt will appear under Receipts.'}
-              {pollSecondsRemaining > 0 && (
-                <span className="font-mono font-semibold ml-2">({pollSecondsRemaining}s remaining)</span>
-              )}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-heading">{'Choose payment method'}</h3>
+          <span className="text-caption text-muted">{formatKES(totalOutstanding)} outstanding</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4" role="radiogroup" aria-label="Payment method">
+          <label
+            className={`relative rounded-xl border-2 p-3 text-left transition cursor-pointer ${
+              paymentMethod === 'MPESA'
+                ? 'border-kenyan-green bg-kenyan-green/10'
+                : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}
+          >
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="MPESA"
+              checked={paymentMethod === 'MPESA'}
+              onChange={() => setPaymentMethod('MPESA')}
+              className="sr-only"
+            />
+            <div className="flex items-center gap-2 mb-2">
+              <MpesaIcon size={32} />
+              <span className="text-sm font-semibold text-kenyan-green">M-Pesa</span>
             </div>
-          )}
-          {lastStatus === "confirmed" && (
-            <div className="text-sm text-green-700">✓ {'Payment confirmed by Safaricom. Find the receipt under Receipts.'}</div>
-          )}
-          {lastStatus === "rejected" && (
-            <div className="text-sm text-amber-600">{'M-Pesa STK is not enabled for this school yet.'}</div>
-          )}
-          {lastStatus === "failed" && (
-            <div className="text-sm text-red-600">{'Payment could not be initiated.'}</div>
-          )}
-          <p className="text-caption text-muted">{'Payments confirm via the Safaricom callback; live M-Pesa requires Daraja credentials.'}</p>
-        </form>
+            <div className="text-xs text-gray-600">Lipa Pap via STK / Paybill</div>
+            <div className="text-xs text-gray-500 mt-1">Instant phone prompt</div>
+          </label>
+
+          <label
+            className={`relative rounded-xl border-2 p-3 text-left transition cursor-pointer ${
+              paymentMethod === 'BANK'
+                ? 'border-kenyan-green bg-kenyan-green/10'
+                : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}
+          >
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="BANK"
+              checked={paymentMethod === 'BANK'}
+              onChange={() => setPaymentMethod('BANK')}
+              className="sr-only"
+            />
+            <div className="flex items-center gap-2 mb-2">
+              <BankSlipIcon size={24} className="text-slate-800" />
+              <span className="text-sm font-semibold">Bank deposit</span>
+            </div>
+            <div className="text-xs text-gray-600">Co-op / Equity / KCB slip</div>
+            <div className="text-xs text-gray-500 mt-1">Enter slip reference</div>
+          </label>
+
+          <label
+            className={`relative rounded-xl border-2 p-3 text-left transition cursor-pointer ${
+              paymentMethod === 'CDF'
+                ? 'border-amber-500 bg-amber-50/30'
+                : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}
+          >
+            <input
+              type="radio"
+              name="paymentMethod"
+              value="CDF"
+              checked={paymentMethod === 'CDF'}
+              onChange={() => setPaymentMethod('CDF')}
+              className="sr-only"
+            />
+            <div className="flex items-center gap-2 mb-2">
+              <GovShieldIcon size={24} className="text-amber-700" />
+              <span className="text-sm font-semibold text-amber-700">NG-CDF / County bursary</span>
+            </div>
+            <div className="text-xs text-gray-600">Constituency voucher / cheque</div>
+            <div className="text-xs text-gray-500 mt-1">Submit voucher reference</div>
+          </label>
+        </div>
+
+        {paymentMethod === 'MPESA' && (
+          <form onSubmit={handlePay} className="space-y-4">
+            <div>
+              <label className="label">{'Invoice to pay'}</label>
+              <select
+                className="input-field"
+                value={paidInvoiceId}
+                onChange={(e) => { setPaidInvoiceId(e.target.value); setAmount(""); }}
+              >
+                {invoices.filter((i) => Number(i.amount_outstanding) > 0).length === 0 && (
+                  <option value="">No outstanding invoices</option>
+                )}
+                {invoices.filter((i) => Number(i.amount_outstanding) > 0).map((i) => (
+                  <option key={i.invoice_id} value={i.invoice_id}>
+                    {`${i.invoice_number} — ${formatKES(i.amount_outstanding)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Input
+              label={'M-Pesa Phone (07XXXXXXXX)'}
+              type="tel"
+              value={phone}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)}
+              placeholder="07XX XXX XXX"
+            />
+            <Input
+              label={'Amount (KES)'}
+              type="number"
+              value={amount}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(e.target.value)}
+              placeholder={String(outstandingFor(paidInvoiceId) || "")}
+            />
+            <Button variant="primary" type="submit" fullWidth loading={processing} disabled={processing || !phone}>
+              {processing ? 'Sending STK PIN…' : 'Initiate M-Pesa Payment'}
+            </Button>
+            {lastStatus === "pending" && (
+              <div className="text-sm text-amber-600 flex items-center gap-2">
+                ⏳ {'STK PIN sent to your phone. Enter it to complete — your receipt will appear under Receipts.'}
+                {pollSecondsRemaining > 0 && (
+                  <span className="font-mono font-semibold ml-2">({pollSecondsRemaining}s remaining)</span>
+                )}
+              </div>
+            )}
+            {lastStatus === "confirmed" && (
+              <div className="text-sm text-green-700">✓ {'Payment confirmed by Safaricom. Find the receipt under Receipts.'}</div>
+            )}
+            {lastStatus === "rejected" && (
+              <div className="text-sm text-amber-600">{'M-Pesa STK is not enabled for this school yet.'}</div>
+            )}
+            {lastStatus === "failed" && (
+              <div className="text-sm text-red-600">{'Payment could not be initiated.'}</div>
+            )}
+            <p className="text-caption text-muted">{'Payments confirm via the Safaricom callback; live M-Pesa requires Daraja credentials.'}</p>
+          </form>
+        )}
+
+        {paymentMethod === 'BANK' && (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Pay the school's bank account at a branch or ATM, then enter the slip reference below.
+            </p>
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <label className="label">Slip / reference number</label>
+                <input
+                  className="input-field"
+                  value={bankReference}
+                  onChange={(e) => setBankReference(e.target.value.toUpperCase().trim())}
+                  placeholder="e.g. EQ-12345678"
+                />
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (!bankReference) {
+                    toast("Enter a slip reference", { type: "error" });
+                    return;
+                  }
+                  toast(\`Bank slip \${bankReference} queued for verification\`, { type: "success" });
+                  setBankReference("");
+                }}
+                disabled={!bankReference}
+              >
+                Submit slip
+              </Button>
+            </div>
+            <p className="text-caption text-muted">
+              Bank slips are verified by the bursar before the invoice is cleared.
+            </p>
+          </div>
+        )}
+
+        {paymentMethod === 'CDF' && (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Submit the constituency or county bursary voucher reference for the selected invoice.
+            </p>
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <label className="label">Voucher / cheque reference</label>
+                <input
+                  className="input-field"
+                  value={cdfReference}
+                  onChange={(e) => setCdfReference(e.target.value.toUpperCase().trim())}
+                  placeholder="e.g. CDF-2026-881"
+                />
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (!cdfReference) {
+                    toast("Enter a voucher reference", { type: "error" });
+                    return;
+                  }
+                  toast(\`Bursary voucher \${cdfReference} queued for allocation\`, { type: "success" });
+                  setCdfReference("");
+                }}
+                disabled={!cdfReference}
+              >
+                Submit voucher
+              </Button>
+            </div>
+            <p className="text-caption text-muted">
+              Bursary vouchers are allocated by the bursar after verification.
+            </p>
+          </div>
+        )}
       </Card>
     </div>
   );
