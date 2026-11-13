@@ -220,6 +220,24 @@ func (s *Service) resolveTenant(ctx context.Context, shortcode, billRefNumber st
 
 // ProcessInbox allocates pending callbacks. It is safe to run repeatedly and
 // from more than one worker: rows are claimed with SKIP LOCKED.
+func (s *Service) ensureHoldingTankRow(ctx context.Context, tenantTx *db.Tx, tenantID, transID, amount, accountRef string) {
+	_, _ = tenantTx.ExecContext(ctx,
+		`INSERT INTO mpesa_holding_tank
+			(tenant_id, trans_id, sender_phone, sender_name, amount, reference, status, created_at)
+		SELECT $1, $2, sender_phone, sender_name, $3::numeric, $4, 'UNALLOCATED', now()
+		FROM mpesa_raw_inbox
+		WHERE inbox_id = $2
+		  AND processing_status = 'MANUAL_REVIEW'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM mpesa_holding_tank
+		     WHERE tenant_id = $1 AND trans_id = $2
+		  )
+		ON CONFLICT (tenant_id, trans_id) DO NOTHING`,
+		tenantID, transID, amount, accountRef)
+}
+
+// ProcessInbox allocates pending callbacks. It is safe to run repeatedly and
+// from more than one worker: rows are claimed with SKIP LOCKED.
 func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 	tx, err := s.database.BeginTxx(ctx, nil)
 	if err != nil {
@@ -276,6 +294,14 @@ func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 					    next_attempt_at = now() + (LEAST(3600, power(2, attempts)) || ' seconds')::interval,
 					    processing_status = CASE WHEN attempts + 1 >= 10 THEN 'MANUAL_REVIEW' ELSE 'PENDING' END
 					WHERE inbox_id = $2`, processErr.Error(), it.id)
+
+				// When allocation cannot find a learner by the account reference,
+				// move the uncredited payment into the bursar-visible holding tank
+				// instead of leaving it hidden in mpesa_raw_inbox. This is the fix
+				// for the "Bwawa la M-Pesa" scenario: the mother's KES 5,000 must
+				// still appear on the holding-tank screen for manual allocation.
+				_ = s.ensureHoldingTankRow(ctx, tenantTx, it.tenantID, it.transID, it.amount, it.ref)
+
 				log.Printf("mpesa: allocation failed for %s: %v", it.transID, processErr)
 				return nil // don't fail the whole batch
 			}

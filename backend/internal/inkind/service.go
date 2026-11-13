@@ -345,23 +345,12 @@ func (s *Service) LotsForItem(ctx context.Context, tenantID, inventoryItemID str
 	return lots, rows.Err()
 }
 
-type financeCrediter interface {
-	CreditStudentInvoiceForInKind(
-		tenantID, userID, studentID, admissionNumber, voteheadCode, intakeNumber string,
-		amount money.Amount,
-	) (*finance.InKindCreditResult, error)
-}
-
 // SetFinanceCrediter wires the in-kind service to the finance package so
 // in-kind produce intakes can clear the student's invoice in the same
 // transaction. The handler should wire this before calling CreateIntake.
-func (s *Service) SetFinanceCrediter(f financeCrediter) {
+func (s *Service) SetFinanceCrediter(f *finance.Handler) {
 	s.fin = f
 }
-
-var s_fin interface{ CreditStudentInvoiceForInKind(
-	string, string, string, string, string, string, money.Amount,
-) (*finance.InKindCreditResult, error) }
 
 func (s *Service) creditStudentInvoiceForInKind(
 	tenantID, userID, studentID, admissionNumber, intakeNumber string,
@@ -373,8 +362,8 @@ func (s *Service) creditStudentInvoiceForInKind(
 		voteheadCode = "LUNCH_PRODUCE"
 	}
 
-	if f, ok := s_fin.(financeCrediter); ok {
-		_ = f.CreditStudentInvoiceForInKind(
+	if s.fin != nil {
+		_ = s.fin.CreditStudentInvoiceForInKind(
 			tenantID, userID, studentID, admissionNumber, voteheadCode, intakeNumber, amount,
 		)
 	}
