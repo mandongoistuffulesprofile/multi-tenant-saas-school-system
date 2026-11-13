@@ -42,3 +42,8 @@ stats.html
 # Local UI-audit screenshots (generated, not product assets). Anchored to the
 # repository root so it does not hide backend/internal/audit.
 /audit/
+
+# Local dev screenshots, traces and other generated UI artifacts
+artifacts/
+
+/audit/
