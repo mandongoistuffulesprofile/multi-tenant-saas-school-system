@@ -568,6 +568,8 @@ func Run() error {
 	{
 		staffGroup.GET("", middleware.RequireRole(middleware.RoleAdministrationStaff...), staffHandler.ListStaff)
 		staffGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), staffHandler.CreateStaff)
+		staffGroup.PATCH("/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), staffHandler.UpdateStaff)
+		staffGroup.DELETE("/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), staffHandler.DeleteStaff)
 	}
 
 	// Learner routes

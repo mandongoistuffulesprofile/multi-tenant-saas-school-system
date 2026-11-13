@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -279,6 +280,147 @@ func generateInviteToken() string {
 func hashInviteToken(token string) (string, error) {
 	b := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(b[:]), nil
+}
+
+func (h *Handler) UpdateStaff(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	membershipID := c.Param("id")
+	tenantID := c.GetString("tenant_id")
+
+	var req struct {
+		Role           string   `json:"role"`
+		TSCNumber      string   `json:"tsc_number"`
+		Subjects       []string `json:"subjects"`
+		EmploymentDate string   `json:"employment_date"`
+		Status         string   `json:"status"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+
+	// Check membership exists and belongs to this tenant
+	var exists bool
+	err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM tenant_memberships WHERE membership_id = $1 AND tenant_id = $2)`,
+		membershipID, tenantID).Scan(&exists)
+	if err != nil || !exists {
+		validation.NotFound(c, "Staff member not found")
+		return
+	}
+
+	// Validate role if provided
+	if req.Role != "" {
+		allowedRoles := map[string]bool{"HEAD": true, "DEPUTY": true, "BURSAR": true, "CLERK": true, "TEACHER": true}
+		if !allowedRoles[req.Role] {
+			validation.BadRequest(c, "Invalid role", []validation.FieldError{
+				{Field: "role", Code: "INVALID_VALUE", Message: "role must be one of: HEAD, DEPUTY, BURSAR, CLERK, TEACHER"},
+			})
+			return
+		}
+	}
+
+	// Build dynamic update query
+	setParts := []string{}
+	args := []interface{}{}
+	argIndex := 1
+
+	if req.Role != "" {
+		setParts = append(setParts, fmt.Sprintf("role = $%d", argIndex))
+		args = append(args, req.Role)
+		argIndex++
+	}
+	if req.TSCNumber != "" {
+		setParts = append(setParts, fmt.Sprintf("tsc_number = $%d", argIndex))
+		args = append(args, req.TSCNumber)
+		argIndex++
+	}
+	if req.Subjects != nil {
+		subjectsJSON, err := json.Marshal(req.Subjects)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "SERVER_ERROR", "message": "Failed to encode subjects"})
+			return
+		}
+		setParts = append(setParts, fmt.Sprintf("subjects = $%d", argIndex))
+		args = append(args, string(subjectsJSON))
+		argIndex++
+	}
+	if req.EmploymentDate != "" {
+		setParts = append(setParts, fmt.Sprintf("employment_date = $%d", argIndex))
+		args = append(args, req.EmploymentDate)
+		argIndex++
+	}
+	if req.Status != "" {
+		setParts = append(setParts, fmt.Sprintf("status = $%d", argIndex))
+		args = append(args, req.Status)
+		argIndex++
+	}
+
+	if len(setParts) == 0 {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "body", Code: "REQUIRED", Message: "provide at least one field to update"},
+		})
+		return
+	}
+
+	setParts = append(setParts, fmt.Sprintf("updated_at = now()"))
+	args = append(args, membershipID, tenantID)
+
+	query := fmt.Sprintf(
+		`UPDATE staff_profiles SET %s WHERE membership_id = $%d AND tenant_id = $%d`,
+		strings.Join(setParts, ", "), argIndex, argIndex+1,
+	)
+
+	if _, err := tx.Exec(query, args...); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	// If role changed, also update tenant_memberships
+	if req.Role != "" {
+		_, _ = tx.Exec(
+			`UPDATE tenant_memberships SET role = $1 WHERE membership_id = $2 AND tenant_id = $3`,
+			req.Role, membershipID, tenantID,
+		)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Staff updated"})
+}
+
+func (h *Handler) DeleteStaff(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	membershipID := c.Param("id")
+	tenantID := c.GetString("tenant_id")
+
+	// Check membership exists and belongs to this tenant
+	var exists bool
+	err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM tenant_memberships WHERE membership_id = $1 AND tenant_id = $2)`,
+		membershipID, tenantID).Scan(&exists)
+	if err != nil || !exists {
+		validation.NotFound(c, "Staff member not found")
+		return
+	}
+
+	// Soft delete: mark membership as INACTIVE
+	_, err = tx.Exec(
+		`UPDATE tenant_memberships SET status = 'INACTIVE' WHERE membership_id = $1 AND tenant_id = $2`,
+		membershipID, tenantID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Staff member deactivated"})
 }
 
 var _ = http.StatusOK
