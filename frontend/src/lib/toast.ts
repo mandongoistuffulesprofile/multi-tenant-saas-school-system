@@ -6,12 +6,17 @@ export interface Toast {
   message: string;
   type: ToastType;
   duration?: number;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 export interface ToastOptions {
   title?: string;
   type?: ToastType;
   duration?: number;
+  action?: { label: string; onClick: () => void };
 }
 
 type Listener = (toast: Toast) => void;
@@ -26,6 +31,7 @@ export function toast(message: string, options: ToastOptions = {}) {
     type: options.type ?? "info",
     duration: options.duration ?? 4000,
     ...(options.title ? { title: options.title } : {}),
+    ...(options.action ? { action: options.action } : {}),
   };
   listeners.forEach((fn) => fn(t));
   return t.id;

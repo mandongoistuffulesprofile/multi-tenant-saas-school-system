@@ -52,6 +52,9 @@ export function useToast() {
   return ctx;
 }
 
+export type { Toast, ToastOptions } from "../../lib/toast";
+
+
 interface ToastContainerProps {
   toasts: Toast[];
 }
@@ -100,16 +103,28 @@ function Toast({ toast: t, onDismiss }: ToastProps & { onDismiss: () => void }) 
           <p className="text-sm">{t.message}</p>
         )}
       </div>
-      <button
-        type="button"
-        className="ml-auto flex-shrink-0 rounded p-1 hover:bg-black/5 transition"
-        onClick={() => {
-          onDismiss();
-        }}
-        aria-label={tr("common.dismiss") ?? "Dismiss"}
-      >
-        ×
-      </button>
+      {t.action ? (
+        <button
+          type="button"
+          className="ml-auto flex-shrink-0 rounded p-1 hover:bg-black/5 transition"
+          onClick={() => {
+            t.action.onClick();
+            onDismiss();
+          }}
+          aria-label={tr("common.undo") ?? "Undo"}
+        >
+          ↶
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="ml-auto flex-shrink-0 rounded p-1 hover:bg-black/5 transition"
+          onClick={() => onDismiss()}
+          aria-label={tr("common.dismiss") ?? "Dismiss"}
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 }
