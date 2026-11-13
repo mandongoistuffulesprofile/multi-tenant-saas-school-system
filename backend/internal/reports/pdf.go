@@ -10,6 +10,14 @@ import (
 
 // ReportCardPDF is the printable model of a published report card. It is kept
 // separate from the API DTO so the renderer stays pure and unit-testable.
+type ReportCardResultPDF struct {
+	LearningAreaName string
+	AssessmentType   string
+	Score           string
+	LevelCode       string
+	Comment         string
+}
+
 type ReportCardPDF struct {
 	SchoolName    string
 	SchoolAddress string
@@ -28,6 +36,7 @@ type ReportCardPDF struct {
 	HeadComment   string
 	Status        string
 	GeneratedAt   time.Time
+	Indicators    []ReportCardResultPDF
 }
 
 // Render builds a single-page A4 PDF using only the standard library: the
@@ -100,6 +109,20 @@ func (r ReportCardPDF) contentStream() string {
 	}
 	y -= 6
 	rule()
+
+	if len(r.Indicators) > 0 {
+		write("F2", 10, "Learning area performance")
+		y -= 4
+		for _, ind := range r.Indicators {
+			b.WriteString(fmt.Sprintf("BT /F1 9 Tf 56 %.1f Td (%s) Tj ET\n", y, pdfEscape(ind.LearningAreaName)))
+			b.WriteString(fmt.Sprintf("BT /F1 9 Tf 220 %.1f Td (%s) Tj ET\n", y, pdfEscape(ind.AssessmentType)))
+			b.WriteString(fmt.Sprintf("BT /F2 9 Tf 290 %.1f Td (%s) Tj ET\n", y, pdfEscape(ind.Score)))
+			b.WriteString(fmt.Sprintf("BT /F1 9 Tf 350 %.1f Td (%s) Tj ET\n", y, pdfEscape(ind.LevelCode)))
+			y -= 14
+		}
+		y -= 6
+		rule()
+	}
 
 	write("F2", 10, "Class teacher's remark")
 	write("F1", 10, orDefault(r.ClassComment, "—"))

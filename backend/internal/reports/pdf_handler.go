@@ -14,6 +14,20 @@ import (
 // is a review surface; this endpoint is what a school hands to a parent, so it
 // is generated server-side from the stored card and cannot be edited in the
 // browser before saving.
+func indicatorWindow(window string) string {
+	if strings.TrimSpace(window) == "" {
+		return ""
+	}
+	return " (" + window + ")"
+}
+
+func scoreText(total, max float64) string {
+	if total == 0 && max == 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f / %.1f", total, max)
+}
+
 func (h *Handler) GetReportCardPDF(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
@@ -99,6 +113,21 @@ func (h *Handler) GetReportCardPDF(c *gin.Context) {
 		HeadComment:  card.HeadTeacherComment,
 		Status:       card.Status,
 		GeneratedAt:  time.Now(),
+	}
+
+	// Attach the real CBC indicator rows from the card results so the printed
+	// card shows the actual learning-area performance rather than an empty
+	// summary block.
+	if card.Results != nil {
+		for _, r := range card.Results {
+			document.Indicators = append(document.Indicators, ReportCardResultPDF{
+				LearningAreaName: r.LearningAreaName,
+				AssessmentType:   fmt.Sprintf("%s%s", r.AssessmentType, indicatorWindow(r.AssessmentWindow)),
+				Score:            scoreText(r.RawScore, r.MaxScore),
+				LevelCode:       r.LevelCode,
+				Comment:         r.Comment,
+			})
+		}
 	}
 
 	name := strings.TrimSpace(card.CardNumber)
