@@ -587,6 +587,7 @@ inkindHandler := inkind.NewHandler(inkindService, financeHandler)
 		learnerGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), learnerHandler.CreateLearner)
 		learnerGroup.GET("/:id", middleware.RequireRole(middleware.RoleAcademicStaff...), learnerHandler.GetLearner)
 		learnerGroup.PATCH("/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), learnerHandler.UpdateLearner)
+		learnerGroup.POST("/termination", middleware.RequireRole(middleware.RoleSchoolAdministrators...), learnerHandler.TerminateLearners)
 	}
 
 	// Curriculum routes (M5)

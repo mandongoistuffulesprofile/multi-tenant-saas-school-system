@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../lib/authStore";
@@ -16,6 +16,7 @@ import { useToast } from "../components/toast/ToastProvider";
 import { Learner, LearnerCreateRequest } from "../lib/types";
 import { SponsorshipBadge } from "../components/learners/SponsorshipBadge";
 import { FloatingBulkDock } from "../components/ui/FloatingBulkDock";
+import { LearnerTerminationDialog } from "../components/learners";
 
 const GRADES = ["PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6"];
 const STREAMS = ["East", "West", "North", "South"];
@@ -89,7 +90,12 @@ export default function LearnersPage() {
   const [q, setQ] = useState("");
   const [gradeFilter, setGradeFilter] = useState("");
   const [streamFilter, setStreamFilter] = useState("");
+  const [activeStatusFilter, setActiveStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "terminated" | "">("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [terminationOpen, setTerminationOpen] = useState(false);
+  const [terminationTarget, setTerminationTarget] = useState<string[]>([]);
+  const [terminationLoading, setTerminationLoading] = useState(false);
+  const terminationConfirmRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     api.get<Learner[]>("/learners")
@@ -138,6 +144,12 @@ export default function LearnersPage() {
     });
   }, []);
 
+  const setSelectedForTermination = () => {
+    if (selected.size === 0) return;
+    setTerminationTarget(Array.from(selected));
+    setTerminationOpen(true);
+  };
+
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -161,12 +173,15 @@ export default function LearnersPage() {
       l.first_name.toLowerCase().includes(q.toLowerCase()) ||
       l.last_name.toLowerCase().includes(q.toLowerCase()) ||
       l.admission_number.toLowerCase().includes(q.toLowerCase());
-    return (
-      matchQ &&
-      (gradeFilter ? l.grade_label === gradeFilter : true) &&
-      (streamFilter ? l.stream_name === streamFilter : true)
-    );
+    if (!matchQ) return false;
+    if (gradeFilter && l.grade_label !== gradeFilter) return false;
+    if (streamFilter && l.stream_name !== streamFilter) return false;
+    if (activeStatusFilter === "ACTIVE" && l.status !== "ACTIVE") return false;
+    if (activeStatusFilter === "INACTIVE" && l.status === "ACTIVE") return false;
+    if (activeStatusFilter === "terminated" && l.status === "ACTIVE") return false;
+    return true;
   });
+  const departedLearners = filtered.filter((l) => l.status !== "ACTIVE");
 
   const isLastStep = step === 2;
   const nextStep = () => {
@@ -271,6 +286,30 @@ export default function LearnersPage() {
     setSelected(new Set());
   };
 
+  const handleTerminateLearners = async (category: string, reason: string) => {
+    if (terminationTarget.length === 0) return;
+    setTerminationLoading(true);
+    try {
+      await api.post("/learners/termination", {
+        learner_ids: terminationTarget,
+        category,
+        reason,
+      });
+      toast(
+        `${terminationTarget.length} learner record(s) marked as ${category.toLowerCase()}`,
+        { type: "success" },
+      );
+      const r = await api.get<Learner[]>("/learners").catch(() => null);
+      if (r) setLearners(Array.isArray(r.data) ? r.data : []);
+      setTerminationOpen(false);
+      setTerminationTarget([]);
+    } catch (err: any) {
+      toast(err.response?.data?.message || "Failed to terminate learner record(s)", { type: "error" });
+    } finally {
+      setTerminationLoading(false);
+    }
+  };
+
   const handleExportCsv = () => {
     toast(`Exporting ${selected.size} learner record(s)`, { type: "info" });
     setSelected(new Set());
@@ -286,10 +325,17 @@ export default function LearnersPage() {
           <h1 className="text-display">{t("learners")}</h1>
           <p className="text-body">{t("learner_registry")}</p>
         </div>
-        <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3">
           <Link to="/imports/learners" className="text-sm font-medium text-kenyan-red hover:underline">
             Import CSV
           </Link>
+          <Button
+            variant="ghost"
+            disabled={selected.size === 0}
+            onClick={() => setSelectedForTermination()}
+          >
+            {t("terminate_learner")} • {selected.size > 0 ? `${selected.size} selected` : "select learner(s)"}
+          </Button>
           <Button
             ref={addLearnerButtonRef}
             variant="primary"
@@ -298,27 +344,50 @@ export default function LearnersPage() {
             {t("add_learner")}
           </Button>
         </div>
+        {terminationOpen && (
+          <LearnerTerminationDialog
+            open={terminationOpen}
+            onClose={() => { setTerminationOpen(false); setTerminationTarget([]); }}
+            learnerIds={terminationTarget}
+            onConfirm={handleTerminateLearners}
+            loading={terminationLoading}
+            selectedCount={terminationTarget.length}
+            firstConfirmRef={terminationConfirmRef}
+          />
+        )}
       </div>
 
       <Card>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-          <div className="relative">
-            <Input placeholder={t("search_learners")} value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
-          <div>
-            <label className="label">{t("grade")}</label>
-            <select className="input-field" value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
-              <option value="">{t("all_grades")}</option>
-              {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">{t("stream")}</label>
-            <select className="input-field" value={streamFilter} onChange={(e) => setStreamFilter(e.target.value)}>
-              <option value="">{t("all_streams")}</option>
-              {STREAMS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
+        <div className="flex flex-wrap gap-2 mb-4">
+          <span className="text-sm text-slate-600">Show:</span>
+          <button
+            type="button"
+            className={`rounded-lg border px-3 py-1 text-sm transition-colors ${activeStatusFilter === "ACTIVE" ? "border-kenyan-green bg-green-50 text-kenyan-green font-medium" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}
+            onClick={() => setActiveStatusFilter(activeStatusFilter === "ACTIVE" ? "ACTIVE" : "ACTIVE")}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            className={`rounded-lg border px-3 py-1 text-sm transition-colors ${activeStatusFilter === "INACTIVE" ? "border-amber-500 bg-amber-50 text-amber-700 font-medium" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}
+            onClick={() => setActiveStatusFilter(activeStatusFilter === "INACTIVE" ? "INACTIVE" : "INACTIVE")}
+          >
+            Inactive
+          </button>
+          <button
+            type="button"
+            className={`rounded-lg border px-3 py-1 text-sm transition-colors ${activeStatusFilter === "terminated" ? "border-kenyan-red bg-red-50 text-kenyan-red font-medium" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}
+            onClick={() => setActiveStatusFilter(activeStatusFilter === "terminated" ? "terminated" : "terminated")}
+          >
+            Terminated / departed
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-slate-200 px-3 py-1 text-sm text-slate-600 hover:border-slate-300"
+            onClick={() => setActiveStatusFilter("")
+          >
+            All
+          </button>
         </div>
       </Card>
 
@@ -327,7 +396,27 @@ export default function LearnersPage() {
           data={filtered}
           loading={false}
           columns={[
-            { key: "select", header: "", sortable: false, className: "w-10", render: (row) => (
+            { key: "admission_number", header: t("admission_number"), sortable: true },
+            { key: "first_name", header: t("first_name"), sortable: true },
+            { key: "last_name", header: t("last_name"), sortable: true },
+            { key: "grade_label", header: t("grade"), sortable: true },
+            { key: "stream_name", header: t("stream"), sortable: true },
+            {
+              key: "residence_type",
+              header: "Residence",
+              render: (row) => RESIDENCE_OPTIONS.find((o) => o.value === row.residence_type)?.label ?? "—",
+            },
+            { key: "guardian_phone", header: t("phone"), sortable: true },
+            {
+              key: "sponsorship",
+              header: t("sponsorship"),
+              sortable: false,
+              render: (row) => <SponsorshipBadge />,
+            },
+            { key: "status", header: t("status"), render: (row) => (
+              <Badge variant={row.status === "ACTIVE" ? "success" : "warning"}>{row.status}</Badge>
+            )},
+            { key: "__select", header: "", sortable: false, className: "w-10", render: (row) => (
               <input
                 type="checkbox"
                 checked={isSelected(row.learner_id)}
@@ -335,34 +424,23 @@ export default function LearnersPage() {
                 className="rounded border-gray-300 text-slate-900 focus:ring-slate-900"
               />
             )},
-            { key: "admission_number", header: t("admission_number"), sortable: true },
-            { key: "first_name", header: t("first_name"), sortable: true },
-            { key: "last_name", header: t("last_name"), sortable: true },
-            { key: "grade_label", header: t("grade"), sortable: true },
-            	            { key: "stream_name", header: t("stream"), sortable: true },
-	            {
-	              key: "residence_type",
-	              header: "Residence",
-	              render: (row) => RESIDENCE_OPTIONS.find((o) => o.value === row.residence_type)?.label ?? "—",
-	            },
-	            { key: "guardian_phone", header: t("phone"), sortable: true },
-            {
-              key: "sponsorship",
-              header: t("sponsorship"),
-              sortable: false,
-              render: (row) => <SponsorshipBadge />,
-            },
-            { key: "status", header: t("status"), render: (row) => <Badge variant="default">{row.status}</Badge> },
           ]}
           emptyMessage={t("no_learners")}
           keyField="learner_id"
         />
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex gap-2 flex-wrap">
           <Button variant="secondary" size="sm" onClick={toggleSelectAll}>
             {selected.size > 0 ? t("clear_selection") : t("select_all")}
           </Button>
-          <Button variant="secondary" size="sm">{t("bulk_import")}</Button>
-          <Button variant="ghost" size="sm">{t("export")}</Button>
+          <Button variant="secondary" size="sm" disabled={selected.size === 0 || departedLearners.length === 0}>
+            {t("bulk_import")}
+          </Button>
+          <Button variant="ghost" size="sm" disabled={selected.size === 0}>{t("export")}</Button>
+          {selected.size > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setSelectedForTermination()}>
+              {t("terminate_selected")} • {selected.size}
+            </Button>
+          )}
         </div>
       </Card>
 
@@ -372,6 +450,7 @@ export default function LearnersPage() {
           onClear={() => setSelected(new Set())}
           onBatchInvoice={handleBatchInvoice}
           onExportCsv={handleExportCsv}
+          onTerminate={() => { if (selected.size > 0) setSelectedForTermination(); }}
         />
       )}
 
@@ -607,6 +686,11 @@ export default function LearnersPage() {
       <div className="text-caption text-muted">
         {t("learner_count", { count: learners.length })}
         {selected.size > 0 && ` · ${selected.size} selected`}
+        {departedLearners.length > 0 && (
+          <div className="mt-2 text-sm text-slate-600">
+            {departedLearners.length} learner record(s) are no longer active and are retained for audit and recordkeeping.
+          </div>
+        )}
       </div>
     </div>
   );
