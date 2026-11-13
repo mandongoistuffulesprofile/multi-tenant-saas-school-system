@@ -31,10 +31,7 @@ export default function BreachRegisterPage() {
   const [breachModal, setBreachModal] = useState(false);
   const [editingBreach, setEditingBreach] = useState<Breach | null>(null);
   const [saving, setSaving] = useState(false);
-  const { t } = useTranslation();
-  const { toast } = useToast();
-
-  const breachForm = {
+  const [breachForm, setBreachForm] = useState({
     breach_title: "",
     description: "",
     discovered_at: "",
@@ -43,7 +40,9 @@ export default function BreachRegisterPage() {
     status: "OPEN",
     resolution_notes: "",
     reported_to_authority: false,
-  };
+  });
+  const { t } = useTranslation();
+  const { toast } = useToast();
 
   const resetForm = () => {
     setBreachForm({ breach_title: "", description: "", discovered_at: "", severity: "LOW", affected_count: 0, status: "OPEN", resolution_notes: "", reported_to_authority: false });

@@ -96,18 +96,18 @@ export default function CommsPage() {
   const [templateModal, setTemplateModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [savingTemplate, setSavingTemplate] = useState(false);
-  const templateForm = {
+  const [templateForm, setTemplateForm] = useState({
     template_name: "",
     channel: "SMS",
     subject: "",
     body_text: "",
     is_default: false,
-  };
+  });
 
   // Broadcast modal
   const [broadcastModal, setBroadcastModal] = useState(false);
   const [savingBroadcast, setSavingBroadcast] = useState(false);
-  const broadcastForm = {
+  const [broadcastForm, setBroadcastForm] = useState({
     broadcast_name: "",
     channel: "SMS",
     subject: "",
@@ -116,17 +116,17 @@ export default function CommsPage() {
     audience_mode: "ALL",
     grade_ids: [] as string[],
     arrears_over: "",
-  };
+  });
 
   // Opt-out modal
   const [optOutModal, setOptOutModal] = useState(false);
   const [savingOptOut, setSavingOptOut] = useState(false);
-  const optOutForm = {
+  const [optOutForm, setOptOutForm] = useState({
     user_id: "",
     channel: "SMS",
     reason: "",
     opt_out: true,
-  };
+  });
 
   useEffect(() => {
     loadAll();
