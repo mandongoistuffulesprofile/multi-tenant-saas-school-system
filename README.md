@@ -1,4 +1,9 @@
 # Shule Yetu — Kenyan Primary School Management SaaS
+Unexpected yet delightful events, which serve no purpose other than to make us smile or enhance an experience, can have a profound impact on how a person feels about or remembers your brand. 
+The same can be said for a product just working — getting the basics right. To paraphrase an analogy from a talk Jared M. Spool gave, which has stuck with me:
+
+You expect your hotel room to have basic things like toilet paper, bed sheets and a towel. You wouldn’t thank the hotel, or refer your friends based on this — but you’d be annoyed if they didn’t meet these basic needs. Similarly, you may be delighted by and grateful for things like a warm welcome on check-in, extra luxuries like free toiletries, or nice art on the wall… You wouldn’t necessarily be disappointed if you didn’t get those extra things, as you didn’t need or expect them — but you may be more likely to return to, or refer the hotel.
+
 
 Multi-tenant school management system: **Go + Gin + PostgreSQL 18 + Redis** API and a **React + TypeScript + Vite** frontend.
 
