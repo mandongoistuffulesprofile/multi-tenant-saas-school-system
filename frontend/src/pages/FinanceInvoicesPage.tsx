@@ -33,7 +33,7 @@ export default function FinanceInvoicesPage() {
       // invoice_number and academic_year_id are defaulted server-side when
       // omitted (finance service auto-generates INV-<year>-<id> and resolves
       // the current academic year).
-      await api.post("/finance/invoices", {
+      const created = await api.post("/finance/invoices", {
         learner_id: invoiceForm.learner_id,
         term_id: invoiceForm.term_id || undefined,
         total_amount: amount,
@@ -42,10 +42,14 @@ export default function FinanceInvoicesPage() {
         status: "OUTSTANDING",
         due_date: invoiceForm.due_date || undefined,
       });
-      toast("Invoice generated successfully!", { type: "success" });
-      setModalOpen(false);
+      const createdInvoiceId = created.data?.id ?? created.data?.invoice_number ?? "";
+      toast("Invoice generated successfully!", { type: "success", action: { label: "Undo", onClick: () => {
+        api.delete(`/finance/invoices/${encodeURIComponent(createdInvoiceId)}`).catch(() => {});
+        toast("Invoice removed.", { type: "info" });
+        api.get("/finance/invoices").then((r) => setInvoices(Array.isArray(r.data) ? r.data : []));
+      }}});
       setInvoiceForm(invoiceFormInit());
-      api.get("/finance/invoices").then((r) => setInvoices(Array.isArray(r.data) ? r.data : []));
+      setModalOpen(false);
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to create invoice", { type: "error" });
     } finally {
