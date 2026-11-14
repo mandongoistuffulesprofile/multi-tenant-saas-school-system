@@ -44,6 +44,8 @@ const monthLabel = (period: string) => {
   return date.toLocaleDateString("en-KE", { month: "short", year: "2-digit" });
 };
 
+const RANGES = [3, 6, 12, 24] as const;
+
 const compact = (value: number) =>
   value >= 1000 ? `${Math.round(value / 1000)}k` : String(Math.round(value));
 
@@ -56,14 +58,14 @@ export default function ValueLedgerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [months, setMonths] = useState<number>(12);
+
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([api.get("/value-ledger/metrics"), api.get("/value-ledger/trend", { params: { months: 12 } })])
-      .then(([metricsRes, trendRes]) => {
-        setMetrics(metricsRes.data);
-        setTrend(Array.isArray(trendRes.data?.points) ? trendRes.data.points : []);
-      })
+    api
+      .get("/value-ledger/metrics")
+      .then((res) => setMetrics(res.data))
       .catch((err) => {
         // The endpoint used to answer with zeros when it could not read the
         // ledger. A visible failure is better than a confident 0.
@@ -72,9 +74,27 @@ export default function ValueLedgerPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // The trend is fetched separately so changing the range redraws the chart
+  // without reloading the totals or flashing the whole page.
+  const loadTrend = useCallback((range: number) => {
+    api
+      .get("/value-ledger/trend", { params: { months: range } })
+      .then((res) => setTrend(Array.isArray(res.data?.points) ? res.data.points : []))
+      .catch(() => setTrend([]));
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadTrend(months);
+  }, [loadTrend, months]);
+
+  const refresh = useCallback(() => {
+    load();
+    loadTrend(months);
+  }, [load, loadTrend, months]);
 
   const surplus = Number(metrics?.net_position || 0) >= 0;
   // A chart drawn from twelve empty months says nothing; only offer it once the
@@ -121,7 +141,7 @@ export default function ValueLedgerPage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-heading">Value Ledger</h2>
-            <Button variant="secondary" size="sm" onClick={load} disabled={loading}>
+            <Button variant="secondary" size="sm" onClick={refresh} disabled={loading}>
               Refresh
             </Button>
           </div>
@@ -139,7 +159,7 @@ export default function ValueLedgerPage() {
                 The ledger could not be read. Nothing is shown rather than showing zeros.
               </p>
               <div className="mt-3">
-                <Button variant="secondary" size="sm" onClick={load}>
+                <Button variant="secondary" size="sm" onClick={refresh}>
                   Try again
                 </Button>
               </div>
@@ -160,9 +180,28 @@ export default function ValueLedgerPage() {
                 ))}
               </div>
               <section className="mt-8 bg-white rounded-lg border border-gray-200 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-900">Monthly trend</h3>
-                  <span className="text-xs text-gray-500">Last 12 months of posted entries</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Monthly trend</h3>
+                    <span className="text-xs text-gray-500">Posted entries, last {months} months</span>
+                  </div>
+                  <div className="flex gap-1" role="group" aria-label="Trend range">
+                    {RANGES.map((range) => (
+                      <button
+                        key={range}
+                        type="button"
+                        onClick={() => setMonths(range)}
+                        aria-pressed={months === range}
+                        className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                          months === range
+                            ? "bg-gray-900 text-white border-gray-900"
+                            : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                        }`}
+                      >
+                        {range}m
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {hasHistory ? (
                   <div className="h-64">
