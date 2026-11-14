@@ -318,6 +318,24 @@ type GateDevice struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
+// listPageParams applies the same limit/offset contract as the other list
+// endpoints: 50 rows by default, never more than 200, and a negative offset is
+// treated as the first page.
+func listPageParams(c *gin.Context) (limit, offset int) {
+	limit = 50
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
 func (h *Handler) ListGateDevices(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
@@ -325,6 +343,7 @@ func (h *Handler) ListGateDevices(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
+	limit, offset := listPageParams(c)
 	rows, err := tx.Query(
 		// Every optional column is nullable in the table, so it is coalesced or
 		// cast here: scanning a NULL into a Go string fails the whole list.
@@ -332,8 +351,9 @@ func (h *Handler) ListGateDevices(c *gin.Context) {
 			COALESCE(pairing_code, ''), is_paired, COALESCE(paired_at::text, ''),
 			COALESCE(paired_by::text, ''), COALESCE(last_seen_at::text, ''),
 			COALESCE(status, ''), created_at::text, updated_at::text
-		 FROM gate_devices WHERE tenant_id = $1 ORDER BY device_name`,
-		tenantID,
+		 FROM gate_devices WHERE tenant_id = $1 ORDER BY device_name
+		 LIMIT $2 OFFSET $3`,
+		tenantID, limit, offset,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -375,11 +395,13 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
+	limit, offset := listPageParams(c)
 	rows, err := tx.Query(
 		`SELECT tag_id, tenant_id, tag_uid, holder_type, holder_id::text,
 			is_active, COALESCE(issued_at::text, ''), created_at::text, updated_at::text
-		 FROM rfid_tags WHERE tenant_id = $1 ORDER BY tag_uid`,
-		tenantID,
+		 FROM rfid_tags WHERE tenant_id = $1 ORDER BY tag_uid
+		 LIMIT $2 OFFSET $3`,
+		tenantID, limit, offset,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})

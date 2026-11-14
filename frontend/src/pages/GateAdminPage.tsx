@@ -75,9 +75,12 @@ export default function GateAdminPage() {
 
   const load = async () => {
     try {
+      // The API pages these lists (50 by default, 200 max). One page of the
+      // largest allowed size keeps the whole setup visible on this screen.
+      const page = { params: { limit: 200 } };
       const [deviceRes, tagRes, policyRes] = await Promise.all([
-        api.get<GateDevice[] | null>("/gate/devices"),
-        api.get<RFIDTag[] | null>("/gate/tags"),
+        api.get<GateDevice[] | null>("/gate/devices", page),
+        api.get<RFIDTag[] | null>("/gate/tags", page),
         api.get<GatePolicy>("/gate/policy"),
       ]);
       setDevices(Array.isArray(deviceRes.data) ? deviceRes.data : []);
