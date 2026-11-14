@@ -8,8 +8,25 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
+
+// queryer is what the list and detail queries need. The request-scoped
+// transaction carries the RLS tenant context; querying the pool directly
+// bypasses it and silently returns no rows.
+type queryer interface {
+	QueryxContext(ctx context.Context, query string, args ...interface{}) (*sqlx.Rows, error)
+	QueryRowxContext(ctx context.Context, query string, args ...interface{}) *sqlx.Row
+}
+
+func (h *Handler) queryer(c *gin.Context) queryer {
+	if tx := middleware.TxFromGin(c); tx != nil {
+		return tx
+	}
+	return h.service.database
+}
 
 // learnerView is the school-facing view of a learner record: the stored columns
 // plus the learner's current class and primary guardian phone.
@@ -169,7 +186,7 @@ func (h *Handler) ListLearners(c *gin.Context) {
 	args = append(args, limit)
 	query += fmt.Sprintf(" ORDER BY l.admission_number LIMIT $%d", len(args))
 
-	rows, err := h.service.database.QueryxContext(c.Request.Context(), query, args...)
+	rows, err := h.queryer(c).QueryxContext(c.Request.Context(), query, args...)
 	if err != nil {
 		validation.Internal(c, "could not list learners")
 		return
@@ -210,7 +227,11 @@ func (h *Handler) GetLearner(c *gin.Context) {
 }
 
 func (h *Handler) getLearner(ctx context.Context, tenantID, learnerID string) (*learnerView, error) {
-	row := h.service.database.QueryRowxContext(ctx, learnerSelect+" WHERE l.tenant_id = $1 AND l.learner_id = $2", tenantID, learnerID)
+	var q queryer = h.service.database
+	if tx := middleware.TxFromContext(ctx); tx != nil {
+		q = tx
+	}
+	row := q.QueryRowxContext(ctx, learnerSelect+" WHERE l.tenant_id = $1 AND l.learner_id = $2", tenantID, learnerID)
 	return scanLearner(row.Scan)
 }
 

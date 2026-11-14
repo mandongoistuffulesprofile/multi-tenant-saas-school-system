@@ -594,6 +594,12 @@ func Run() error {
 		staffGroup.POST("", middleware.RequireRole(middleware.RoleSchoolAdministrators...), staffHandler.CreateStaff)
 	}
 
+	// Guardian directory, used by the gate tag form to pick a person by name.
+	apiV1.GET("/guardians",
+		middleware.RequireAuthGin(jwtManager),
+		middleware.RequireRole(middleware.RoleSchoolAdministrators...),
+		learnerHandler.ListGuardians)
+
 	// Learner routes
 	learnerGroup := apiV1.Group("/learners")
 	learnerGroup.Use(middleware.RequireAuthGin(jwtManager))
