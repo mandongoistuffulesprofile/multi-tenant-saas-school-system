@@ -26,7 +26,6 @@ type learnerView struct {
 	PhotoRef          *string `json:"photo_ref"`
 	Status            string  `json:"status"`
 	AdmittedOn        *string `json:"admitted_on"`
-	PreviousSchool    *string `json:"previous_school"`
 	ClassGroupID      *string `json:"class_group_id"`
 	GradeLabel        *string `json:"grade_label"`
 	StreamName        *string `json:"stream_name"`
@@ -75,7 +74,7 @@ const learnerSelect = `
 	       l.upi_nemis_number, l.first_name, l.middle_name, l.last_name,
 	       to_char(l.date_of_birth, 'YYYY-MM-DD'), l.gender, l.photo_ref,
 	       COALESCE(l.status, 'ACTIVE'),
-	       to_char(l.admitted_on, 'YYYY-MM-DD'), l.previous_school,
+	       to_char(l.admitted_on, 'YYYY-MM-DD'),
 	       e.class_group_id, g.grade_label, s.stream_name,
 	       gd.phone_number,
 	       l.residence_type, l.kemis_upi, l.knec_assessment_no, l.sne_category,
@@ -103,14 +102,14 @@ const learnerSelect = `
 
 func scanLearner(scan func(dest ...interface{}) error) (*learnerView, error) {
 	var (
-		l                                                   learnerView
-		upi, middle, dob, gender, photo, admitted, previous sql.NullString
-		classGroup, gradeLabel, streamName, guardian        sql.NullString
-		residence, kemis, knec, sne, zone, trip             sql.NullString
+		l                                            learnerView
+		upi, middle, dob, gender, photo, admitted    sql.NullString
+		classGroup, gradeLabel, streamName, guardian sql.NullString
+		residence, kemis, knec, sne, zone, trip      sql.NullString
 	)
 	if err := scan(&l.LearnerID, &l.TenantID, &l.AdmissionNumber,
 		&upi, &l.FirstName, &middle, &l.LastName,
-		&dob, &gender, &photo, &l.Status, &admitted, &previous,
+		&dob, &gender, &photo, &l.Status, &admitted,
 		&classGroup, &gradeLabel, &streamName, &guardian,
 		&residence, &kemis, &knec, &sne, &zone, &trip); err != nil {
 		return nil, err
@@ -121,7 +120,6 @@ func scanLearner(scan func(dest ...interface{}) error) (*learnerView, error) {
 	l.Gender = nullStringPtr(gender)
 	l.PhotoRef = nullStringPtr(photo)
 	l.AdmittedOn = nullStringPtr(admitted)
-	l.PreviousSchool = nullStringPtr(previous)
 	l.ClassGroupID = nullStringPtr(classGroup)
 	l.GradeLabel = nullStringPtr(gradeLabel)
 	l.StreamName = nullStringPtr(streamName)
