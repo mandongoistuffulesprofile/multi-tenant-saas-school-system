@@ -865,6 +865,10 @@ type Credit struct {
 	CreatedBy       string  `json:"created_by,omitempty"`
 	CreatedAt       string  `json:"created_at"`
 	UpdatedAt       string  `json:"updated_at"`
+	// AppliedAmount is how much of this prepayment has already been spent on fee
+	// lines; Status is UNAPPLIED, PARTIALLY_APPLIED, APPLIED or VOID.
+	AppliedAmount float64 `json:"applied_amount"`
+	Status        string  `json:"status"`
 }
 
 // ListCredits returns the tenant's credit notes, newest first.
@@ -878,7 +882,8 @@ func (s *Service) ListCredits(ctx context.Context, tenantID string, limit, offse
 	}
 	rows, err := q.Query(
 		`SELECT credit_id, tenant_id, learner_id, amount, currency, reason,
-			source_payment_id, expires_at, created_by, created_at, updated_at
+			source_payment_id, expires_at, created_by, created_at, updated_at,
+			applied_amount, status
 		 FROM credits WHERE tenant_id = $1 ORDER BY created_at DESC
 		 LIMIT $2 OFFSET $3`,
 		tenantID, limit, offset,
@@ -895,6 +900,7 @@ func (s *Service) ListCredits(ctx context.Context, tenantID string, limit, offse
 		if err := rows.Scan(
 			&c.CreditID, &c.TenantID, &c.LearnerID, &c.Amount, &c.Currency,
 			&c.Reason, &sourcePayment, &expiresAt, &createdBy, &c.CreatedAt, &c.UpdatedAt,
+			&c.AppliedAmount, &c.Status,
 		); err != nil {
 			return nil, err
 		}

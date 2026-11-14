@@ -635,6 +635,10 @@ export interface Credit {
   created_by?: ID | null;
   created_at: Timestamp;
   updated_at: Timestamp;
+  /** How much of this prepayment has been spent on fee lines. */
+  applied_amount: number;
+  /** UNAPPLIED | PARTIALLY_APPLIED | APPLIED | VOID */
+  status: string;
 }
 
 export interface Adjustment {

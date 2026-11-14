@@ -32,6 +32,28 @@ export default function FinanceCreditsPage() {
                 { key: "credit_reference", header: "Reference" },
                 { key: "learner_id", header: "Learner", render: (r) => r.learner_id || "—" },
                 { key: "amount", header: "Amount", render: (r) => `KES ${r.amount}` },
+                {
+                  key: "applied_amount",
+                  header: "Applied",
+                  render: (r) => `KES ${Number(r.applied_amount || 0).toFixed(2)}`,
+                },
+                {
+                  key: "remaining",
+                  header: "Unapplied",
+                  render: (r) => {
+                    const remaining = Number(r.amount || 0) - Number(r.applied_amount || 0);
+                    return (
+                      <span className={remaining > 0 ? "font-medium text-kenyan-green" : "text-gray-500"}>
+                        KES {remaining.toFixed(2)}
+                      </span>
+                    );
+                  },
+                },
+                {
+                  key: "status",
+                  header: "Status",
+                  render: (r) => r.status || "—",
+                },
                 { key: "reason", header: "Reason", render: (r) => r.reason || "—" },
                 { key: "created_at", header: "Date", render: (r) => r.created_at ? new Date(r.created_at).toLocaleDateString() : "—" },
               ]}

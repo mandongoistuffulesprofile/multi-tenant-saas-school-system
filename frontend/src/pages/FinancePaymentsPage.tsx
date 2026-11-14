@@ -19,6 +19,11 @@ export default function FinancePaymentsPage() {
   const payModalTriggerRef = useRef<HTMLButtonElement>(null);
   const payFormFirstRef = useRef<HTMLSelectElement>(null);
   const recordPayment = useApiDeduper();
+  // Reversing a receipt is a money-visible action, so it needs an explicit
+  // target and a written reason rather than a one-click undo.
+  const [reverseTarget, setReverseTarget] = useState<any | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reversing, setReversing] = useState(false);
 
   const learnerName = (id: string) => learners.find((l) => l.id === id)?.label || null;
 
@@ -50,6 +55,32 @@ export default function FinancePaymentsPage() {
     } finally {
       setRecording(false);
       recordPayment.reset();
+    }
+  };
+
+  const reloadPayments = () =>
+    api.get("/finance/payments").then((r) => setPayments(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+
+  const handleReverse = async () => {
+    if (!reverseTarget) return;
+    const reason = reverseReason.trim();
+    if (reason.length < 5) {
+      toast("Give a reason for the reversal", { type: "error" });
+      return;
+    }
+    setReversing(true);
+    try {
+      await api.post(`/finance/payments/${reverseTarget.payment_id}/reverse`, { reason });
+      toast("Receipt reversed", { type: "success" });
+      setReverseTarget(null);
+      setReverseReason("");
+      await reloadPayments();
+    } catch (err: any) {
+      // The API refuses while the receipt's prepayment has been spent; show
+      // that sentence rather than a generic failure.
+      toast(err.response?.data?.message || "Failed to reverse receipt", { type: "error" });
+    } finally {
+      setReversing(false);
     }
   };
 
@@ -109,6 +140,25 @@ export default function FinancePaymentsPage() {
                 { key: "source", header: "Method" },
                 { key: "amount", header: "Amount", render: (r) => r.amount != null ? `KES ${r.amount}` : "—" },
                 { key: "status", header: "Status" },
+                {
+                  key: "actions",
+                  header: "",
+                  render: (r) =>
+                    r.status === "COMPLETED" ? (
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-kenyan-red hover:underline"
+                        onClick={() => {
+                          setReverseTarget(r);
+                          setReverseReason("");
+                        }}
+                      >
+                        Reverse
+                      </button>
+                    ) : (
+                      "—"
+                    ),
+                },
               ]}
             />
           )}
@@ -211,6 +261,48 @@ export default function FinancePaymentsPage() {
                     </button>
                   </div>
                 </form>
+          </Dialog>
+
+          <Dialog
+            open={reverseTarget !== null}
+            onClose={() => setReverseTarget(null)}
+            title="Reverse receipt"
+            className="max-w-md"
+          >
+            <p style={{ fontSize: "0.9rem", color: "#374151", marginBottom: "0.75rem" }}>
+              This voids the receipt
+              {reverseTarget?.payment_reference ? ` ${reverseTarget.payment_reference}` : ""} and
+              restores the fee lines it settled. Nothing is deleted: a reversing entry is posted
+              against each allocation, and the learner's arrears reappear.
+            </p>
+            <p style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.75rem" }}>
+              If part of this receipt was held as prepayment and has since been spent on other
+              lines, the reversal is refused — reverse those applications first.
+            </p>
+            <label style={{ display: "block", marginBottom: "0.75rem" }}>
+              <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Reason</span>
+              <textarea
+                required
+                rows={3}
+                value={reverseReason}
+                onChange={(e) => setReverseReason(e.target.value)}
+                placeholder="e.g. cheque returned unpaid"
+                style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
+              />
+            </label>
+            <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
+              <button type="button" onClick={() => setReverseTarget(null)} style={{ padding: "0.5rem 1rem" }}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium disabled:opacity-60"
+                onClick={handleReverse}
+                disabled={reversing}
+              >
+                {reversing ? "Reversing…" : "Reverse receipt"}
+              </button>
+            </div>
           </Dialog>
         </div>
       </div>
