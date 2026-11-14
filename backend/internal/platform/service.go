@@ -208,9 +208,9 @@ type TenantUsage struct {
 func (h *Handler) ListTenantUsage(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	rows, err := h.q(c).Query(
-		`SELECT usage_id, tenant_id, period_month, active_learners, active_staff,
+		`SELECT usage_id, tenant_id, period_month::text, active_learners, active_staff,
 			sms_sent, reports_generated, assessments_recorded, payments_processed,
-			gate_taps, storage_mb, created_at, updated_at
+			gate_taps, storage_mb, created_at::text, updated_at::text
 		 FROM tenant_usage WHERE tenant_id = $1 ORDER BY period_month DESC`,
 		tenantID,
 	)

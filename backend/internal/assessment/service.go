@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Service struct {
@@ -251,7 +251,7 @@ func (h *Handler) ListWeightingProfiles(c *gin.Context) {
 	}
 	rows, err := tx.Query(
 		`SELECT profile_id, name, description, grade_id, weights, is_default,
-			created_at, updated_at
+			created_at::text, updated_at::text
 		 FROM weighting_profiles ORDER BY name`,
 	)
 	if err != nil {

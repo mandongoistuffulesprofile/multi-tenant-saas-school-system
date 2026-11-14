@@ -428,7 +428,7 @@ func (h *Handler) ListConflicts(c *gin.Context) {
 	includeResolved := c.Query("include_resolved") == "true"
 
 	query := `SELECT conflict_id, entity_type, entity_id, client_version, server_version,
-		client_values, server_values, resolved, created_at
+		client_values, server_values, resolved, created_at::text
 		FROM sync_conflicts WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	if !includeResolved {

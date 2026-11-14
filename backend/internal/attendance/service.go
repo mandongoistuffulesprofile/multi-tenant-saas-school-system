@@ -374,7 +374,7 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	rows, err := tx.Query(
 		`SELECT tag_id, tenant_id, tag_uid, holder_type, holder_id,
-			is_active, issued_at, created_at, updated_at
+			is_active, issued_at::text, created_at::text, updated_at::text
 		 FROM rfid_tags WHERE tenant_id = $1 ORDER BY tag_uid`,
 		tenantID,
 	)

@@ -170,7 +170,7 @@ func (h *Handler) ListStrands(c *gin.Context) {
 	areaID := c.Query("area_id")
 
 	query := `SELECT strand_id, area_id, code, name, description, sort_order,
-			created_at, updated_at
+			created_at::text, updated_at::text
 		 FROM strands`
 	args := []interface{}{}
 	if areaID != "" {
@@ -222,7 +222,7 @@ func (h *Handler) ListSubStrands(c *gin.Context) {
 	strandID := c.Query("strand_id")
 
 	query := `SELECT sub_strand_id, strand_id, code, name, description, sort_order,
-			created_at, updated_at
+			created_at::text, updated_at::text
 		 FROM sub_strands`
 	args := []interface{}{}
 	if strandID != "" {
@@ -271,7 +271,7 @@ func (h *Handler) GetTenantCurriculumPin(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	var pin TenantCurriculumPin
 	err := tx.QueryRow(
-		`SELECT pin_id, tenant_id, version_id, pinned_by, pinned_at
+		`SELECT pin_id, tenant_id, version_id, pinned_by, pinned_at::text
 		 FROM tenant_curriculum_pins WHERE tenant_id = $1`,
 		tenantID,
 	).Scan(&pin.PinID, &pin.TenantID, &pin.VersionID, &pin.PinnedBy, &pin.PinnedAt)
@@ -303,7 +303,7 @@ func (h *Handler) SetTenantCurriculumPin(c *gin.Context) {
 		 VALUES ($1, $2)
 		 ON CONFLICT (tenant_id) DO UPDATE SET version_id = EXCLUDED.version_id,
 		 pinned_at = CURRENT_TIMESTAMP
-		 RETURNING pin_id, pinned_at`,
+		 RETURNING pin_id, pinned_at::text`,
 		tenantID, pin.VersionID,
 	).Scan(&pin.PinID, &pin.PinnedAt)
 	if err != nil {

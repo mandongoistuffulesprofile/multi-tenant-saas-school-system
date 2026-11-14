@@ -542,8 +542,8 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 	// Line 1: Debit inventory (asset +)
 	_, err = tx.Exec(
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
-		 SELECT $1, $2, la.id, $3::uuid, $4, 0
-		 FROM ledger_accounts la WHERE la.tenant_id = $1 AND la.code = 'INV_FOOD' LIMIT 1`,
+		 SELECT $1::varchar, $2, la.id, $3::uuid, $4, 0
+		 FROM ledger_accounts la WHERE la.tenant_id = $1::varchar AND la.code = 'INV_FOOD' LIMIT 1`,
 		tenantID, entryID, req.StudentID, totalValue.StringFixed(2),
 	)
 	if err != nil {
@@ -553,8 +553,8 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 	// Line 2: Credit student fee receivable (liability -)
 	_, err = tx.Exec(
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
-		 SELECT $1, $2, la.id, $3::uuid, 0, $4
-		 FROM ledger_accounts la WHERE la.tenant_id = $1 AND la.code = 'FEE_RECEIVABLE' LIMIT 1`,
+		 SELECT $1::varchar, $2, la.id, $3::uuid, 0, $4
+		 FROM ledger_accounts la WHERE la.tenant_id = $1::varchar AND la.code = 'FEE_RECEIVABLE' LIMIT 1`,
 		tenantID, entryID, req.StudentID, totalValue.StringFixed(2),
 	)
 	if err != nil {

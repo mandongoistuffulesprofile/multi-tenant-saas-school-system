@@ -662,10 +662,10 @@ func (h *Handler) ListTeachingWeeklyLoad(c *gin.Context) {
 			COALESCE(u.email, ''),
 			COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), ''),
 			ta.class_group_id,
-			COALESCE(NULLIF(cg.class_group_name, ''), g.grade_label || ' ' || s.stream_name, ''),
+			COALESCE(NULLIF(g.grade_label || ' ' || s.stream_name, ''), ''),
 			COALESCE(g.grade_label, ''),
 			COALESCE(s.stream_name, ''),
-			COALESCE(la.area_id, ta.subject_id),
+			COALESCE(la.area_id::text, ta.subject_id),
 			COALESCE(la.name, ta.subject_id),
 			ta.subject_id
 		FROM teaching_assignments ta

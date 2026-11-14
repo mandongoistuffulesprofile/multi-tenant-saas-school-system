@@ -50,14 +50,14 @@ func (s *Service) PostStudentArrears(ctx context.Context, tenantID, userID strin
 	// Debit receivable, credit opening balance equity
 	_, err = q.ExecContext(ctx,
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
-		 VALUES ($1,$2,(SELECT id FROM chart_of_accounts WHERE tenant_id=$1 AND code='1100' LIMIT 1),$3,$4,0)`,
+		 VALUES ($1::varchar,$2,(SELECT id FROM ledger_accounts WHERE tenant_id=$1::varchar AND code='1100' LIMIT 1),$3,$4,0)`,
 		tenantID, entryID, req.StudentID, req.Amount)
 	if err != nil {
 		return "", err
 	}
 	_, err = q.ExecContext(ctx,
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
-		 VALUES ($1,$2,(SELECT id FROM chart_of_accounts WHERE tenant_id=$1 AND code='3900' LIMIT 1),$3,0,$4)`,
+		 VALUES ($1::varchar,$2,(SELECT id FROM ledger_accounts WHERE tenant_id=$1::varchar AND code='3900' LIMIT 1),$3,0,$4)`,
 		tenantID, entryID, req.StudentID, req.Amount)
 	if err != nil {
 		return "", err
@@ -89,14 +89,14 @@ func (s *Service) PostOpeningStock(ctx context.Context, tenantID, userID string,
 	total := req.Quantity * req.UnitCost
 	_, err = q.ExecContext(ctx,
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, debit, credit)
-		 VALUES ($1,$2,(SELECT id FROM chart_of_accounts WHERE tenant_id=$1 AND code='1200' LIMIT 1),$3,0)`,
+		 VALUES ($1::varchar,$2,(SELECT id FROM ledger_accounts WHERE tenant_id=$1::varchar AND code='1200' LIMIT 1),$3,0)`,
 		tenantID, entryID, total)
 	if err != nil {
 		return "", err
 	}
 	_, err = q.ExecContext(ctx,
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, debit, credit)
-		 VALUES ($1,$2,(SELECT id FROM chart_of_accounts WHERE tenant_id=$1 AND code='3900' LIMIT 1),0,$3)`,
+		 VALUES ($1::varchar,$2,(SELECT id FROM ledger_accounts WHERE tenant_id=$1::varchar AND code='3900' LIMIT 1),0,$3)`,
 		tenantID, entryID, total)
 	if err != nil {
 		return "", err

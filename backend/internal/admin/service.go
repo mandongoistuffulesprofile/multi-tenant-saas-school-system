@@ -51,7 +51,7 @@ func (s *Service) q(ctx context.Context) queryer {
 func (s *Service) ListInKindSettings(ctx context.Context, tenantID string) ([]InKindSetting, error) {
 	q := s.q(ctx)
 	rows, err := q.Query(
-		`SELECT id, tenant_id, setting_key, setting_value, description, updated_by, updated_at
+		`SELECT id, tenant_id, setting_key, setting_value, description, updated_by, updated_at::text
 		 FROM admin_in_kind_settings WHERE tenant_id = $1 ORDER BY setting_key`,
 		tenantID,
 	)
@@ -82,7 +82,7 @@ func (s *Service) UpsertInKindSetting(ctx context.Context, tenantID, userID stri
 			description = COALESCE(EXCLUDED.description, admin_in_kind_settings.description),
 			updated_by = EXCLUDED.updated_by,
 			updated_at = NOW()
-		 RETURNING id, tenant_id, setting_key, setting_value, description, updated_by, updated_at`,
+		 RETURNING id, tenant_id, setting_key, setting_value, description, updated_by, updated_at::text`,
 		tenantID, req.SettingKey, req.SettingValue, req.Description, nullIfEmpty(userID),
 	).Scan(&st.ID, &st.TenantID, &st.SettingKey, &st.SettingValue, &st.Description, &st.UpdatedBy, &st.UpdatedAt)
 	if err != nil {
