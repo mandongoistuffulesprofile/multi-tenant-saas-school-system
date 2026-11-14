@@ -86,14 +86,30 @@ func (h *Handler) CreditStudentInvoiceForInKind(
 			return err
 		}
 
-		// In-kind produce never becomes cash credit: cap at what the invoice
-		// still owes, exactly as before.
+		// In-kind produce never becomes cash credit, and it must not spill onto
+		// other voteheads: cap it at what this votehead still owes on the
+		// invoice, then at the invoice itself.
 		credit := amount
+		if voteheadID != "" {
+			var voteheadOutstanding string
+			if err := tx.QueryRowContext(ctx, `
+				SELECT COALESCE(SUM(v.outstanding), 0)::text
+				  FROM v_line_outstanding v
+				  JOIN invoice_lines l ON l.line_id = v.line_id AND l.tenant_id = v.tenant_id
+				  JOIN fee_categories fc ON fc.category_id = l.category_id
+				 WHERE v.tenant_id = $1 AND v.invoice_id = $2::uuid AND fc.votehead_id = $3::uuid`,
+				tenantID, invoiceID, voteheadID).Scan(&voteheadOutstanding); err != nil {
+				return err
+			}
+			if limit := money.New(voteheadOutstanding); credit.GreaterThan(limit) {
+				credit = limit
+			}
+		}
 		if outstanding := money.New(outstandingStr); credit.GreaterThan(outstanding) {
 			credit = outstanding
 		}
 		if !credit.IsPositive() {
-			return nil // invoice already fully cleared
+			return nil // this votehead is already fully cleared
 		}
 
 		var paymentID string

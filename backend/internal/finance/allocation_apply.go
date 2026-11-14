@@ -81,7 +81,7 @@ func ApplyReceipt(ctx context.Context, q allocQueryer, app ReceiptApplication) (
 	}
 	if len(invoices) == 0 {
 		// No debt: the whole receipt is a prepayment credit.
-		if err := recordPrepaymentCredit(ctx, q, app); err != nil {
+		if err := recordPrepaymentCredit(ctx, q, app, app.Amount); err != nil {
 			return nil, err
 		}
 		return &ReceiptOutcome{
@@ -109,7 +109,7 @@ func ApplyReceipt(ctx context.Context, q allocQueryer, app ReceiptApplication) (
 		Allocations: plan.Allocations,
 	}
 	if len(plan.Allocations) == 0 {
-		if err := recordPrepaymentCredit(ctx, q, app); err != nil {
+		if err := recordPrepaymentCredit(ctx, q, app, plan.Prepayment); err != nil {
 			return nil, err
 		}
 		return outcome, nil
@@ -137,7 +137,7 @@ func ApplyReceipt(ctx context.Context, q allocQueryer, app ReceiptApplication) (
 	}
 
 	if plan.Prepayment.IsPositive() {
-		if err := recordPrepaymentCredit(ctx, q, app); err != nil {
+		if err := recordPrepaymentCredit(ctx, q, app, plan.Prepayment); err != nil {
 			return nil, err
 		}
 	}
@@ -366,10 +366,10 @@ func applyInvoiceAllocations(ctx context.Context, q allocQueryer, app ReceiptApp
 			    (tenant_id, payment_id, invoice_id, invoice_line_id, votehead_id,
 			     source, rule, allocated_amount, allocated_by, created_by)
 			VALUES ($1, $2::uuid, $3::uuid, NULLIF($4, '')::uuid, NULLIF($5, '')::uuid,
-			        'RECEIPT', $6, $7::numeric, $8, NULLIF($8, '')::uuid)
+			        'RECEIPT', $6, $7::numeric, NULLIF($8, '')::uuid, NULLIF($9, '')::uuid)
 			ON CONFLICT DO NOTHING`,
 			app.TenantID, app.PaymentID, invoice.ID, lineID, voteheadID,
-			string(allocation.Rule), allocation.Amount.StringFixed(2), app.UserID); err != nil {
+			string(allocation.Rule), allocation.Amount.StringFixed(2), app.UserID, app.UserID); err != nil {
 			return err
 		}
 		*allocated = allocated.Add(allocation.Amount)
@@ -415,20 +415,20 @@ func shortInvoiceRef(id string) string {
 
 // recordPrepaymentCredit parks money that exceeds the learner's debt as a
 // liability. It is never revenue and never a votehead balance.
-func recordPrepaymentCredit(ctx context.Context, q allocQueryer, app ReceiptApplication) error {
-	if !app.Amount.IsPositive() {
+func recordPrepaymentCredit(ctx context.Context, q allocQueryer, app ReceiptApplication, amount money.Decimal) error {
+	if !amount.IsPositive() {
 		return nil
 	}
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO credits (tenant_id, learner_id, amount, currency, reason,
 		                     source_payment_id, created_by, applied_amount, status)
-		SELECT $1, $2::uuid, $3::numeric, 'KES', 'UNAPPLIED_RECEIPT',
+		SELECT $1::varchar, $2::uuid, $3::numeric, 'KES', 'UNAPPLIED_RECEIPT',
 		       $4::uuid, NULLIF($5, '')::uuid, 0, 'UNAPPLIED'
 		 WHERE NOT EXISTS (
 		     SELECT 1 FROM credits
 		      WHERE tenant_id = $1 AND source_payment_id = $4::uuid
 		 )`,
-		app.TenantID, app.LearnerID, app.Amount.StringFixed(2), app.PaymentID, app.UserID)
+		app.TenantID, app.LearnerID, amount.StringFixed(2), app.PaymentID, app.UserID)
 	return err
 }
 
@@ -509,10 +509,10 @@ func ReverseReceipt(ctx context.Context, q allocQueryer, tenantID, userID, payme
 				    (tenant_id, payment_id, invoice_id, invoice_line_id, votehead_id,
 				     source, rule, allocated_amount, allocated_by, created_by, reverses_allocation_id)
 				VALUES ($1, $2::uuid, $3::uuid, NULLIF($4, '')::uuid, NULLIF($5, '')::uuid,
-				        'REVERSAL', 'REVERSAL', $6::numeric, $7, NULLIF($7, '')::uuid, $8::uuid)
+				        'REVERSAL', 'REVERSAL', $6::numeric, NULLIF($7, '')::uuid, NULLIF($8, '')::uuid, $9::uuid)
 				ON CONFLICT DO NOTHING`,
 				tenantID, paymentID, invoiceID, allocation.LineID, allocation.VoteheadID,
-				amount.Neg().StringFixed(2), userID, allocation.AllocationID); err != nil {
+				amount.Neg().StringFixed(2), userID, userID, allocation.AllocationID); err != nil {
 				return err
 			}
 		}
@@ -622,10 +622,13 @@ func ApplyOpenCredits(ctx context.Context, q allocQueryer, tenantID, userID, lea
 				    (tenant_id, payment_id, invoice_id, invoice_line_id, votehead_id,
 				     credit_id, source, rule, allocated_amount, allocated_by, created_by)
 				VALUES ($1, $2::uuid, $3::uuid, NULLIF($4, '')::uuid, NULLIF($5, '')::uuid,
-				        $6::uuid, 'CREDIT', $7, $8::numeric, $9, NULLIF($9, '')::uuid)
+				        $6::uuid, 'CREDIT', $7, $8::numeric, NULLIF($9, '')::uuid, NULLIF($10, '')::uuid)
 				ON CONFLICT DO NOTHING`,
 				tenantID, credit.PaymentID, allocation.InvoiceID, strings.TrimPrefix(allocation.LineID, syntheticLinePrefix),
-				allocation.VoteheadID, credit.ID, string(allocation.Rule), allocation.Amount.StringFixed(2), userID); err != nil {
+				allocation.VoteheadID, credit.ID, string(allocation.Rule), allocation.Amount.StringFixed(2), userID, userID); err != nil {
+				return appliedTotal, err
+			}
+			if err := postInvoiceAllocation(ctx, q, tenantID, userID, allocation.InvoiceID, allocation.Amount, "prepayment applied"); err != nil {
 				return appliedTotal, err
 			}
 			applied = applied.Add(allocation.Amount)
@@ -675,4 +678,59 @@ func learnerIDForInvoice(ctx context.Context, q allocQueryer, tenantID, invoiceI
 		return ""
 	}
 	return learnerID
+}
+
+// postInvoiceAllocation moves one invoice by delta and records the transition.
+// Receipts do this as part of writing their lines; credit applications arrive
+// here because the money was received days or terms earlier, so the invoice has
+// to be advanced on its own.
+func postInvoiceAllocation(ctx context.Context, q allocQueryer, tenantID, userID, invoiceID string, delta money.Decimal, reason string) error {
+	if !delta.IsPositive() {
+		return nil
+	}
+	var status, totalStr, paidStr, outstandingStr string
+	if err := q.QueryRowContext(ctx, `
+		SELECT status, total_amount::text, amount_paid::text, amount_outstanding::text
+		  FROM invoices
+		 WHERE tenant_id = $1 AND invoice_id = $2::uuid
+		 FOR UPDATE`, tenantID, invoiceID).
+		Scan(&status, &totalStr, &paidStr, &outstandingStr); err != nil {
+		return err
+	}
+
+	total := money.New(totalStr)
+	paid := money.New(paidStr)
+	outstanding := money.New(outstandingStr)
+	if delta.GreaterThan(outstanding) {
+		delta = outstanding
+	}
+	if !delta.IsPositive() {
+		return nil
+	}
+
+	newPaid := paid.Add(delta)
+	newOutstanding := outstanding.Sub(delta)
+	nextState, err := TransitionInvoice(NormalizeInvoiceState(status), EventApplyCredit, InvoiceContext{
+		TotalAmount:       total,
+		PaidAmount:        newPaid,
+		AmountOutstanding: newOutstanding,
+	})
+	if err != nil {
+		return fmt.Errorf("invoice %s: %w", invoiceID, err)
+	}
+
+	if _, err := q.ExecContext(ctx, `
+		UPDATE invoices
+		   SET amount_paid = $1::numeric,
+		       amount_outstanding = $2::numeric,
+		       status = $3,
+		       paid_at = CASE WHEN $1::numeric >= $4::numeric THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
+		       updated_at = CURRENT_TIMESTAMP
+		 WHERE tenant_id = $5 AND invoice_id = $6::uuid`,
+		newPaid.StringFixed(2), newOutstanding.StringFixed(2), string(nextState), total.StringFixed(2),
+		tenantID, invoiceID); err != nil {
+		return err
+	}
+	logAllocationTransition(ctx, q, tenantID, invoiceID, status, string(nextState), string(EventApplyCredit), userID, reason)
+	return nil
 }

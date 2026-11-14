@@ -122,7 +122,7 @@ func (s *Service) Resolve(ctx context.Context, tenantID, userID, entryID, studen
 	var paymentID string
 	if err := q.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, currency, status, mpesa_trans_id, received_at, recorded_by)
-		 VALUES ($1, $2, $3, 'MPESA', $4, 'KES', 'COMPLETED', $2, NOW(), NULLIF($5, ''))
+		 VALUES ($1, $2, $3, 'MPESA', $4, 'KES', 'COMPLETED', $2, NOW(), NULLIF($5, '')::uuid)
 		 RETURNING payment_id`,
 		tenantID, "TANK-"+paymentRef, studentID, amount, userID,
 	).Scan(&paymentID); err != nil {
