@@ -51,10 +51,10 @@ function errorMessage(err: unknown, fallback: string): string {
 /**
  * Gate administration: the hardware side of the gate terminal.
  *
- * The kiosk at /gate only scans. Pairing a device, issuing a tag to a person
- * and deciding what the gate does about arrears all happen here, because they
- * are decisions a school administrator makes once, not something the terminal
- * sitting in a corridor should be able to change.
+ * Pairing a device, issuing a tag to a person and deciding what the gate does
+ * about arrears all happen here, because they are decisions a school
+ * administrator makes once, not something a terminal sitting in a corridor
+ * should be able to change.
  */
 export default function GateAdminPage() {
   const { t } = useTranslation();

@@ -32,8 +32,6 @@ import Layout from "./components/organisms/Layout";
 import ParentLayout from "./components/organisms/ParentLayout";
 import TeacherLayout from "./components/organisms/TeacherLayout";
 import SaaSLayout from "./components/organisms/SaaSLayout";
-import GateAdminPage from "./pages/GateAdminPage";
-import NotFoundPage from "./pages/NotFoundPage";
 import RequireRole from "./components/RequireRole";
 import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
 import PWAUpdateBanner from "./components/PWAUpdateBanner";
@@ -80,6 +78,8 @@ import FinanceSTKPage from "./pages/FinanceSTKPage";
 import FinanceLearnerStatementPage from "./pages/FinanceLearnerStatementPage";
 import StructurePage from "./pages/StructurePage";
 import ProfilePage from "./pages/ProfilePage";
+import GateAdminPage from "./pages/GateAdminPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import { ErrorBoundary } from "./components/organisms/ErrorBoundary";
 import PWAInstallCard from "./components/PWAInstallCard";
 
