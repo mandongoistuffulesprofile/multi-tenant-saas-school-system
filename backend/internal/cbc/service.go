@@ -13,7 +13,7 @@ type AssessmentEvent struct {
 	LearningArea     string    `json:"learning_area"`
 	Strand           string    `json:"strand"`
 	SubStrand        string    `json:"sub_strand"`
-	PerformanceLevel int       `json:"performance_level"` // 1: BE, 2: AE, 3: ME, 4: EE
+	PerformanceLevel int       `json:"performance_level"` // 1-4 (BE-AE-ME-EE) or 1-8 (BE2-BE1-AE2-AE1-ME2-ME1-EE2-EE1)
 	SyncID           uuid.UUID `json:"sync_id"`           // Offline deduplication
 	ExpectedVersion  int       `json:"expected_version"`  // Optimistic lock: 0 = insert only, >0 = require match
 }
@@ -48,8 +48,8 @@ func (s *Service) RecordAssessmentBatch(ctx context.Context, tx *sqlx.Tx, tenant
 	defer stmt.Close()
 
 	for _, ev := range events {
-		if ev.PerformanceLevel < 1 || ev.PerformanceLevel > 4 {
-			return fmt.Errorf("invalid CBC performance level: %d (must be between 1 and 4)", ev.PerformanceLevel)
+		if ev.PerformanceLevel < 1 || ev.PerformanceLevel > 8 {
+			return fmt.Errorf("invalid CBC performance level: %d (must be between 1 and 8)", ev.PerformanceLevel)
 		}
 		if _, err := stmt.ExecContext(ctx, tenantID, ev.StudentID, ev.LearningArea, ev.Strand, ev.SubStrand, ev.PerformanceLevel, teacherID, ev.SyncID); err != nil {
 			return fmt.Errorf("failed inserting assessment: %w", err)
@@ -69,8 +69,8 @@ func (s *Service) RecordAssessmentBatchWithLock(ctx context.Context, tx *sqlx.Tx
 	}
 
 	for _, ev := range events {
-		if ev.PerformanceLevel < 1 || ev.PerformanceLevel > 4 {
-			return fmt.Errorf("invalid CBC performance level: %d (must be between 1 and 4)", ev.PerformanceLevel)
+		if ev.PerformanceLevel < 1 || ev.PerformanceLevel > 8 {
+			return fmt.Errorf("invalid CBC performance level: %d (must be between 1 and 8)", ev.PerformanceLevel)
 		}
 
 		if ev.ExpectedVersion > 0 {

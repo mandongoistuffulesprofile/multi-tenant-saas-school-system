@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/grading"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
@@ -81,7 +82,7 @@ func (h *Handler) UpsertResult(c *gin.Context) {
 	}
 	if input.LevelCode != "" && !isValidLevel(input.LevelCode) {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
-			{Field: "level_code", Code: "INVALID_VALUE", Message: "'level_code' must be EE, ME, AE or BE"},
+			{Field: "level_code", Code: "INVALID_VALUE", Message: "'level_code' must be one of EE, ME, AE, BE or EE1-EE2, ME1-ME2, AE1-AE2, BE1-BE2"},
 		})
 		return
 	}
@@ -178,6 +179,15 @@ func requestRole(c *gin.Context) string {
 }
 
 func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID, role string, input ResultInput) (gin.H, error) {
+	// Level codes are the source of truth: normalise them and derive the
+	// official points server-side so a client cannot invent a point value.
+	if input.LevelCode != "" {
+		code := grading.NormalizeCode(input.LevelCode)
+		if points, ok := grading.PointsFor(code); ok {
+			input.LevelCode = code
+			input.Points = float64(points)
+		}
+	}
 	event := ResultEvent(strings.ToUpper(strings.TrimSpace(input.State)))
 	if event == "" {
 		event = EventSubmit
@@ -832,7 +842,7 @@ func (h *Handler) UpsertCompetency(c *gin.Context) {
 	}
 	if !isValidLevel(req.RatingLevel) {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
-			{Field: "rating_level", Code: "INVALID_VALUE", Message: "'rating_level' must be EE, ME, AE or BE"},
+			{Field: "rating_level", Code: "INVALID_VALUE", Message: "'rating_level' must be one of EE, ME, AE, BE or EE1-EE2, ME1-ME2, AE1-AE2, BE1-BE2"},
 		})
 		return
 	}
@@ -908,11 +918,7 @@ func (h *Handler) CreateEvidence(c *gin.Context) {
 // ---------- helpers ----------
 
 func isValidLevel(level string) bool {
-	switch strings.ToUpper(level) {
-	case "EE", "ME", "AE", "BE":
-		return true
-	}
-	return false
+	return grading.IsKnownLevel(level)
 }
 
 func nullableString(s string) interface{} {

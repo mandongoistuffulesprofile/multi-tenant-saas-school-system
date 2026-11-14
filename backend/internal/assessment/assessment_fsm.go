@@ -78,7 +78,7 @@ func TransitionResult(current ResultState, event ResultEvent, ctx ResultContext)
 	switch event {
 	case EventSubmit:
 		if ctx.LevelCode == "" {
-			return current, fmt.Errorf("%w: rubric level code (EE/ME/AE/BE) required to submit", ErrInvariantFailed)
+			return current, fmt.Errorf("%w: rubric level code (EE/ME/AE/BE or EE1-BE2) required to submit", ErrInvariantFailed)
 		}
 		return targetState, nil
 
