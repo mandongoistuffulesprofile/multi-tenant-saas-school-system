@@ -396,6 +396,14 @@ export interface WeightingProfile {
 }
 
 export const LEVEL = {
+  EE1: "EE1",
+  EE2: "EE2",
+  ME1: "ME1",
+  ME2: "ME2",
+  AE1: "AE1",
+  AE2: "AE2",
+  BE1: "BE1",
+  BE2: "BE2",
   EE: "EE",
   ME: "ME",
   AE: "AE",

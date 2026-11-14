@@ -11,12 +11,15 @@ import { recordOfflineAssessment, getAssessmentResults, getDeviceId } from "../.
 import { Learner, AssessmentResult, LevelCode } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
-const LEVELS: LevelCode[] = ["EE", "ME", "AE", "BE"];
-const LEVEL_COLORS: Record<LevelCode, string> = {
-  EE: "bg-kenyan-green/20 text-kenyan-green border-kenyan-green",
-  ME: "bg-blue-100 text-blue-700 border-blue-200",
-  AE: "bg-amber-100 text-amber-700 border-amber-200",
-  BE: "bg-red-100 text-red-700 border-red-200",
+const FOUR_LEVELS: LevelCode[] = ["EE", "ME", "AE", "BE"];
+const EIGHT_LEVELS: LevelCode[] = ["EE1", "EE2", "ME1", "ME2", "AE1", "AE2", "BE1", "BE2"];
+
+const levelColor = (level: LevelCode) => {
+  const band = level.slice(0, 2);
+  if (band === "EE") return "bg-kenyan-green/20 text-kenyan-green border-kenyan-green";
+  if (band === "ME") return "bg-blue-100 text-blue-700 border-blue-200";
+  if (band === "AE") return "bg-amber-100 text-amber-700 border-amber-200";
+  return "bg-red-100 text-red-700 border-red-200";
 };
 
 interface GradingCell {
@@ -38,10 +41,10 @@ export default function GradingGridPage() {
       const sep = key.lastIndexOf("|");
       const learnerId = key.slice(0, sep);
       const subStrandId = key.slice(sep + 1);
-      return { learner_id: learnerId, sub_strand_id: subStrandId || event?.learning_area_id || undefined, level_code: level };
+      return { learner_id: learnerId, sub_strand_id: subStrandId || undefined, level_code: level };
     });
-    if (!entries.length) {
-      toast("Nothing to sync yet — grade some learners first.", { type: "error" });
+    if (!entries.length || entries.some((e) => !e.sub_strand_id)) {
+      toast("Select a sub-strand and grade at least one learner first.", { type: "error" });
       return;
     }
     setSyncing(true);
@@ -55,13 +58,13 @@ export default function GradingGridPage() {
       // Cache locally as already-synced; do not enqueue duplicate offline ops.
       await Promise.all(
         entries.map((e) => {
-          const clientId = `${selectedEvent}:${e.learner_id}:${e.sub_strand_id || event.learning_area_id}`;
+          const clientId = `${selectedEvent}:${e.learner_id}:${e.sub_strand_id}`;
           return recordOfflineAssessment(tenantId!, {
             id: clientId,
             client_uuid: clientId,
             learner_id: e.learner_id,
             event_id: selectedEvent,
-            sub_strand_id: e.sub_strand_id || event.learning_area_id,
+            sub_strand_id: e.sub_strand_id,
             level_code: e.level_code,
             state: "SUBMITTED",
             version: 1,
@@ -86,6 +89,9 @@ export default function GradingGridPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<string>("");
   const [cells, setCells] = useState<Record<string, LevelCode>>({}); // key: learnerId|subStrandId
+  const [subStrands, setSubStrands] = useState<any[]>([]);
+  const [selectedSubStrand, setSelectedSubStrand] = useState<string>("");
+  const [gradingMode, setGradingMode] = useState<string>("AUTO");
 
   useEffect(() => {
     api.get<any[]>("/assessment/events")
@@ -94,7 +100,37 @@ export default function GradingGridPage() {
     api.get<Learner[]>("/learners")
       .then((r) => { setLearners(Array.isArray(r.data) ? r.data : []); setState("content"); })
       .catch(() => setState("error"));
+    api.get("/grading/settings")
+      .then((r) => setGradingMode(r.data?.config?.scale || "AUTO"))
+      .catch(() => setGradingMode("AUTO"));
   }, []);
+
+  // Load the KICD sub-strands for the chosen learning area. Results are
+  // captured against a real sub_strand_id; sending a learning-area id used to
+  // violate the foreign key and silently discard the grade.
+  useEffect(() => {
+    if (!selectedEvent) return;
+    const ev = events.find((e) => e.event_id === selectedEvent);
+    if (!ev?.learning_area_id) return;
+    let alive = true;
+    setSubStrands([]);
+    setSelectedSubStrand("");
+    api.get<any[]>("/curriculum/strands", { params: { area_id: ev.learning_area_id } })
+      .then(async (r) => {
+        const strands = Array.isArray(r.data) ? r.data : [];
+        const lists = await Promise.all(strands.map((st: any) =>
+          api.get<any[]>("/curriculum/sub-strands", { params: { strand_id: st.strand_id } })
+            .then((x) => Array.isArray(x.data) ? x.data : [])
+            .catch(() => [])
+        ));
+        if (!alive) return;
+        const flat = lists.flat();
+        setSubStrands(flat);
+        setSelectedSubStrand(flat[0]?.sub_strand_id || "");
+      })
+      .catch(() => { if (alive) setSubStrands([]); });
+    return () => { alive = false; };
+  }, [selectedEvent, events]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -126,7 +162,8 @@ export default function GradingGridPage() {
                 fullWidth
                 onClick={() => setSelectedEvent(e.event_id)}
               >
-                {e.assessment_type} — {e.learning_area_id} ({e.status})
+                {e.assessment_type} — {e.learning_area_name || e.learning_area_id}
+                {e.grade_label ? ` · ${e.grade_label}` : ""} ({e.status})
               </Button>
             ))}
           </div>
@@ -138,24 +175,36 @@ export default function GradingGridPage() {
   const event = events.find((e) => e.event_id === selectedEvent);
   if (!event) return <ViewState state="empty" />;
 
+  const band = event.level_band || "";
+  const resolvedScale = gradingMode === "EIGHT_POINT"
+    ? "EIGHT_POINT"
+    : gradingMode === "FOUR_BAND"
+      ? "FOUR_BAND"
+      : (band === "UPPER_PRIMARY" || band === "JSS" ? "EIGHT_POINT" : "FOUR_BAND");
+  const levels = resolvedScale === "EIGHT_POINT" ? EIGHT_LEVELS : FOUR_LEVELS;
+
   const grid = learners.map((l) => ({
     learnerId: l.learner_id,
     learnerName: `${l.first_name} ${l.last_name}`,
-    subStrandId: event.learning_area_id,
-    subStrandName: event.learning_area_id,
-    level: cells[`${l.learner_id}|${event.learning_area_id}`] as LevelCode | undefined,
+    subStrandId: selectedSubStrand,
+    subStrandName: selectedSubStrand,
+    level: selectedSubStrand ? cells[`${l.learner_id}|${selectedSubStrand}`] as LevelCode | undefined : undefined,
   }));
 
   const handleLevel = (learnerId: string, level: LevelCode) => {
-    const key = `${learnerId}|${event.learning_area_id}`;
+    if (!selectedSubStrand) {
+      toast("Select a sub-strand before grading.", { type: "error" });
+      return;
+    }
+    const key = `${learnerId}|${selectedSubStrand}`;
     setCells((c) => ({ ...c, [key]: level }));
-    const clientId = `${selectedEvent}:${learnerId}:${event.learning_area_id}`;
+    const clientId = `${selectedEvent}:${learnerId}:${selectedSubStrand}`;
     recordOfflineAssessment(tenantId!, {
       id: clientId,
       client_uuid: clientId,
       learner_id: learnerId,
       event_id: selectedEvent,
-      sub_strand_id: event.learning_area_id,
+      sub_strand_id: selectedSubStrand,
       level_code: level,
       state: "DRAFT",
       version: 1,
@@ -173,7 +222,11 @@ export default function GradingGridPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-heading font-display">{event.assessment_type}</h2>
-          <p className="text-caption text-muted">{event.learning_area_id}</p>
+          <p className="text-caption text-muted">
+            {event.learning_area_name || event.learning_area_id}
+            {event.grade_label ? ` · ${event.grade_label}` : ""}
+            {` · ${resolvedScale === "EIGHT_POINT" ? "8-point" : "4-band"}`}
+          </p>
         </div>
         <div className="text-right">
           <div className="text-xs font-bold text-gray-900">{syncedCount}/{total}</div>
@@ -190,12 +243,36 @@ export default function GradingGridPage() {
       </div>
 
       <Card className="p-3">
+        <div className="flex flex-wrap items-center gap-3 mb-3">
+          <label className="text-xs font-medium text-gray-600">
+            Sub-strand
+            <select
+              className="ml-2 border border-gray-300 rounded-lg px-2 py-1 text-sm"
+              value={selectedSubStrand}
+              onChange={(e) => setSelectedSubStrand(e.target.value)}
+            >
+              {subStrands.length === 0 && <option value="">No sub-strands loaded</option>}
+              {subStrands.map((ss: any) => (
+                <option key={ss.sub_strand_id} value={ss.sub_strand_id}>
+                  {ss.code ? `${ss.code} · ` : ""}{ss.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {subStrands.length === 0 && (
+            <span className="text-xs text-amber-700">
+              No KICD sub-strands exist for this learning area yet. Ask an administrator to check the Curriculum tree.
+            </span>
+          )}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left min-w-[600px]">
             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
               <tr>
                 <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase sticky left-0 bg-white z-10">{t("learner")}</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">{event.learning_area_id}</th>
+                <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">
+                  {subStrands.find((ss: any) => ss.sub_strand_id === selectedSubStrand)?.name || "Sub-strand"}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -206,7 +283,7 @@ export default function GradingGridPage() {
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex gap-1">
-                      {LEVELS.map((lv) => {
+                      {levels.map((lv) => {
                         const active = cell.level === lv;
                         return (
                           <Button
@@ -214,9 +291,10 @@ export default function GradingGridPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleLevel(cell.learnerId, lv)}
+                            disabled={!selectedSubStrand}
                             className={`w-10 h-10 rounded-lg text-xs font-bold border ${
-                              active ? LEVEL_COLORS[lv] : "bg-white border-gray-300 text-gray-600 hover:border-gray-500"
-                            }`}
+                              active ? levelColor(lv) : "bg-white border-gray-300 text-gray-600 hover:border-gray-500"
+                            } disabled:opacity-40`}
                           >
                             {lv}
                           </Button>

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/grading"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
@@ -197,6 +199,7 @@ type ReportCard struct {
 	CreatedBy          string             `json:"created_by,omitempty"`
 	CreatedAt          string             `json:"created_at"`
 	UpdatedAt          string             `json:"updated_at"`
+	Snapshot           json.RawMessage    `json:"snapshot,omitempty"`
 	Results            []ReportCardResult `json:"results,omitempty"`
 }
 
@@ -204,11 +207,14 @@ type ReportCard struct {
 type ReportCardResult struct {
 	LearningAreaCode string  `json:"learning_area_code"`
 	LearningAreaName string  `json:"learning_area_name"`
+	Strand           string  `json:"strand,omitempty"`
 	AssessmentType   string  `json:"assessment_type"`
 	AssessmentWindow string  `json:"assessment_window"`
 	RawScore         float64 `json:"raw_score"`
 	MaxScore         float64 `json:"max_score"`
 	LevelCode        string  `json:"level_code,omitempty"`
+	Band             string  `json:"band,omitempty"`
+	Descriptor       string  `json:"descriptor,omitempty"`
 	Comment          string  `json:"comment,omitempty"`
 }
 
@@ -276,7 +282,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 			COALESCE(rc.published_at::text, '') AS published_at,
 			COALESCE(rc.published_by::text, '') AS published_by,
 			COALESCE(rc.created_by::text, '') AS created_by,
-			rc.created_at, rc.updated_at
+			rc.created_at, rc.updated_at, COALESCE(rc.snapshot::text, '') AS snapshot
 		 FROM report_cards rc
 		 LEFT JOIN learners l ON l.learner_id = rc.learner_id AND l.tenant_id = rc.tenant_id
 		 LEFT JOIN academic_years ay ON ay.year_id = rc.academic_year_id AND ay.tenant_id = rc.tenant_id
@@ -336,15 +342,19 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 	var cards []ReportCard
 	for rows.Next() {
 		var card ReportCard
+		var snapText string
 		if err := rows.Scan(&card.CardID, &card.TenantID, &card.RunID, &card.LearnerID, &card.LearnerName,
 			&card.CardNumber, &card.AcademicYearID, &card.AcademicYearLabel,
 			&card.TermID, &card.TermLabel, &card.GradeID,
 			&card.OverallGrade, &card.TotalScore, &card.MaxScore, &card.Percentage,
 			&card.Position, &card.Comment, &card.HeadTeacherComment, &card.Status,
 			&card.PDFRef, &card.PublishedAt, &card.PublishedBy, &card.CreatedBy,
-			&card.CreatedAt, &card.UpdatedAt); err != nil {
+			&card.CreatedAt, &card.UpdatedAt, &snapText); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
+		}
+		if snapText != "" {
+			card.Snapshot = json.RawMessage(snapText)
 		}
 		cards = append(cards, card)
 	}
@@ -356,19 +366,32 @@ func (h *Handler) logReportAudit(c *gin.Context, action, targetType, targetID st
 }
 
 // loadCardResults attaches the per-learning-area rows shown on a printed card.
+// Published cards render their frozen snapshot; drafts render live results.
 func (h *Handler) loadCardResults(tx *sqlx.Tx, card *ReportCard) error {
+	if len(card.Snapshot) > 0 && strings.EqualFold(card.Status, "PUBLISHED") {
+		var snapshot CardSnapshot
+		if err := json.Unmarshal(card.Snapshot, &snapshot); err == nil && len(snapshot.Areas) > 0 {
+			card.Results = snapshotResultRows(snapshot)
+			return nil
+		}
+	}
+
 	rows, err := tx.Query(
-		`SELECT la.code, la.name, ae.assessment_type, ae.assessment_window,
+		`SELECT la.code, la.name, COALESCE(st.name, ''),
+			ae.assessment_type, ae.assessment_window,
 			COALESCE(ar.raw_score, 0), COALESCE(ar.max_score, 0),
 			COALESCE(ar.level_code, ''), COALESCE(rcc.comment_text, '')
 		 FROM assessment_results ar
 		 JOIN assessment_events ae ON ae.event_id = ar.event_id
 		 JOIN learning_areas la ON la.area_id = ae.learning_area_id
+		 LEFT JOIN sub_strands ss ON ss.sub_strand_id = ar.sub_strand_id
+		 LEFT JOIN strands st ON st.strand_id = ss.strand_id
 		 LEFT JOIN report_card_comments rcc
 		   ON rcc.card_id = $4 AND rcc.learning_area_id = la.area_id
 		 WHERE ar.tenant_id = $1 AND ar.learner_id = $2
 		   AND (NULLIF($3, '')::uuid IS NULL OR ae.term_id = NULLIF($3, '')::uuid)
-		 ORDER BY la.sort_order, la.name`,
+		   AND ar.state IN ('SUBMITTED', 'MODERATED', 'PUBLISHED', 'LOCKED')
+		 ORDER BY la.sort_order, la.name, ae.assessment_type, ae.assessment_window, st.name`,
 		card.TenantID, card.LearnerID, card.TermID, card.CardID,
 	)
 	if err != nil {
@@ -379,10 +402,13 @@ func (h *Handler) loadCardResults(tx *sqlx.Tx, card *ReportCard) error {
 	results := make([]ReportCardResult, 0)
 	for rows.Next() {
 		var r ReportCardResult
-		if err := rows.Scan(&r.LearningAreaCode, &r.LearningAreaName, &r.AssessmentType,
+		if err := rows.Scan(&r.LearningAreaCode, &r.LearningAreaName, &r.Strand, &r.AssessmentType,
 			&r.AssessmentWindow, &r.RawScore, &r.MaxScore, &r.LevelCode, &r.Comment); err != nil {
 			return err
 		}
+		r.LevelCode = grading.NormalizeCode(r.LevelCode)
+		r.Band = grading.BandOf(r.LevelCode)
+		r.Descriptor = grading.DescriptorFor(r.LevelCode)
 		results = append(results, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -390,6 +416,47 @@ func (h *Handler) loadCardResults(tx *sqlx.Tx, card *ReportCard) error {
 	}
 	card.Results = results
 	return nil
+}
+
+// snapshotResultRows flattens a frozen snapshot back into the row shape the
+// existing web and PDF renderers consume. Areas with no captured results still
+// appear with their headline level so a complete curriculum is printed.
+func snapshotResultRows(snapshot CardSnapshot) []ReportCardResult {
+	out := make([]ReportCardResult, 0)
+	for _, area := range snapshot.Areas {
+		if len(area.Results) == 0 {
+			if area.LevelCode == "" {
+				continue
+			}
+			out = append(out, ReportCardResult{
+				LearningAreaCode: area.Code,
+				LearningAreaName: area.Name,
+				Strand:           area.Strand,
+				AssessmentType:   "SUMMARY",
+				LevelCode:        area.LevelCode,
+				Band:             area.Band,
+				Descriptor:       area.Descriptor,
+				Comment:          area.Comment,
+			})
+			continue
+		}
+		for _, r := range area.Results {
+			out = append(out, ReportCardResult{
+				LearningAreaCode: area.Code,
+				LearningAreaName: area.Name,
+				Strand:           area.Strand,
+				AssessmentType:   r.AssessmentType,
+				AssessmentWindow: r.AssessmentWindow,
+				RawScore:         r.RawScore,
+				MaxScore:         r.MaxScore,
+				LevelCode:        r.LevelCode,
+				Band:             r.Band,
+				Descriptor:       r.Descriptor,
+				Comment:          area.Comment,
+			})
+		}
+	}
+	return out
 }
 
 func (h *Handler) GetReportCard(ginCtx *gin.Context) {
@@ -401,6 +468,7 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 		ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
 		return
 	}
+	var snapText string
 	err := tx.QueryRow(
 		`SELECT rc.card_id, rc.tenant_id, rc.run_id, rc.learner_id,
 			COALESCE(TRIM(COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'')), '') AS learner_name,
@@ -417,7 +485,7 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 			COALESCE(rc.published_at::text, '') AS published_at,
 			COALESCE(rc.published_by::text, '') AS published_by,
 			COALESCE(rc.created_by::text, '') AS created_by,
-			rc.created_at, rc.updated_at
+			rc.created_at, rc.updated_at, COALESCE(rc.snapshot::text, '') AS snapshot
 		 FROM report_cards rc
 		 LEFT JOIN learners l ON l.learner_id = rc.learner_id AND l.tenant_id = rc.tenant_id
 		 LEFT JOIN academic_years ay ON ay.year_id = rc.academic_year_id AND ay.tenant_id = rc.tenant_id
@@ -430,7 +498,7 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 		&card.OverallGrade, &card.TotalScore, &card.MaxScore, &card.Percentage,
 		&card.Position, &card.Comment, &card.HeadTeacherComment, &card.Status,
 		&card.PDFRef, &card.PublishedAt, &card.PublishedBy, &card.CreatedBy,
-		&card.CreatedAt, &card.UpdatedAt)
+		&card.CreatedAt, &card.UpdatedAt, &snapText)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			ginCtx.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
@@ -438,6 +506,9 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 		}
 		ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
+	}
+	if snapText != "" {
+		card.Snapshot = json.RawMessage(snapText)
 	}
 	if err := h.loadCardResults(tx, &card); err != nil {
 		ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})

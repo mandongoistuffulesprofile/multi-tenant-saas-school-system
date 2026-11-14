@@ -70,6 +70,11 @@ export const ReportCardPrint: React.FC = () => {
   const term = card.term_label || card.term_id || "—";
   const published = card.published_at ? new Date(card.published_at).toLocaleString() : "—";
   const pct = card.percentage != null ? Number(card.percentage).toFixed(1) : "—";
+  const snapshot = card.snapshot && typeof card.snapshot === "object" ? card.snapshot : {};
+  const showAggregate = snapshot.show_aggregate === true;
+  const showPosition = snapshot.show_position === true;
+  const national: any[] = Array.isArray(snapshot.national) ? snapshot.national : [];
+  const scaleLabel = snapshot.scale === "EIGHT_POINT" ? "8-point (EE1–BE2)" : snapshot.scale === "FOUR_BAND" ? "4-band (EE–BE)" : "";
 
   return (
     <ErrorBoundary>
@@ -132,24 +137,32 @@ export const ReportCardPrint: React.FC = () => {
 
             {card.results?.length > 0 && (
               <div>
-                <h4 className="font-bold text-slate-800 uppercase text-[11px] mb-1">Learning Area Performance</h4>
+                <h4 className="font-bold text-slate-800 uppercase text-[11px] mb-1">
+                  Learning Area Performance {scaleLabel ? `· ${scaleLabel}` : ""}
+                </h4>
                 <table className="w-full text-left border border-slate-400">
                   <thead className="bg-slate-100 border-b border-slate-400 text-[11px] font-bold">
                     <tr>
                       <th className="p-2 border-r border-slate-400">Learning Area</th>
-                      <th className="p-2 border-r border-slate-400">Assessment</th>
+                      <th className="p-2 border-r border-slate-400">Strand / Assessment</th>
                       <th className="p-2 border-r border-slate-400">Score</th>
                       <th className="p-2 border-r border-slate-400">Level</th>
+                      <th className="p-2 border-r border-slate-400">Descriptor</th>
                       <th className="p-2">Teacher Remark</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-300">
                     {card.results.map((r: any, i: number) => (
-                      <tr key={r.learning_area_code || i}>
+                      <tr key={`${r.learning_area_code || i}-${r.assessment_type || i}-${i}`}>
                         <td className="p-2 border-r border-slate-300 font-medium">{r.learning_area_name || r.learning_area_code}</td>
-                        <td className="p-2 border-r border-slate-300">{r.assessment_type}{r.assessment_window ? ` · ${r.assessment_window}` : ""}</td>
-                        <td className="p-2 border-r border-slate-300">{r.raw_score} / {r.max_score}</td>
+                        <td className="p-2 border-r border-slate-300">
+                          {[r.strand, r.assessment_type, r.assessment_window].filter(Boolean).join(" · ") || "—"}
+                        </td>
+                        <td className="p-2 border-r border-slate-300">
+                          {r.max_score ? `${r.raw_score} / ${r.max_score}` : "—"}
+                        </td>
                         <td className="p-2 border-r border-slate-300 font-bold">{r.level_code || "—"}</td>
+                        <td className="p-2 border-r border-slate-300">{r.descriptor || "—"}</td>
                         <td className="p-2">{r.comment || "—"}</td>
                       </tr>
                     ))}
@@ -166,10 +179,22 @@ export const ReportCardPrint: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-300">
-                <tr><td className="p-2 border-r border-slate-300 font-medium">Overall Grade</td><td className="p-2 font-bold">{card.overall_grade || "—"}</td></tr>
-                <tr><td className="p-2 border-r border-slate-300 font-medium">Total Score</td><td className="p-2">{card.total_score ?? "—"} / {card.max_score ?? "—"}</td></tr>
-                <tr><td className="p-2 border-r border-slate-300 font-medium">Percentage</td><td className="p-2">{pct}{pct !== "—" ? "%" : ""}</td></tr>
-                <tr><td className="p-2 border-r border-slate-300 font-medium">Position</td><td className="p-2">{card.position ?? "—"}</td></tr>
+                {showAggregate ? (
+                  <>
+                    <tr><td className="p-2 border-r border-slate-300 font-medium">Overall Grade</td><td className="p-2 font-bold">{card.overall_grade || "—"}</td></tr>
+                    <tr><td className="p-2 border-r border-slate-300 font-medium">Total Score</td><td className="p-2">{card.total_score ?? "—"} / {card.max_score ?? "—"}</td></tr>
+                    <tr><td className="p-2 border-r border-slate-300 font-medium">Percentage</td><td className="p-2">{pct}{pct !== "—" ? "%" : ""}</td></tr>
+                  </>
+                ) : (
+                  <tr>
+                    <td colSpan={2} className="p-2 text-slate-600">
+                      Achievement levels only. A total, percentage, mean grade or rank is not reported on this card.
+                    </td>
+                  </tr>
+                )}
+                {showPosition && (
+                  <tr><td className="p-2 border-r border-slate-300 font-medium">Position</td><td className="p-2">{card.position ?? "—"}</td></tr>
+                )}
                 <tr><td className="p-2 border-r border-slate-300 font-medium">Published</td><td className="p-2">{published}</td></tr>
               </tbody>
             </table>
@@ -193,6 +218,50 @@ export const ReportCardPrint: React.FC = () => {
             </div>
           </div>
         </OfficialDocumentWrapper>
+
+        {national.length > 0 && (
+          <section
+            className="max-w-5xl mx-auto bg-white rounded-xl border-4 border-slate-800 p-6"
+            style={{ breakBefore: "page" }}
+          >
+            <div className="text-center border-b-2 border-slate-800 pb-3 mb-4">
+              <h3 className="text-base font-extrabold uppercase tracking-wide text-slate-900">
+                National Assessment Results (KNEC)
+              </h3>
+              <p className="text-[11px] text-slate-600 mt-1">
+                {learnerName} · ADM: {adm} · {grade} · {academicYear}
+              </p>
+            </div>
+            <p className="text-[11px] text-slate-700 mb-3">
+              Official KNEC bands only. Percentages, totals, means and ranks are not reported. This block is
+              locked from school comments and is not combined with school assessment results.
+            </p>
+            <table className="w-full text-left border border-slate-500 text-xs">
+              <thead className="bg-slate-100 border-b border-slate-500 font-bold">
+                <tr>
+                  <th className="p-2 border-r border-slate-400">Assessment</th>
+                  <th className="p-2 border-r border-slate-400">Subject</th>
+                  <th className="p-2 border-r border-slate-400">Band</th>
+                  <th className="p-2">Descriptor</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-300">
+                {national.map((n: any, i: number) => (
+                  <tr key={`${n.assessment_type}-${n.subject_code || n.subject_name}-${i}`}>
+                    <td className="p-2 border-r border-slate-300">{n.assessment_type}{n.assessment_year ? ` ${n.assessment_year}` : ""}</td>
+                    <td className="p-2 border-r border-slate-300">{n.subject_name || n.subject_code || "Overall"}</td>
+                    <td className="p-2 border-r border-slate-300 font-extrabold">{n.raw_band}</td>
+                    <td className="p-2">{n.descriptor || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="mt-6 text-[11px] text-slate-600">
+              <p>School stamp: ______________________________</p>
+              <p className="mt-2">Verified from the school's KNEC result import. Corrections are issued as a new revision.</p>
+            </div>
+          </section>
+        )}
       </div>
     </ErrorBoundary>
   );
