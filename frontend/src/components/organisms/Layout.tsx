@@ -108,6 +108,7 @@ const SECTION_GROUPS: { id: string; label: string; items: SideItem[] }[] = [
     items: [
       { path: "/school", label: "school" },
       { path: "/integrations", label: "integrations" },
+      { path: "/gate", label: "gate_terminal" },
       { path: "/platform", label: "platform" },
     ],
   },
@@ -141,6 +142,7 @@ const ALL_ITEM_ROLES: Record<string, readonly string[]> = {
   "/knec": SCHOOL_ADMIN_ROLES,
   "/school": SCHOOL_ADMIN_ROLES,
   "/integrations": SCHOOL_ADMIN_ROLES,
+  "/gate": ACADEMIC_ROLES,
   "/platform": SCHOOL_ADMIN_ROLES,
 };
 
@@ -152,7 +154,7 @@ const LABEL_KEYS = new Set([
   "learners", "grades_streams", "teaching_allocation", "staff", "invoices", "payments",
   "fee_categories", "fee_structures", "mpesa_ledger", "reconciliation", "board_pack",
   "calendar", "curriculum", "assessment", "reports", "attendance", "comms", "compliance",
-  "knec", "school", "integrations", "platform", "dashboard", "profile",
+  "knec", "school", "integrations", "platform", "gate_terminal", "dashboard", "profile",
 ]);
 
 function isKey(label: string) {
@@ -200,6 +202,7 @@ const NAV_PAGES: { keys: string; path: string }[] = [
   { keys: "comms messages broadcast communications", path: "/comms" },
   { keys: "compliance odpc gdpr audit trail", path: "/compliance" },
   { keys: "knec ministry submissions", path: "/knec" },
+  { keys: "gate terminal kiosk scanning badges rfid", path: "/gate" },
   { keys: "school profile settings", path: "/school" },
   { keys: "integrations daraja webhooks api", path: "/integrations" },
 ];

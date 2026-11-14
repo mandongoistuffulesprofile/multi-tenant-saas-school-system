@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../../lib/api";
 import Badge from "../atoms/Badge";
-import { BarChart3, Users, Plus, BookOpen, Shield, ShieldCheck, Layout, Theater, CreditCard, Zap } from "lucide-react";
+import { BarChart3, Users, Plus, BookOpen, Shield, ShieldCheck, Layout, Theater, CreditCard, Zap, Gauge } from "lucide-react";
 import TopBar from "../organisms/TopBar";
 
 interface Tab {
@@ -13,6 +13,7 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
+  { path: "/platform/desk", labelKey: "saas.desk", icon: Gauge },
   { path: "/platform/operations", labelKey: "saas.operations", icon: Layout },
   { path: "/platform/tenants", labelKey: "saas.tenants", icon: Users },
   { path: "/platform/onboard", labelKey: "saas.onboard", icon: Plus },

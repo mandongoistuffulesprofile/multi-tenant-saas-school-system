@@ -33,6 +33,9 @@ import Layout from "./components/organisms/Layout";
 import ParentLayout from "./components/organisms/ParentLayout";
 import TeacherLayout from "./components/organisms/TeacherLayout";
 import SaaSLayout from "./components/organisms/SaaSLayout";
+import ParentChildPage from "./pages/ParentPage";
+import { SaaSAdminDesk } from "./pages/SaaSAdminDesk";
+import KioskPage from "./pages/KioskPage";
 import RequireRole from "./components/RequireRole";
 import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
 import PWAUpdateBanner from "./components/PWAUpdateBanner";
@@ -237,7 +240,12 @@ export default function App() {
             <Route path="/parent/notices" element={<ParentNoticesPage />} />
             <Route path="/parent/progress" element={<ParentProgressPage />} />
             <Route path="/parent/receipts" element={<ParentReceiptsPage />} />
+            <Route path="/parent/child" element={<ParentChildPage />} />
           </Route>
+
+          {/* Gate terminal: full-screen kiosk, outside the school shell so a
+              terminal at the gate is not buried under navigation chrome. */}
+          <Route path="/gate" element={guard(ACADEMIC_ROLES, <KioskPage />)} />
 
           {/* Teacher workspace */}
           <Route
@@ -267,6 +275,7 @@ export default function App() {
             )}
           >
             <Route path="/saas-admin" element={<Navigate to="/platform/operations" replace />} />
+            <Route path="/platform/desk" element={<SaaSAdminDesk />} />
             <Route path="/platform/tenants" element={<TenantRegistryPage />} />
             <Route path="/platform/onboard" element={<TenantOnboardingPage />} />
             <Route path="/platform/tenants/:tenantId/setup" element={<TenantSetupPage />} />

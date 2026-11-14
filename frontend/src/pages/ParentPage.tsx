@@ -27,14 +27,33 @@ export default function ParentPage() {
 
   useEffect(() => {
     if (!selectedLearner) return;
-    Promise.all([
-      api.get(`/attendance/marks?learner_id=${selectedLearner}`),
-      api.get(`/assessment/results?learner_id=${selectedLearner}`),
-    ]).then(([aRes, rRes]) => {
-      setAttendance(aRes.data || []);
-      setResults(rRes.data || []);
-    }).catch(() => {});
-  }, [selectedLearner]);
+    const child = learners.find((l) => l.learner_id === selectedLearner);
+    const childName = child ? `${child.first_name} ${child.last_name}` : "";
+    // Parents may not call the staff-only /attendance/marks and
+    // /assessment/results endpoints, so this reads the parent-facing ones:
+    // /parent/attendance (all linked children, filtered by name here) and
+    // /reports/cards (already filtered to linked learners by learner_id).
+    Promise.all([api.get("/parent/attendance"), api.get("/reports/cards")])
+      .then(([aRes, rRes]) => {
+        const marks = (Array.isArray(aRes.data) ? aRes.data : [])
+          .filter((m: any) => !childName || m.learner === childName)
+          .map((m: any) => ({ register_date: m.date, class_group_id: m.class_name, status: m.status }));
+        const cards = (Array.isArray(rRes.data) ? rRes.data : [])
+          .filter((c: any) => c.learner_id === selectedLearner)
+          .map((c: any) => ({
+            learning_area_id: c.card_number,
+            raw_score: c.percentage ?? c.total_score ?? null,
+            assigned_grade: c.overall_grade ?? null,
+            assessment_date: c.status ?? null,
+          }));
+        setAttendance(marks);
+        setResults(cards);
+      })
+      .catch(() => {
+        setAttendance([]);
+        setResults([]);
+      });
+  }, [selectedLearner, learners]);
 
   if (loading) return <div className="p-4">Loading...</div>;
 
@@ -105,10 +124,10 @@ export default function ParentPage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">Learning Area</th>
+                    <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">Report Card</th>
                     <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">Score</th>
                     <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">Grade</th>
-                    <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
