@@ -446,8 +446,23 @@ func (s *Service) CreateInvoice(ctx context.Context, tenantID string, inv Invoic
 		}
 		inv.AcademicYearID = yearID
 	}
+	// "OUTSTANDING" was stored here for a while. It is not a lifecycle state:
+	// the state machine cannot transition it and the receipt allocator only
+	// locks ISSUED/PARTIALLY_PAID/OVERDUE, so an invoice created that way could
+	// never be paid — every receipt left the bill untouched and became a
+	// prepayment. Normalise the vocabulary and refuse anything unreal.
 	if strings.TrimSpace(inv.Status) == "" {
-		inv.Status = "OUTSTANDING"
+		inv.Status = string(InvoiceIssued)
+	} else {
+		inv.Status = string(NormalizeInvoiceState(inv.Status))
+	}
+	switch InvoiceState(inv.Status) {
+	case InvoiceDraft, InvoiceIssued, InvoicePartiallyPaid, InvoiceFullyPaid, InvoiceCancelled, InvoiceWaived, InvoiceSuspended:
+	default:
+		return nil, fmt.Errorf("invalid invoice status %q", inv.Status)
+	}
+	if inv.Status == string(InvoiceFullyPaid) && inv.AmountOutstanding != 0 {
+		inv.AmountOutstanding = 0
 	}
 	if inv.AmountOutstanding == 0 && inv.TotalAmount > 0 && inv.AmountPaid == 0 {
 		inv.AmountOutstanding = inv.TotalAmount
@@ -486,6 +501,10 @@ type InvoiceLine struct {
 	TermID         string  `json:"term_id,omitempty"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
+	// Status is BILLED or CANCELLED; Outstanding is what this line still owes
+	// after every receipt and credit posted against it.
+	Status      string  `json:"status"`
+	Outstanding float64 `json:"outstanding"`
 }
 
 func (s *Service) ListInvoiceLines(ctx context.Context, tenantID, invoiceID string) ([]InvoiceLine, error) {
@@ -493,10 +512,13 @@ func (s *Service) ListInvoiceLines(ctx context.Context, tenantID, invoiceID stri
 	rows, err := q.Query(
 		`SELECT il.line_id, il.tenant_id, il.invoice_id, il.category_id, fc.code,
 			il.description, il.quantity, il.unit_amount, il.line_amount,
-			il.academic_year_id, il.term_id, il.created_at, il.updated_at
+			il.academic_year_id, il.term_id, il.created_at, il.updated_at,
+			il.status, COALESCE(v.outstanding, il.line_amount)::text
 		 FROM invoice_lines il
 		 JOIN fee_categories fc ON il.category_id = fc.category_id
-		 WHERE il.tenant_id = $1 AND il.invoice_id = $2`,
+		 LEFT JOIN v_line_outstanding v ON v.line_id = il.line_id AND v.tenant_id = il.tenant_id
+		 WHERE il.tenant_id = $1 AND il.invoice_id = $2
+		 ORDER BY il.created_at, il.line_id`,
 		tenantID, invoiceID,
 	)
 	if err != nil {
@@ -507,13 +529,16 @@ func (s *Service) ListInvoiceLines(ctx context.Context, tenantID, invoiceID stri
 	var lines []InvoiceLine
 	for rows.Next() {
 		var l InvoiceLine
+		var outstanding string
 		if err := rows.Scan(
 			&l.LineID, &l.TenantID, &l.InvoiceID, &l.CategoryID, &l.CategoryCode,
 			&l.Description, &l.Quantity, &l.UnitAmount, &l.LineAmount,
 			&l.AcademicYearID, &l.TermID, &l.CreatedAt, &l.UpdatedAt,
+			&l.Status, &outstanding,
 		); err != nil {
 			return nil, err
 		}
+		l.Outstanding = money.New(outstanding).InexactFloat64()
 		lines = append(lines, l)
 	}
 	return lines, nil
@@ -2122,6 +2147,95 @@ func (s *Service) CapitationCompliance(ctx context.Context, tenantID string) (*C
 }
 
 // Reconciliation Runs handler
+// AllocationFinding is one proven discrepancy, shaped for the finance screen.
+type AllocationFinding struct {
+	Kind       string  `json:"kind"`
+	SubjectID  string  `json:"subject_id,omitempty"`
+	LearnerID  string  `json:"learner_id,omitempty"`
+	Expected   float64 `json:"expected"`
+	Actual     float64 `json:"actual"`
+	Delta      float64 `json:"delta"`
+	Detail     string  `json:"detail"`
+	DetectedAt string  `json:"detected_at"`
+}
+
+type AllocationFindingsResponse struct {
+	Findings []AllocationFinding `json:"findings"`
+	Counts   map[string]int      `json:"counts"`
+}
+
+// ListAllocationFindings returns what the nightly invariant check last proved
+// wrong. It reads the persisted findings rather than recomputing, so the screen
+// shows the same evidence the worker recorded.
+func (s *Service) ListAllocationFindings(ctx context.Context, tenantID string, limit int) (*AllocationFindingsResponse, error) {
+	q := middleware.TxFromContext(ctx)
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+
+	response := &AllocationFindingsResponse{Findings: []AllocationFinding{}, Counts: map[string]int{}}
+
+	countRows, err := q.Query(
+		`SELECT kind, count(*) FROM allocation_reconciliation_findings
+		 WHERE tenant_id = $1 AND kind IS NOT NULL
+		 GROUP BY kind`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for countRows.Next() {
+		var kind string
+		var count int
+		if err := countRows.Scan(&kind, &count); err != nil {
+			countRows.Close()
+			return nil, err
+		}
+		response.Counts[kind] = count
+	}
+	countRows.Close()
+	if err := countRows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err := q.Query(
+		`SELECT kind, COALESCE(subject_id::text, ''), COALESCE(learner_id::text, ''),
+		        COALESCE(expected, 0)::text, COALESCE(actual, 0)::text, COALESCE(delta, 0)::text,
+		        COALESCE(detail, ''), detected_at::text
+		 FROM allocation_reconciliation_findings
+		 WHERE tenant_id = $1
+		 ORDER BY detected_at DESC, kind
+		 LIMIT $2`, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			finding                 AllocationFinding
+			expected, actual, delta string
+		)
+		if err := rows.Scan(&finding.Kind, &finding.SubjectID, &finding.LearnerID,
+			&expected, &actual, &delta, &finding.Detail, &finding.DetectedAt); err != nil {
+			return nil, err
+		}
+		finding.Expected = money.New(expected).InexactFloat64()
+		finding.Actual = money.New(actual).InexactFloat64()
+		finding.Delta = money.New(delta).InexactFloat64()
+		response.Findings = append(response.Findings, finding)
+	}
+	return response, rows.Err()
+}
+
+func (h *Handler) ListAllocationFindings(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	limit, _ := paginationParams(c)
+	findings, err := h.service.ListAllocationFindings(c.Request.Context(), tenantID, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, findings)
+}
+
 func (h *Handler) ListReconciliationRuns(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	runs, err := h.service.ListReconciliationRuns(c.Request.Context(), tenantID)

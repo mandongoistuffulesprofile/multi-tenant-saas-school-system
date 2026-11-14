@@ -3,6 +3,7 @@ package finance_test
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -436,5 +437,151 @@ func TestHoldingTankResolution(t *testing.T) {
 	}
 	if got := s.invoiceOutstanding(t, database, s.invoiceID); got != "3500.00" {
 		t.Fatalf("invoice outstanding = %s after 1500 deposit, want 3500.00", got)
+	}
+}
+
+// TestCreatedInvoiceIsPayable locks the bug that made every invoice raised in
+// the finance modal unpayable: the create path stored status OUTSTANDING, which
+// the state machine cannot read and the allocator does not lock, so receipts
+// became prepayment credits and the bill never moved.
+func TestCreatedInvoiceIsPayable(t *testing.T) {
+	database := connectTestDB(t)
+	s := seedTenant(t, database)
+	ctx := context.Background()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("tenant_id", s.tenantID)
+		c.Set("user_id", s.userID)
+		c.Next()
+	})
+	router.Use(middleware.TenantTxMiddleware(database.DB, nil))
+	router.POST("/invoices", finance.NewHandler(finance.NewService(database)).CreateInvoice)
+
+	body, _ := json.Marshal(gin.H{"learner_id": s.learnerID, "total_amount": 1200})
+	req := httptest.NewRequest(http.MethodPost, "/invoices", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("create invoice returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var created struct {
+		InvoiceID string `json:"invoice_id"`
+		Status    string `json:"status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode invoice: %v", err)
+	}
+	if created.InvoiceID == "" {
+		t.Fatalf("no invoice id in response: %s", rec.Body.String())
+	}
+	if created.Status != "ISSUED" {
+		t.Fatalf("created invoice status %q, want ISSUED (anything else cannot be paid)", created.Status)
+	}
+
+	// Receipt for exactly the new bill: it must settle, not become a credit.
+	var paymentID string
+	if err := database.WithTenant(ctx, s.tenantID, "", func(tx *db.Tx) error {
+		return tx.QueryRow(`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status)
+			VALUES ($1,$2,$3,'CASH',1200,'COMPLETED') RETURNING payment_id`,
+			s.tenantID, "PAYABLE-"+s.tenantID, s.learnerID).Scan(&paymentID)
+	}); err != nil {
+		t.Fatalf("seed payment: %v", err)
+	}
+	if err := database.WithTenant(ctx, s.tenantID, "", func(tx *db.Tx) error {
+		_, err := finance.ApplyReceipt(ctx, tx, finance.ReceiptApplication{
+			TenantID:  s.tenantID,
+			PaymentID: paymentID,
+			LearnerID: s.learnerID,
+			Amount:    money.FromCents(120000),
+			// Target the new bill: the learner already has an older invoice, and
+			// a receipt without a target correctly settles that one first.
+			OnlyInvoiceID: created.InvoiceID,
+			Rule:          finance.AllocationPriority,
+			Reference:     "PAYABLE-" + s.tenantID,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("pay invoice: %v", err)
+	}
+
+	var status, outstanding string
+	var credits int
+	if err := database.WithTenant(ctx, s.tenantID, "", func(tx *db.Tx) error {
+		if err := tx.QueryRow(`SELECT status, amount_outstanding::text FROM invoices WHERE invoice_id = $1::uuid`,
+			created.InvoiceID).Scan(&status, &outstanding); err != nil {
+			return err
+		}
+		return tx.QueryRow(`SELECT count(*) FROM credits WHERE tenant_id = $1 AND source_payment_id = $2::uuid`,
+			s.tenantID, paymentID).Scan(&credits)
+	}); err != nil {
+		t.Fatalf("verify payment: %v", err)
+	}
+	if status != "PAID" || money.New(outstanding).IsPositive() {
+		t.Fatalf("invoice after payment: status %s outstanding %s, want PAID/0.00", status, outstanding)
+	}
+	if credits != 0 {
+		t.Fatalf("payment for an issued invoice became %d prepayment credit(s)", credits)
+	}
+}
+
+// TestAllocationFindingsEndpoint feeds the Reconciliation screen: the worker's
+// findings must be readable through the API, not just present in a table.
+func TestAllocationFindingsEndpoint(t *testing.T) {
+	database := connectTestDB(t)
+	s := seedTenant(t, database)
+	ctx := context.Background()
+
+	if err := database.WithTenant(ctx, s.tenantID, "", func(tx *db.Tx) error {
+		_, err := tx.Exec(`UPDATE invoices SET amount_outstanding = amount_outstanding - 50 WHERE invoice_id = $1::uuid`, s.invoiceID)
+		return err
+	}); err != nil {
+		t.Fatalf("corrupt invoice: %v", err)
+	}
+	if _, err := finance.NewReconcileWorker(database.DB.DB, slog.Default()).RunOnce(ctx); err != nil {
+		t.Fatalf("run reconciliation: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("tenant_id", s.tenantID)
+		c.Set("user_id", s.userID)
+		c.Next()
+	})
+	router.Use(middleware.TenantTxMiddleware(database.DB, nil))
+	router.GET("/findings", finance.NewHandler(finance.NewService(database)).ListAllocationFindings)
+
+	req := httptest.NewRequest(http.MethodGet, "/findings", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("findings endpoint returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Findings []struct {
+			Kind      string  `json:"kind"`
+			SubjectID string  `json:"subject_id"`
+			Expected  float64 `json:"expected"`
+			Actual    float64 `json:"actual"`
+			Delta     float64 `json:"delta"`
+		} `json:"findings"`
+		Counts map[string]int `json:"counts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode findings: %v", err)
+	}
+	if len(payload.Findings) == 0 {
+		t.Fatalf("endpoint returned no findings for a corrupted invoice: %s", rec.Body.String())
+	}
+	if payload.Counts["LINE_MISMATCH"] == 0 {
+		t.Fatalf("counts do not include LINE_MISMATCH: %+v", payload.Counts)
+	}
+	if payload.Findings[0].Expected == payload.Findings[0].Actual {
+		t.Fatalf("finding shows no difference: %+v", payload.Findings[0])
 	}
 }

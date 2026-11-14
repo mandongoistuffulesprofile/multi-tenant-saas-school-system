@@ -729,6 +729,7 @@ func Run() error {
 
 		// Reconciliation runs
 		financeGroup.GET("/reconciliation/runs", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListReconciliationRuns)
+		financeGroup.GET("/reconciliation/allocation-findings", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListAllocationFindings)
 
 		// Write side — invoice runs, arrears, reconciliation, statements, dashboard
 		financeGroup.POST("/invoice-runs", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateInvoiceRun)
