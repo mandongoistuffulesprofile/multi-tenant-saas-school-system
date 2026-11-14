@@ -56,7 +56,8 @@ func (h *Handler) ListStaff(c *gin.Context) {
 	}
 	rows, err := tx.Query(
 		`SELECT tm.membership_id, tm.user_id, u.email, u.phone_number, tm.role, tm.status,
-			sp.tsc_number, sp.national_id, sp.subjects, sp.employment_date
+			sp.tsc_number, sp.national_id, sp.subjects, sp.employment_date,
+			sp.first_name, sp.last_name, COALESCE(sp.employment_status, 'ACTIVE')
 		 FROM tenant_memberships tm
 		 JOIN users u ON tm.user_id = u.user_id
 		 LEFT JOIN staff_profiles sp ON sp.membership_id = tm.membership_id
@@ -70,16 +71,19 @@ func (h *Handler) ListStaff(c *gin.Context) {
 	defer rows.Close()
 
 	type StaffRow struct {
-		MembershipID   string   `json:"membership_id"`
-		UserID         string   `json:"user_id"`
-		Email          string   `json:"email"`
-		PhoneNumber    string   `json:"phone_number"`
-		Role           string   `json:"role"`
-		Status         string   `json:"status"`
-		TSCNumber      string   `json:"tsc_number"`
-		NationalID     string   `json:"national_id"`
-		Subjects       []string `json:"subjects"`
-		EmploymentDate string   `json:"employment_date"`
+		MembershipID     string   `json:"membership_id"`
+		UserID           string   `json:"user_id"`
+		Email            string   `json:"email"`
+		PhoneNumber      string   `json:"phone_number"`
+		Role             string   `json:"role"`
+		Status           string   `json:"status"`
+		TSCNumber        string   `json:"tsc_number"`
+		NationalID       string   `json:"national_id"`
+		Subjects         []string `json:"subjects"`
+		EmploymentDate   string   `json:"employment_date"`
+		FirstName        string   `json:"first_name,omitempty"`
+		LastName         string   `json:"last_name,omitempty"`
+		EmploymentStatus string   `json:"employment_status"`
 	}
 	// Initialise as an empty slice so an empty result serialises to [] not null.
 	staff := make([]StaffRow, 0)
@@ -87,10 +91,11 @@ func (h *Handler) ListStaff(c *gin.Context) {
 		var s StaffRow
 		// LEFT JOINs make every staff_profiles column nullable, and users.phone_number
 		// is nullable too — scan into sql.NullString to avoid scan errors.
-		var email, phone, tsc, nationalID, employmentDate sql.NullString
+		var email, phone, tsc, nationalID, employmentDate, firstName, lastName sql.NullString
 		var subjects []byte
 		if err := rows.Scan(&s.MembershipID, &s.UserID, &email, &phone,
-			&s.Role, &s.Status, &tsc, &nationalID, &subjects, &employmentDate); err != nil {
+			&s.Role, &s.Status, &tsc, &nationalID, &subjects, &employmentDate,
+			&firstName, &lastName, &s.EmploymentStatus); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
@@ -99,6 +104,8 @@ func (h *Handler) ListStaff(c *gin.Context) {
 		s.TSCNumber = tsc.String
 		s.NationalID = nationalID.String
 		s.EmploymentDate = employmentDate.String
+		s.FirstName = firstName.String
+		s.LastName = lastName.String
 
 		// subjects is a JSONB array; it may be NULL or empty.
 		s.Subjects = []string{}

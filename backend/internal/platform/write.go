@@ -161,6 +161,18 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		return
 	}
 
+	var membershipID string
+	if err := tx.QueryRow(
+		`INSERT INTO tenant_memberships (user_id, tenant_id, role, status)
+		 VALUES ($1, $2, 'SCHOOL_ADMIN', 'ACTIVE')
+		 RETURNING membership_id`, userID, tenantID).Scan(&membershipID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	// The administrator's name belongs on the staff profile: that is the row the
+	// staff API joins, and the archived `staff_memberships` table does not exist
+	// in the live schema.
 	if req.AdminFullName != "" {
 		firstName := req.AdminFullName
 		lastName := ""
@@ -169,19 +181,16 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 			lastName = req.AdminFullName[idx+1:]
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO staff_memberships (tenant_id, user_id, role, employment_status, first_name, last_name)
-			 VALUES ($1, $2, 'SCHOOL_ADMIN', 'ACTIVE', $3, $4)`,
-			tenantID, userID, firstName, lastName); err != nil {
+			`INSERT INTO staff_profiles (membership_id, first_name, last_name, employment_status)
+			 VALUES ($1, $2, NULLIF($3, ''), 'ACTIVE')
+			 ON CONFLICT (membership_id) DO UPDATE SET
+			   first_name = EXCLUDED.first_name,
+			   last_name = EXCLUDED.last_name,
+			   updated_at = CURRENT_TIMESTAMP`,
+			membershipID, firstName, lastName); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
-	}
-
-	if _, err := tx.Exec(
-		`INSERT INTO tenant_memberships (user_id, tenant_id, role, status)
-		 VALUES ($1, $2, 'SCHOOL_ADMIN', 'ACTIVE')`, userID, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
 	}
 
 	if _, err := tx.Exec(

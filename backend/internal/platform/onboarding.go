@@ -795,13 +795,19 @@ func (h *Handler) SetupSeeds(c *gin.Context) {
 				continue
 			}
 			_, _ = tx.ExecContext(c.Request.Context(), `INSERT INTO tenant_memberships (user_id, tenant_id, role, status) VALUES ($1,$2,'TEACHER','ACTIVE') ON CONFLICT DO NOTHING`, uid, tenantID)
+			// Seed rows carry the person's name. It belongs on the staff profile,
+			// which the staff API joins; the archived `staff_memberships` table is
+			// not part of the live schema.
 			var smid string
-			_ = tx.QueryRowContext(c.Request.Context(), `INSERT INTO staff_memberships (tenant_id, user_id, role, employment_status) VALUES ($1,$2,'TEACHER','ACTIVE') ON CONFLICT DO NOTHING RETURNING staff_membership_id`, tenantID, uid).Scan(&smid)
-			if smid == "" {
-				_ = tx.QueryRowContext(c.Request.Context(), `SELECT staff_membership_id FROM staff_memberships WHERE tenant_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 1`, tenantID, uid).Scan(&smid)
-			}
+			_ = tx.QueryRowContext(c.Request.Context(), `SELECT membership_id FROM tenant_memberships WHERE tenant_id=$1 AND user_id=$2 LIMIT 1`, tenantID, uid).Scan(&smid)
 			if smid != "" {
-				_, _ = tx.ExecContext(c.Request.Context(), `UPDATE staff_memberships SET first_name=$1, last_name=$2 WHERE staff_membership_id=$3`, strings.TrimSpace(first), strings.TrimSpace(last), smid)
+				_, _ = tx.ExecContext(c.Request.Context(), `INSERT INTO staff_profiles (membership_id, first_name, last_name)
+					VALUES ($1, $2, NULLIF($3, ''))
+					ON CONFLICT (membership_id) DO UPDATE SET
+					  first_name = EXCLUDED.first_name,
+					  last_name = EXCLUDED.last_name,
+					  updated_at = CURRENT_TIMESTAMP`,
+					smid, strings.TrimSpace(first), strings.TrimSpace(last))
 			}
 		}
 		var yearID, cgID string
