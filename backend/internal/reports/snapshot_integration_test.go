@@ -1,11 +1,16 @@
 package reports
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/grading"
 )
@@ -160,5 +165,77 @@ func TestBuildSnapshotRollsBack(t *testing.T) {
 	}
 	if withAggregate.Aggregate.Grade != "EE2" {
 		t.Fatalf("aggregate grade = %s, want EE2 at 75%%", withAggregate.Aggregate.Grade)
+	}
+
+	// Exercise the publish handler itself: it must freeze the card, store a
+	// revision, and a second publish must create revision N+1 rather than
+	// mutating revision 1.
+	if err := grading.SaveConfig(tx.Tx, tenantID, "", cfg); err != nil {
+		t.Fatalf("save grading config: %v", err)
+	}
+	gin.SetMode(gin.TestMode)
+	handler := NewHandler(nil)
+	publish := func() {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Set("tx", tx.Tx)
+		ctx.Set("tenant_id", tenantID)
+		ctx.Set("user_id", "")
+		ctx.Params = gin.Params{{Key: "run_id", Value: runID}}
+		handler.PublishReportRun(ctx)
+		if recorder.Code != 200 {
+			t.Fatalf("publish status = %d body=%s", recorder.Code, recorder.Body.String())
+		}
+	}
+	publish()
+
+	var revision int
+	var frozen bool
+	var storedSnapshot string
+	if err := tx.QueryRow(
+		`SELECT revision, frozen, snapshot::text FROM report_cards WHERE tenant_id = $1 AND card_id = $2`,
+		tenantID, cardID).Scan(&revision, &frozen, &storedSnapshot); err != nil {
+		t.Fatalf("read published card: %v", err)
+	}
+	if revision != 1 || !frozen || storedSnapshot == "" {
+		t.Fatalf("card revision=%d frozen=%v snapshot_empty=%v", revision, frozen, storedSnapshot == "")
+	}
+	var stored CardSnapshot
+	if err := json.Unmarshal([]byte(storedSnapshot), &stored); err != nil {
+		t.Fatalf("stored snapshot: %v", err)
+	}
+	if len(stored.National) != 1 || stored.Aggregate == nil {
+		t.Fatalf("stored snapshot national=%d aggregate=%v", len(stored.National), stored.Aggregate != nil)
+	}
+
+	publish()
+	var cardRevision, revisionCount int
+	if err := tx.QueryRow(
+		`SELECT revision FROM report_cards WHERE tenant_id = $1 AND card_id = $2`,
+		tenantID, cardID).Scan(&cardRevision); err != nil {
+		t.Fatalf("read card revision: %v", err)
+	}
+	if err := tx.QueryRow(
+		`SELECT count(*) FROM report_card_revisions WHERE tenant_id = $1 AND card_id = $2`,
+		tenantID, cardID).Scan(&revisionCount); err != nil {
+		t.Fatalf("count revisions: %v", err)
+	}
+	if cardRevision != 2 || revisionCount != 2 {
+		t.Fatalf("after correction revision=%d revisions=%d, want 2/2", cardRevision, revisionCount)
+	}
+
+	// Published cards reject comment edits with 409 CARD_LOCKED.
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("tx", tx.Tx)
+	ctx.Set("tenant_id", tenantID)
+	ctx.Set("user_id", "")
+	ctx.Params = gin.Params{{Key: "card_id", Value: cardID}}
+	ctx.Request = httptest.NewRequest("POST", "/reports/cards/"+cardID+"/comments",
+		strings.NewReader(fmt.Sprintf(`{"learning_area_id":%q,"comment_text":"late edit"}`, areaID)))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	handler.UpsertReportCardComment(ctx)
+	if recorder.Code != 409 {
+		t.Fatalf("comment edit on frozen card = %d body=%s, want 409", recorder.Code, recorder.Body.String())
 	}
 }

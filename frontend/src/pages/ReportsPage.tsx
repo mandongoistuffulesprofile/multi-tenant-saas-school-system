@@ -37,7 +37,7 @@ export default function ReportsPage() {
     is_default: false,
   });
   const [savingTemplate, setSavingTemplate] = useState(false);
-  const [grading, setGrading] = useState({ scale: "AUTO", show_aggregate: false, show_position: false });
+  const [grading, setGrading] = useState<{ scale: string; show_aggregate: boolean; show_position: boolean; cutoffs?: Record<string, number> }>({ scale: "AUTO", show_aggregate: false, show_position: false });
   const [savingGrading, setSavingGrading] = useState(false);
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -92,6 +92,7 @@ export default function ReportsPage() {
             scale: cfg.scale || "AUTO",
             show_aggregate: cfg.show_aggregate === true,
             show_position: cfg.show_position === true,
+            cutoffs: cfg.cutoffs || undefined,
           });
         }
       })
@@ -107,6 +108,7 @@ export default function ReportsPage() {
         scale: cfg.scale || "AUTO",
         show_aggregate: cfg.show_aggregate === true,
         show_position: cfg.show_position === true,
+        cutoffs: cfg.cutoffs || grading.cutoffs,
       });
       toast("Report card grading rules saved", { type: "success" });
     } catch (err: any) {
