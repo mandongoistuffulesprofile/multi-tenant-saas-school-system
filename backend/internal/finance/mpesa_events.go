@@ -123,14 +123,14 @@ func (s *Service) ResolveMPESAEvent(ctx context.Context, tenantID, eventID, lear
 		return nil, errors.New("no tenant transaction")
 	}
 
-	var transID, amountStr, status string
+	var transID, amountStr, status, accountRef string
 	err := q.QueryRow(
-		`SELECT trans_id, amount::text, processing_status
+		`SELECT trans_id, amount::text, processing_status, COALESCE(account_reference, '')
 		   FROM mpesa_raw_inbox
 		  WHERE inbox_id = $1 AND tenant_id = $2
 		  FOR UPDATE`,
 		eventID, tenantID,
-	).Scan(&transID, &amountStr, &status)
+	).Scan(&transID, &amountStr, &status, &accountRef)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, sql.ErrNoRows
 	}
@@ -190,14 +190,16 @@ func (s *Service) ResolveMPESAEvent(ctx context.Context, tenantID, eventID, lear
 
 	// One planner for every receipt path: oldest term first, votehead hint from
 	// the account reference, and anything beyond the debt parked as credit.
+	_, voteheadHint := ResolveReferenceHint(ctx, q, tenantID, accountRef)
 	outcome, allocErr := ApplyReceipt(ctx, q, ReceiptApplication{
-		TenantID:  tenantID,
-		UserID:    userID,
-		PaymentID: paymentID,
-		LearnerID: learnerID,
-		Amount:    amount,
-		Rule:      AllocationPriority,
-		Reference: reference,
+		TenantID:     tenantID,
+		UserID:       userID,
+		PaymentID:    paymentID,
+		LearnerID:    learnerID,
+		Amount:       amount,
+		HintVotehead: voteheadHint,
+		Rule:         AllocationPriority,
+		Reference:    reference,
 	})
 	if allocErr != nil {
 		return nil, allocErr

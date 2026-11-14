@@ -108,11 +108,14 @@ func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inbo
 		return fmt.Errorf("allocation amount must exceed zero")
 	}
 
-	// 1. Resolve student by admission number
+	// 1. Resolve student by admission number. A reference like
+	// "ADM-1024/TUITION" names a votehead as well; the account part is what the
+	// learner is looked up by, and an unknown code leaves the reference alone.
+	accountRef, voteheadHint := ResolveReferenceHint(ctx, tx, tenantID, admissionNo)
 	var studentID string
 	err := tx.QueryRowContext(ctx, `
 		SELECT learner_id FROM learners 
-		WHERE admission_number = $1 AND tenant_id = $2`, admissionNo, tenantID).Scan(&studentID)
+		WHERE admission_number = $1 AND tenant_id = $2`, accountRef, tenantID).Scan(&studentID)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("student admission %s not found for tenant %s", admissionNo, tenantID)
 	} else if err != nil {
@@ -144,13 +147,14 @@ func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inbo
 	// One planner for every receipt path: oldest term first, then the lines of
 	// that term, with anything beyond the debt parked as an unapplied credit.
 	if _, err := ApplyReceipt(ctx, tx, ReceiptApplication{
-		TenantID:  tenantID,
-		UserID:    "SYSTEM_WORKER",
-		PaymentID: paymentID,
-		LearnerID: studentID,
-		Amount:    allocAmount,
-		Rule:      AllocationPriority,
-		Reference: transID,
+		TenantID:     tenantID,
+		UserID:       "SYSTEM_WORKER",
+		PaymentID:    paymentID,
+		LearnerID:    studentID,
+		Amount:       allocAmount,
+		HintVotehead: voteheadHint,
+		Rule:         AllocationPriority,
+		Reference:    transID,
 	}); err != nil {
 		return err
 	}

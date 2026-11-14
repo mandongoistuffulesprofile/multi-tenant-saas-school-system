@@ -543,11 +543,14 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 
 	// The learner is resolved from the bill reference (admission number),
 	// never from the phone number.
+	// A bill reference may carry a votehead, e.g. "1024/TUITION"; the account
+	// part finds the learner and the code tells the planner where to land it.
+	accountRef, voteheadHint := ResolveReferenceHint(c.Request.Context(), tx, tenantID, billRef)
 	learnerID := req.LearnerID
-	if learnerID == "" && billRef != "" {
+	if learnerID == "" && accountRef != "" {
 		_ = tx.QueryRow(
 			`SELECT learner_id FROM learners WHERE tenant_id = $1 AND admission_number = $2`,
-			tenantID, billRef).Scan(&learnerID)
+			tenantID, accountRef).Scan(&learnerID)
 	}
 	if learnerID == "" {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
@@ -618,6 +621,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		PaymentID:     paymentID,
 		LearnerID:     learnerID,
 		Amount:        receiptAmount,
+		HintVotehead:  voteheadHint,
 		OnlyInvoiceID: req.InvoiceID,
 		Rule:          AllocationPriority,
 		Reference:     "MPESA-" + shortID(transactionID),
