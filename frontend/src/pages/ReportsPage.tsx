@@ -192,6 +192,26 @@ export default function ReportsPage() {
     }
   };
 
+  const publishRun = async (run: any) => {
+    const id = run.run_id || run.id;
+    if (!id) return;
+    setPublishingRunId(id);
+    try {
+      const res = await api.post(`/reports/runs/${id}/publish`);
+      toast(`Published ${res.data?.published ?? 0} report card(s)`, { type: "success" });
+      const [rRes, cRes] = await Promise.all([
+        api.get("/reports/runs"),
+        api.get("/reports/cards"),
+      ]);
+      setRuns(Array.isArray(rRes.data) ? rRes.data : []);
+      setCards(Array.isArray(cRes.data) ? cRes.data : []);
+    } catch (err: any) {
+      toast(err.response?.data?.message || "Failed to publish run", { type: "error" });
+    } finally {
+      setPublishingRunId("");
+    }
+  };
+
   const typeBadge = (type: string) => {
     const colors: Record<string, string> = {
       CBC: "bg-blue-100 text-blue-700",
@@ -375,29 +395,19 @@ export default function ReportsPage() {
                           </td>
                           <td className="py-2 text-right">
                             {run.status === "PUBLISHED" ? (
-                              <span className="text-xs text-gray-400">Published</span>
+                              <button
+                                className="px-3 py-1 rounded-lg border border-kenyan-red text-kenyan-red text-xs font-medium hover:bg-red-50 disabled:opacity-50"
+                                disabled={publishingRunId !== ""}
+                                onClick={() => publishRun(run)}
+                                title="Creates revision N+1 with the latest results and national bands"
+                              >
+                                {publishingRunId === (run.run_id || run.id) ? "Issuing…" : "Issue correction"}
+                              </button>
                             ) : (
                               <button
                                 className="px-3 py-1 rounded-lg bg-kenyan-red text-white text-xs font-medium hover:opacity-90 transition disabled:opacity-50"
                                 disabled={publishingRunId !== ""}
-                                onClick={async () => {
-                                  const id = run.run_id || run.id;
-                                  setPublishingRunId(id);
-                                  try {
-                                    const res = await api.post(`/reports/runs/${id}/publish`);
-                                    toast(`Published ${res.data?.published ?? 0} report card(s)`, { type: "success" });
-                                    const [rRes, cRes] = await Promise.all([
-                                      api.get("/reports/runs"),
-                                      api.get("/reports/cards"),
-                                    ]);
-                                    setRuns(Array.isArray(rRes.data) ? rRes.data : []);
-                                    setCards(Array.isArray(cRes.data) ? cRes.data : []);
-                                  } catch (err: any) {
-                                    toast(err.response?.data?.message || "Failed to publish run", { type: "error" });
-                                  } finally {
-                                    setPublishingRunId("");
-                                  }
-                                }}
+                                onClick={() => publishRun(run)}
                               >
                                 {publishingRunId === (run.run_id || run.id) ? "Publishing…" : "Publish"}
                               </button>

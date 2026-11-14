@@ -20,8 +20,16 @@ export default function LearnerRemarksPage() {
   const [learningAreaId, setLearningAreaId] = useState("GENERAL");
   const [publishing, setPublishing] = useState(false);
   const [headComment, setHeadComment] = useState("");
+  const [areas, setAreas] = useState<any[]>([]);
 
   useEffect(() => {
+    api.get("/curriculum/areas")
+      .then((r) => {
+        const list = Array.isArray(r.data) ? r.data : [];
+        setAreas(list);
+        setLearningAreaId(list[0]?.area_id || "");
+      })
+      .catch(() => setAreas([]));
     api.get<Learner[]>("/learners")
       .then((r) => { setLearners(Array.isArray(r.data) ? r.data : []); setState("content"); })
       .catch(() => setState("error"));
@@ -39,10 +47,14 @@ export default function LearnerRemarksPage() {
   }, [selectedLearnerId]);
 
   const selectedLearner = useMemo(() => learners.find((l) => l.learner_id === selectedLearnerId) || null, [learners, selectedLearnerId]);
+  const selectedCard = useMemo(() => cards.find((c) => c.card_id === selectedCardId) || null, [cards, selectedCardId]);
+  const isFrozen = selectedCard?.status === "PUBLISHED";
 
   const submitRemark = async () => {
     if (!selectedCardId) { toast("Select a report card for this learner", { type: "error" }); return; }
+    if (isFrozen) { toast("This report card is published and frozen. Issue a correction revision to change it.", { type: "error" }); return; }
     if (!remark.trim()) { toast("Enter a remark", { type: "error" }); return; }
+    if (!learningAreaId) { toast("Select a learning area", { type: "error" }); return; }
     setPublishing(true);
     try {
       await api.post(`/reports/cards/${selectedCardId}/comments`, {
@@ -96,8 +108,13 @@ export default function LearnerRemarksPage() {
               <span className="text-gray-500"> · {selectedLearner.admission_number} · {selectedLearner.grade_label || "—"}</span>
             </div>
             <div>
-              <label className="label block mb-1">Learning area / strand code</label>
-              <Input value={learningAreaId} onChange={(e) => setLearningAreaId(e.target.value)} placeholder="e.g. MATH, ENG, GENERAL" />
+              <label className="label block mb-1">Learning area</label>
+              <select className="input-field w-full" value={learningAreaId} onChange={(e) => setLearningAreaId(e.target.value)}>
+                <option value="">Select learning area…</option>
+                {areas.map((area) => (
+                  <option key={area.area_id} value={area.area_id}>{area.name} ({area.code})</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label block mb-1">Teacher remark</label>
@@ -109,12 +126,17 @@ export default function LearnerRemarksPage() {
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => { setRemark(""); setHeadComment(""); }}>Clear</Button>
-              <Button variant="primary" loading={publishing} disabled={!selectedCardId} onClick={submitRemark}>
+              <Button variant="primary" loading={publishing} disabled={!selectedCardId || isFrozen || !learningAreaId} onClick={submitRemark}>
                 {t("teacher.publish", { defaultValue: "Save remark" })}
               </Button>
             </div>
             {!cards.length && selectedLearnerId && (
               <p className="text-xs text-amber-700">No report cards found for this learner. Generate/publish report cards first.</p>
+            )}
+            {isFrozen && (
+              <p className="text-xs text-amber-700">
+                This card is published and frozen. Remarks can no longer be edited; issue a correction revision from Reports.
+              </p>
             )}
           </div>
         )}

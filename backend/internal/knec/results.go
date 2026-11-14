@@ -191,6 +191,7 @@ func (h *Handler) ImportNationalResults(c *gin.Context) {
 			return
 		}
 
+		subjectCode := strings.TrimSpace(item.SubjectCode)
 		var areaID interface{}
 		if strings.TrimSpace(item.LearningAreaID) != "" {
 			areaID = item.LearningAreaID
@@ -204,7 +205,16 @@ func (h *Handler) ImportNationalResults(c *gin.Context) {
 				return
 			}
 		}
-		subjectCode := strings.TrimSpace(item.SubjectCode)
+		// If only a subject code was supplied, resolve it to a learning area
+		// so the card prints the human-readable subject name.
+		if areaID == nil && subjectCode != "" {
+			var resolved string
+			if err := tx.QueryRow(
+				`SELECT area_id::text FROM learning_areas
+				 WHERE UPPER(code) = UPPER($1) LIMIT 1`, subjectCode).Scan(&resolved); err == nil {
+				areaID = resolved
+			}
+		}
 
 		var points interface{}
 		if expectedScale == grading.ScaleEightPoint {
