@@ -7,7 +7,13 @@ import Badge from "../../components/atoms/Badge";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
-import { saveAttendanceMark, getAttendanceMarks, getDeviceId } from "../../lib/offline";
+import {
+  saveAttendanceMark,
+  getAttendanceMarks,
+  getDeviceId,
+  cacheReference,
+  readReference,
+} from "../../lib/offline";
 import { AttendanceRegister, AttendanceMark, Learner } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
@@ -28,15 +34,58 @@ export default function AttendanceRegisterPage() {
   const [selected, setSelected] = useState<AttendanceRegister | null>(null);
   const [learners, setLearners] = useState<Learner[]>([]);
   const [marks, setMarks] = useState<Record<string, string>>({}); // learnerId -> mark
+  const [source, setSource] = useState<"network" | "cache">("network");
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<AttendanceRegister[]>("/attendance/registers")
-      .then((r) => { setRegisters(Array.isArray(r.data) ? r.data : []); setState("content"); })
-      .catch(() => setState("error"));
-    api.get<Learner[]>("/learners")
-      .then((r) => { setLearners(Array.isArray(r.data) ? r.data : []); })
-      .catch(() => {});
-  }, []);
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const [regRes, learnerRes] = await Promise.all([
+          api.get<AttendanceRegister[]>("/attendance/registers"),
+          api.get<Learner[]>("/learners"),
+        ]);
+        if (cancelled) return;
+        const regs = Array.isArray(regRes.data) ? regRes.data : [];
+        const roster = Array.isArray(learnerRes.data) ? learnerRes.data : [];
+        setRegisters(regs);
+        setLearners(roster);
+        setSource("network");
+        setState("content");
+        if (tenantId) {
+          // Keep a copy so the register can be opened with no network at all.
+          await Promise.all([
+            cacheReference(tenantId, "attendance.registers", regs),
+            cacheReference(tenantId, "attendance.learners", roster),
+          ]);
+        }
+      } catch {
+        if (cancelled) return;
+        // Network failed. A cold offline start is only possible if an earlier
+        // session saved the register, so read that back instead of an error.
+        const [cachedRegs, cachedRoster] = tenantId
+          ? await Promise.all([
+              readReference<AttendanceRegister[]>(tenantId, "attendance.registers"),
+              readReference<Learner[]>(tenantId, "attendance.learners"),
+            ])
+          : [null, null];
+        if (cancelled) return;
+        if (cachedRegs && cachedRoster) {
+          setRegisters(cachedRegs.data);
+          setLearners(cachedRoster.data);
+          setSource("cache");
+          setCachedAt(cachedRegs.cachedAt);
+          setState("content");
+        } else {
+          setState("error");
+        }
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   useEffect(() => {
     if (!selected || !tenantId) return;
@@ -51,10 +100,28 @@ export default function AttendanceRegisterPage() {
   }, [selected, tenantId]);
 
   if (state === "loading") return <ViewState state="loading" />;
+  if (state === "error") {
+    return (
+      <ViewState
+        state="offline"
+        message="You are offline and this device has no saved attendance register yet. Open this screen once with a connection to save a copy."
+      />
+    );
+  }
   if (registers.length === 0) return <ViewState state="empty" message={t("no_registers", { defaultValue: "No attendance registers" })} />;
+
+  const offlineNotice = source === "cache" ? (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      Offline — showing the register saved{" "}
+      {cachedAt ? new Date(cachedAt).toLocaleString() : "earlier"}. Marks you record are kept on this device and sync when
+      the connection returns.
+    </div>
+  ) : null;
+
   if (!selected) {
     return (
       <div className="p-4 space-y-4">
+        {offlineNotice}
         <Card className="p-4">
           <h2 className="text-heading mb-3">{t("teacher.attendance")}</h2>
           <p className="text-body mb-4">{t("teacher.select_register", { defaultValue: "Select a register to mark attendance" })}</p>
@@ -80,6 +147,7 @@ export default function AttendanceRegisterPage() {
 
   return (
     <div className="p-4 space-y-4">
+      {offlineNotice}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-display font-display">{selected.register_date}</h1>

@@ -1,7 +1,7 @@
 // IndexedDB offline-first storage + sync queue for S2 Teacher PWA.
 // Database is namespaced per tenant: skulapp_offline_<tenant_id>, version 1.
 
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 type ID = string;
 
@@ -25,12 +25,15 @@ export interface QueuedOp {
   last_attempt?: string | null;
 }
 
-type StoreName = "assessment_results" | "attendance_marks" | "sync_queue";
+type StoreName = "assessment_results" | "attendance_marks" | "sync_queue" | "reference_cache";
 
 const STORE_SCHEMAS: Record<StoreName, { keyPath: string; autoIncrement: boolean }> = {
   assessment_results: { keyPath: "id", autoIncrement: false },
   attendance_marks: { keyPath: "id", autoIncrement: false },
   sync_queue: { keyPath: "id", autoIncrement: true },
+  // Last successful copy of read-only reference data (registers, rosters,
+  // assessment events) so a teacher can open a marking screen with no network.
+  reference_cache: { keyPath: "key", autoIncrement: false },
 };
 
 const TENANT_KEY = "skulapp_offline_current_tenant";
@@ -237,9 +240,40 @@ export async function deleteAttendanceMark(tenantId: string, id: ID): Promise<vo
   await deleteRecord(tenantId, "attendance_marks", id);
 }
 
+/**
+ * Reference data a teacher needs before they can mark anything: the register
+ * list, the roster, the assessment events. It is cached on every successful
+ * read so a later cold start with no network can still open the screen, and it
+ * is labelled with when it was saved so the UI can say how old it is instead of
+ * pretending it is live.
+ */
+export async function cacheReference<T>(tenantId: string, key: string, payload: T): Promise<void> {
+  if (!tenantId) return;
+  await tx(tenantId, "reference_cache", "readwrite", (os) =>
+    os.put({ key, payload, cached_at: new Date().toISOString() })
+  );
+}
+
+export async function readReference<T>(
+  tenantId: string,
+  key: string,
+): Promise<{ data: T; cachedAt: string } | null> {
+  if (!tenantId) return null;
+  const database = await ensureTenantDB(tenantId);
+  return new Promise((resolve, reject) => {
+    const t = database.transaction(["reference_cache"], "readonly");
+    const req = t.objectStore("reference_cache").get(key);
+    req.onsuccess = () => {
+      const row = req.result as { key: string; payload: T; cached_at: string } | undefined;
+      resolve(row ? { data: row.payload, cachedAt: row.cached_at } : null);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export async function clearOfflineData(tenantId: string): Promise<void> {
   if (!tenantId) return;
-  for (const store of ["assessment_results", "attendance_marks", "sync_queue"] as StoreName[]) {
+  for (const store of ["assessment_results", "attendance_marks", "sync_queue", "reference_cache"] as StoreName[]) {
     await clearStore(tenantId, store);
   }
 }
