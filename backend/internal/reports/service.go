@@ -459,6 +459,46 @@ func snapshotResultRows(snapshot CardSnapshot) []ReportCardResult {
 	return out
 }
 
+// ListReportCardRevisions returns the immutable revision history of a card.
+// The current snapshot is what a parent sees; earlier revisions are retained
+// for audit and for re-issuing a corrected card.
+func (h *Handler) ListReportCardRevisions(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	cardID := c.Param("card_id")
+	rows, err := tx.Query(
+		`SELECT card_revision_id::text, revision, snapshot::text, created_at::text
+		 FROM report_card_revisions
+		 WHERE tenant_id = $1 AND card_id = $2
+		 ORDER BY revision DESC`,
+		c.GetString("tenant_id"), cardID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	revisions := make([]gin.H, 0)
+	for rows.Next() {
+		var id, snapshot, createdAt string
+		var revision int
+		if err := rows.Scan(&id, &revision, &snapshot, &createdAt); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		revisions = append(revisions, gin.H{
+			"card_revision_id": id,
+			"revision":         revision,
+			"snapshot":         json.RawMessage(snapshot),
+			"created_at":       createdAt,
+		})
+	}
+	c.JSON(http.StatusOK, revisions)
+}
+
 func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 	tenantID := ginCtx.GetString("tenant_id")
 	cardID := ginCtx.Param("card_id")
