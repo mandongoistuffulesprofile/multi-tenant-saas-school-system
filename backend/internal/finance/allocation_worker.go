@@ -3,6 +3,7 @@ package finance
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -118,89 +119,40 @@ func (w *AllocationWorker) allocatePayment(ctx context.Context, tx *sql.Tx, inbo
 		return err
 	}
 
-	// 2. Select invoices for update to prevent concurrent race conditions
-	// Deterministic lock ordering: ORDER BY due_date ASC NULLS LAST
-	rows, err := tx.QueryContext(ctx, `
-		SELECT invoice_id, (total_amount - amount_paid)::text as remaining_balance 
-		FROM invoices 
-		WHERE learner_id = $1 AND tenant_id = $2 AND status IN ('ISSUED','PARTIALLY_PAID','OVERDUE')
-		ORDER BY due_date ASC NULLS LAST, created_at
-		FOR UPDATE`, studentID, tenantID)
-	if err != nil {
+	// Record the receipt as a payment so allocations, the ledger and the
+	// receipts list all agree on where the money came from. A replayed callback
+	// resolves to the existing row instead of posting twice.
+	var paymentID string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount,
+			currency, status, mpesa_trans_id, idempotency_key)
+		VALUES ($1, $2, $3, 'MPESA', $4::numeric, 'KES', 'COMPLETED', $5, $6)
+		ON CONFLICT (tenant_id, mpesa_trans_id) WHERE mpesa_trans_id IS NOT NULL DO NOTHING
+		RETURNING payment_id`,
+		tenantID, "MPESA-"+transID, studentID, allocAmount.StringFixed(2), transID,
+		tenantID+":mpesa:"+transID).Scan(&paymentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		if err := tx.QueryRowContext(ctx,
+			`SELECT payment_id FROM payments WHERE tenant_id = $1 AND mpesa_trans_id = $2`,
+			tenantID, transID).Scan(&paymentID); err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
-	defer rows.Close()
 
-	remainingPayment := allocAmount
-	for rows.Next() && remainingPayment.GreaterThan(money.Zero()) {
-		var invoiceID string
-		var remainingBalanceStr string
-		if err := rows.Scan(&invoiceID, &remainingBalanceStr); err != nil {
-			return err
-		}
-		remainingBalance := money.New(remainingBalanceStr)
-
-		allocation := remainingPayment
-		if allocation.GreaterThan(remainingBalance) {
-			allocation = remainingBalance
-		}
-
-		// Lock invoice row and transition via the invoice FSM (exact decimal).
-		var (
-			invState       string
-			invTotalStr    string
-			invPaidStr     string
-			invOutstanding string
-		)
-		err := tx.QueryRowContext(ctx, `
-			SELECT status, total_amount::text, amount_paid::text, amount_outstanding::text
-			  FROM invoices
-			 WHERE invoice_id = $1 AND tenant_id = $2
-			 FOR UPDATE`, invoiceID, tenantID).Scan(&invState, &invTotalStr, &invPaidStr, &invOutstanding)
-		if err != nil {
-			return err
-		}
-
-		invTotal := money.New(invTotalStr)
-		invPaid := money.New(invPaidStr)
-		invOut := money.New(invOutstanding)
-
-		newPaid := invPaid.Add(allocation)
-		newOutstanding := invOut.Sub(allocation)
-		newBalance := remainingBalance.Sub(allocation)
-		nextState, err := TransitionInvoice(InvoiceState(invState), EventApplyCredit, InvoiceContext{
-			TotalAmount:       invTotal,
-			PaidAmount:        newPaid,
-			AmountOutstanding: newOutstanding,
-		})
-		if err != nil {
-			return fmt.Errorf("invoice transition rejected: %w", err)
-		}
-
-		_, err = tx.ExecContext(ctx, `
-			UPDATE invoices 
-			SET amount_paid = $1::numeric, amount_outstanding = $2::numeric, status = $3,
-			    paid_at = CASE WHEN $1::numeric >= $4::numeric THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
-			    updated_at = NOW()
-			WHERE invoice_id = $5 AND tenant_id = $6`,
-			newPaid.StringFixed(2), newOutstanding.StringFixed(2), nextState, invTotal.StringFixed(2), invoiceID, tenantID)
-		if err != nil {
-			return err
-		}
-
-		// Ledger write - immutable forensic record (exact decimal amounts).
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO payment_ledger (
-				tenant_id, inbox_id, receipt_number, student_id, invoice_id, 
-				amount, balance_before, balance_after, allocated_by
-			) VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, 'SYSTEM_WORKER')`,
-			tenantID, inboxID, transID, studentID, invoiceID,
-			allocation.StringFixed(2), remainingBalance.StringFixed(2), newBalance.StringFixed(2))
-		if err != nil {
-			return err
-		}
-
-		remainingPayment = remainingPayment.Sub(allocation)
+	// One planner for every receipt path: oldest term first, then the lines of
+	// that term, with anything beyond the debt parked as an unapplied credit.
+	if _, err := ApplyReceipt(ctx, tx, ReceiptApplication{
+		TenantID:  tenantID,
+		UserID:    "SYSTEM_WORKER",
+		PaymentID: paymentID,
+		LearnerID: studentID,
+		Amount:    allocAmount,
+		Rule:      AllocationPriority,
+		Reference: transID,
+	}); err != nil {
+		return err
 	}
 
 	return nil

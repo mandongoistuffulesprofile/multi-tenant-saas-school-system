@@ -320,6 +320,10 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 				 VALUES ($1, $2, $3, $4, 1, $5, $5, $6, $7)`,
 				tenantID, invoiceID, l.categoryID, l.description, l.amount, req.AcademicYearID, req.TermID)
 		}
+
+		// Any unapplied prepayment this learner already holds is spent on the
+		// lines just billed, using the same planner as a receipt.
+		_, _ = ApplyOpenCredits(c.Request.Context(), tx, tenantID, userID, d.learnerID)
 		created++
 	}
 
@@ -1044,42 +1048,22 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 
-	// Allocate to the selected invoice, or the oldest unpaid invoice.
-	allocationInvoice := req.InvoiceID
-	if allocationInvoice == "" {
-		_ = tx.QueryRow(
-			`SELECT invoice_id FROM invoices
-			  WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
-			  ORDER BY due_date NULLS LAST, issue_date
-			  LIMIT 1 FOR UPDATE SKIP LOCKED`,
-			tenantID, req.LearnerID).Scan(&allocationInvoice)
-	}
-	allocatedAmount := 0.0
-	if allocationInvoice != "" {
-		var outstandingStr string
-		err := tx.QueryRow(
-			`SELECT amount_outstanding::text FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
-			allocationInvoice, tenantID).Scan(&outstandingStr)
-		outstanding := money.New(outstandingStr)
-		if err == nil && outstanding.IsPositive() {
-			alloc := paymentAmount
-			if alloc.GreaterThan(outstanding) {
-				alloc = outstanding
-			}
-			if _, err := tx.Exec(
-				`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
-				 VALUES ($1, $2, $3, $4, $5)`,
-				tenantID, paymentID, allocationInvoice, alloc.StringFixed(2), nullableString(userID)); err == nil {
-				_, _ = tx.Exec(
-					`UPDATE invoices SET amount_paid = amount_paid + $1,
-					   amount_outstanding = amount_outstanding - $1,
-					   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-					   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
-					   updated_at = now()
-					 WHERE invoice_id = $2 AND tenant_id = $3`, alloc.StringFixed(2), allocationInvoice, tenantID)
-				allocatedAmount = alloc.InexactFloat64()
-			}
-		}
+	// Spread the receipt over the learner's open lines: oldest term first, with
+	// anything beyond the debt parked as an unapplied credit. A bursar who picked
+	// one invoice restricts the spread to that invoice.
+	outcome, allocErr := ApplyReceipt(c.Request.Context(), tx, ReceiptApplication{
+		TenantID:      tenantID,
+		UserID:        userID,
+		PaymentID:     paymentID,
+		LearnerID:     req.LearnerID,
+		Amount:        paymentAmount,
+		OnlyInvoiceID: req.InvoiceID,
+		Rule:          AllocationPriority,
+		Reference:     reference,
+	})
+	if allocErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": allocErr.Error()})
+		return
 	}
 
 	// Best-effort receipt notification to primary payer guardian (idempotent).
@@ -1106,11 +1090,42 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		tenantID, msg, req.LearnerID, idem,
 	)
 
+	firstInvoice := ""
+	if len(outcome.InvoiceIDs) > 0 {
+		firstInvoice = outcome.InvoiceIDs[0]
+	}
 	c.JSON(http.StatusCreated, gin.H{
 		"payment_id":       paymentID,
-		"invoice_id":       allocationInvoice,
-		"allocated_amount": allocatedAmount,
+		"invoice_id":       firstInvoice,
+		"invoice_ids":      outcome.InvoiceIDs,
+		"allocated_amount": outcome.Allocated.InexactFloat64(),
+		"prepayment":       outcome.Prepayment.InexactFloat64(),
 	})
+}
+
+// ReversePayment voids one receipt. Negative allocations point at the rows they
+// reverse and each invoice walks back down the state machine; nothing is
+// deleted, and a receipt whose prepayment was already spent is refused with a
+// message the bursar can act on.
+func (h *Handler) ReversePayment(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	paymentID := c.Param("payment_id")
+	var req struct {
+		Reason string `json:"reason" binding:"required"`
+	}
+	if errs := validation.BindJSON(c, &req); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+	if err := ReverseReceipt(c.Request.Context(), tx, c.GetString("tenant_id"), c.GetString("user_id"), paymentID, req.Reason); err != nil {
+		validation.Conflict(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"payment_id": paymentID, "status": "REVERSED"})
 }
 
 // ---------- helpers ----------

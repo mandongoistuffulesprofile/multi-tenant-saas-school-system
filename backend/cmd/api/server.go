@@ -685,6 +685,7 @@ func Run() error {
 		financeGroup.GET("/payments", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListPayments)
 		financeGroup.POST("/payments", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.RecordPayment)
 		financeGroup.POST("/payments/allocate", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.AllocatePayment)
+		financeGroup.POST("/payments/:payment_id/reverse", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ReversePayment)
 
 		// M-Pesa inbox reconciliation
 		financeGroup.GET("/mpesa/events", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListMPESAEvents)

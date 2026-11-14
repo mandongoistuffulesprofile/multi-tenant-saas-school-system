@@ -188,45 +188,19 @@ func (s *Service) ResolveMPESAEvent(ctx context.Context, tenantID, eventID, lear
 		return nil, err
 	}
 
-	allocated := money.Zero()
-	var invoiceID, outstandingStr string
-	err = q.QueryRow(
-		`SELECT invoice_id, amount_outstanding::text
-		   FROM invoices
-		  WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
-		  ORDER BY due_date NULLS LAST, issue_date
-		  LIMIT 1 FOR UPDATE`,
-		tenantID, learnerID,
-	).Scan(&invoiceID, &outstandingStr)
-	if err == nil {
-		outstanding := money.New(outstandingStr)
-		if outstanding.IsPositive() {
-			allocated = amount
-			if allocated.GreaterThan(outstanding) {
-				allocated = outstanding
-			}
-			if _, err := q.Exec(
-				`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
-				 VALUES ($1, $2, $3, $4, $5)
-				 ON CONFLICT (payment_id, invoice_id) DO NOTHING`,
-				tenantID, paymentID, invoiceID, allocated.StringFixed(2), nullableString(userID),
-			); err != nil {
-				return nil, err
-			}
-			if _, err := q.Exec(
-				`UPDATE invoices SET amount_paid = amount_paid + $1::numeric,
-				        amount_outstanding = amount_outstanding - $1::numeric,
-				        status = CASE WHEN amount_outstanding - $1::numeric <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-				        paid_at = CASE WHEN amount_outstanding - $1::numeric <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
-				        updated_at = now()
-				  WHERE invoice_id = $2 AND tenant_id = $3`,
-				allocated.StringFixed(2), invoiceID, tenantID,
-			); err != nil {
-				return nil, err
-			}
-		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
+	// One planner for every receipt path: oldest term first, votehead hint from
+	// the account reference, and anything beyond the debt parked as credit.
+	outcome, allocErr := ApplyReceipt(ctx, q, ReceiptApplication{
+		TenantID:  tenantID,
+		UserID:    userID,
+		PaymentID: paymentID,
+		LearnerID: learnerID,
+		Amount:    amount,
+		Rule:      AllocationPriority,
+		Reference: reference,
+	})
+	if allocErr != nil {
+		return nil, allocErr
 	}
 
 	if _, err := q.Exec(
@@ -238,11 +212,16 @@ func (s *Service) ResolveMPESAEvent(ctx context.Context, tenantID, eventID, lear
 		return nil, err
 	}
 
-	allocatedFloat := allocated.InexactFloat64()
+	firstInvoice := ""
+	if len(outcome.InvoiceIDs) > 0 {
+		firstInvoice = outcome.InvoiceIDs[0]
+	}
 	return gin.H{
 		"payment_id":       paymentID,
-		"invoice_id":       invoiceID,
-		"allocated_amount": allocatedFloat,
+		"invoice_id":       firstInvoice,
+		"invoice_ids":      outcome.InvoiceIDs,
+		"allocated_amount": outcome.Allocated.InexactFloat64(),
+		"prepayment":       outcome.Prepayment.InexactFloat64(),
 	}, nil
 }
 
