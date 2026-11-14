@@ -300,7 +300,7 @@ func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 				// instead of leaving it hidden in mpesa_raw_inbox. This is the fix
 				// for the "Bwawa la M-Pesa" scenario: the mother's KES 5,000 must
 				// still appear on the holding-tank screen for manual allocation.
-				_ = s.ensureHoldingTankRow(ctx, tenantTx, it.tenantID, it.transID, it.amount, it.ref)
+				s.ensureHoldingTankRow(ctx, tenantTx, it.tenantID, it.transID, it.amount, it.ref)
 
 				log.Printf("mpesa: allocation failed for %s: %v", it.transID, processErr)
 				return nil // don't fail the whole batch

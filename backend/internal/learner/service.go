@@ -4,11 +4,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
@@ -47,13 +49,18 @@ type Handler struct {
 	service *Service
 }
 
+// NewHandler wires a learner handler to its service.
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
+}
+
 // Service is the learner write/read surface.
 type Service struct {
-	database *sqlx.DB
+	database *db.DB
 }
 
 // NewService creates a learner service.
-func NewService(database *sqlx.DB) *Service {
+func NewService(database *db.DB) *Service {
 	return &Service{database: database}
 }
 
@@ -92,7 +99,7 @@ func (h *Handler) TerminateLearners(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
+	userID := c.GetString("user_id")
 	tenantID := c.GetString("tenant_id")
 	if tenantID == "" {
 		validation.Forbidden(c, "no tenant context")
@@ -101,7 +108,7 @@ func (h *Handler) TerminateLearners(c *gin.Context) {
 
 	tx, err := h.service.database.BeginTxx(c.Request.Context(), nil)
 	if err != nil {
-		validation.InternalError(c, "could not start transaction")
+		validation.Internal(c, "could not start transaction")
 		return
 	}
 	defer tx.Rollback()
@@ -117,16 +124,16 @@ func (h *Handler) TerminateLearners(c *gin.Context) {
 			continue
 		}
 		results = append(results, TerminationResult{
-			LearnerID:        row.LearnerID,
-			AdmissionNumber:  row.AdmissionNumber,
-			PreviousStatus:   row.PreviousStatus,
-			NewStatus:        row.NewStatus,
-			Category:         req.Category,
+			LearnerID:       row.LearnerID,
+			AdmissionNumber: row.AdmissionNumber,
+			PreviousStatus:  row.PreviousStatus,
+			NewStatus:       row.NewStatus,
+			Category:        req.Category,
 		})
 	}
 
 	if err := tx.Commit(); err != nil {
-		validation.InternalError(c, "could not complete learner termination")
+		validation.Internal(c, "could not complete learner termination")
 		return
 	}
 
@@ -137,12 +144,12 @@ func (h *Handler) TerminateLearners(c *gin.Context) {
 
 // TerminationResult is one learner's termination response.
 type TerminationResult struct {
-	LearnerID        string `json:"learner_id"`
-	AdmissionNumber  string `json:"admission_number"`
-	PreviousStatus   string `json:"previous_status"`
-	NewStatus        string `json:"new_status"`
-	Category         string `json:"category"`
-	Error            string `json:"error,omitempty"`
+	LearnerID       string `json:"learner_id"`
+	AdmissionNumber string `json:"admission_number"`
+	PreviousStatus  string `json:"previous_status"`
+	NewStatus       string `json:"new_status"`
+	Category        string `json:"category"`
+	Error           string `json:"error,omitempty"`
 }
 
 // LearnerStatusChange is one row written to learner_status_history.
@@ -163,7 +170,7 @@ func (s *Service) terminateLearner(
 	tenantID, learnerID, category, reason, userID string,
 ) (*LearnerStatusChange, error) {
 	var l struct {
-		LearnerID      string
+		LearnerID       string
 		AdmissionNumber string
 		FirstName       string
 		LastName        string
@@ -248,7 +255,7 @@ type Learner struct {
 	BoardingType      string `json:"boarding_type,omitempty"`
 	ResidenceType     string `json:"residence_type,omitempty"`
 	KEMISUPI          string `json:"kesis_upi,omitempty"`
-	KNECAssessmentNo string `json:"knec_assessment_no,omitempty"`
+	KNECAssessmentNo  string `json:"knec_assessment_no,omitempty"`
 	SNECategory       string `json:"sne_category,omitempty"`
 	TransportZoneID   string `json:"transport_zone_id,omitempty"`
 	TransportTripType string `json:"transport_trip_type,omitempty"`

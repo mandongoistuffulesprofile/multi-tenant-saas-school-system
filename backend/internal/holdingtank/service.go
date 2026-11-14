@@ -13,6 +13,7 @@ import (
 
 type queryer interface {
 	Query(string, ...interface{}) (*sql.Rows, error)
+	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
 	QueryRow(string, ...interface{}) *sql.Row
 	Exec(string, ...interface{}) (sql.Result, error)
 }
@@ -40,6 +41,11 @@ type HoldingEntry struct {
 	AllocatedTo *string    `json:"allocated_to,omitempty"`
 	AllocatedAt *time.Time `json:"allocated_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
+
+	// Inbox context used only for candidate scoring; never serialised.
+	ReceiverName     string `json:"-"`
+	ReceiverPhone    string `json:"-"`
+	AccountReference string `json:"-"`
 }
 
 func (s *Service) List(ctx context.Context, tenantID, status string, limit, offset int) ([]HoldingEntry, error) {

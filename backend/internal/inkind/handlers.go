@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -105,22 +104,6 @@ func (h *Handler) ListIntakes(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, logs)
-}
-
-func (h *Handler) GetIntake(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
-	logID := c.Param("id")
-
-	log, err := h.service.GetIntake(c.Request.Context(), tenantID, logID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-		return
-	}
-	if log == nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Intake log not found"})
-		return
-	}
-	c.JSON(http.StatusOK, log)
 }
 
 func (h *Handler) CreateIntake(c *gin.Context) {

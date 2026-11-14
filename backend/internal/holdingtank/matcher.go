@@ -2,6 +2,7 @@ package holdingtank
 
 import (
 	"context"
+	"database/sql"
 	"regexp"
 	"sort"
 	"strings"
@@ -109,14 +110,14 @@ func (m *Matcher) FindCandidates(
 	var inboxSenderPhone string
 	var inboxAccountRef string
 	if entry.Reference != "" {
-		err := q.QueryRowContext(ctx, `
+		err := q.QueryRow(`
 			SELECT sender_name, sender_phone, account_reference
 			FROM mpesa_raw_inbox
 			WHERE tenant_id = $1 AND trans_id = $2
 			LIMIT 1`, tenantID, entry.Reference).Scan(
 			&inboxSenderName, &inboxSenderPhone, &inboxAccountRef,
 		)
-		if err != nil && err != db.ErrNoRows {
+		if err != nil && err != sql.ErrNoRows {
 			return nil, err
 		}
 		if err == nil {
@@ -168,7 +169,7 @@ func (m *Matcher) FindCandidates(
 		if guardian != "" {
 			c.GuardianPhone = guardian
 		}
-		out = append(out, c.mc)
+		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -213,7 +214,6 @@ func scoreCandidate(entry HoldingEntry, admission, learnerName, guardianPhone st
 		if strings.EqualFold(entry.ReceiverPhone, guardianPhone) {
 			c.ConfidenceScore = 0.9
 			c.MatchBasis = "guardian_phone_match"
-			c.primary = true
 			return c, true
 		}
 	}

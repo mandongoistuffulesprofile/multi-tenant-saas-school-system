@@ -48,52 +48,53 @@ type CreateMealRecipeRequest struct {
 }
 
 type StoreRequisition struct {
-	ID              string                `json:"id"`
-	TenantID        string                `json:"tenant_id"`
-	SlipNumber      string                `json:"slip_number"`
-	RequisitionDate string                `json:"requisition_date"`
-	MealType        string                `json:"meal_type"`
-	RecipeID        *string               `json:"recipe_id,omitempty"`
-	BoarderCountFed int                   `json:"boarder_count_fed"`
-	Status          string                `json:"status"`
-	ApprovedBy      *string               `json:"approved_by,omitempty"`
-	ApprovedAt      *string               `json:"approved_at,omitempty"`
-	ApprovalReason  *string               `json:"approval_reason,omitempty"`
-	CreatedBy       *string               `json:"created_by,omitempty"`
-	CreatedAt       string                `json:"created_at"`
-	UpdatedAt       string                `json:"updated_at"`
+	ID              string                 `json:"id"`
+	TenantID        string                 `json:"tenant_id"`
+	SlipNumber      string                 `json:"slip_number"`
+	RequisitionDate string                 `json:"requisition_date"`
+	MealType        string                 `json:"meal_type"`
+	RecipeID        *string                `json:"recipe_id,omitempty"`
+	BoarderCountFed int                    `json:"boarder_count_fed"`
+	Status          string                 `json:"status"`
+	ApprovedBy      *string                `json:"approved_by,omitempty"`
+	ApprovedAt      *string                `json:"approved_at,omitempty"`
+	ApprovalReason  *string                `json:"approval_reason,omitempty"`
+	CreatedBy       *string                `json:"created_by,omitempty"`
+	CreatedAt       string                 `json:"created_at"`
+	UpdatedAt       string                 `json:"updated_at"`
 	Items           []StoreRequisitionItem `json:"items,omitempty"`
+	RecipeName      *string                `json:"recipe_name,omitempty"`
 }
 
 type StoreRequisitionItem struct {
-	ID             string   `json:"id"`
-	TenantID       string   `json:"tenant_id"`
-	RequisitionID  string   `json:"requisition_id"`
-	InventoryItemID string  `json:"inventory_item_id"`
-	ExpectedQty    float64  `json:"expected_qty"`
-	ActualIssuedQty float64 `json:"actual_issued_qty"`
-	VarianceQty    float64  `json:"variance_qty"`
-	VariancePct    float64  `json:"variance_pct"`
-	UnitCostAtTime *float64 `json:"unit_cost_at_time,omitempty"`
-	Notes          *string  `json:"notes,omitempty"`
-	CreatedAt      string   `json:"created_at"`
+	ID              string   `json:"id"`
+	TenantID        string   `json:"tenant_id"`
+	RequisitionID   string   `json:"requisition_id"`
+	InventoryItemID string   `json:"inventory_item_id"`
+	ExpectedQty     float64  `json:"expected_qty"`
+	ActualIssuedQty float64  `json:"actual_issued_qty"`
+	VarianceQty     float64  `json:"variance_qty"`
+	VariancePct     float64  `json:"variance_pct"`
+	UnitCostAtTime  *float64 `json:"unit_cost_at_time,omitempty"`
+	Notes           *string  `json:"notes,omitempty"`
+	CreatedAt       string   `json:"created_at"`
 }
 
 type CreateRequisitionRequest struct {
-	SlipNumber      string                        `json:"slip_number" binding:"required"`
-	RequisitionDate string                        `json:"requisition_date" binding:"required"`
-	MealType        string                        `json:"meal_type" binding:"required"`
-	RecipeID        *string                       `json:"recipe_id"`
-	BoarderCountFed int                           `json:"boarder_count_fed" binding:"required,min=1"`
-	Notes           *string                       `json:"notes"`
+	SlipNumber      string                         `json:"slip_number" binding:"required"`
+	RequisitionDate string                         `json:"requisition_date" binding:"required"`
+	MealType        string                         `json:"meal_type" binding:"required"`
+	RecipeID        *string                        `json:"recipe_id"`
+	BoarderCountFed int                            `json:"boarder_count_fed" binding:"required,min=1"`
+	Notes           *string                        `json:"notes"`
 	Items           []CreateRequisitionItemRequest `json:"items" binding:"required,min=1"`
 }
 
 type CreateRequisitionItemRequest struct {
-	InventoryItemID  string  `json:"inventory_item_id" binding:"required"`
-	ExpectedQty      float64 `json:"expected_qty" binding:"required,gte=0"`
-	ActualIssuedQty  float64 `json:"actual_issued_qty" binding:"required,gt=0"`
-	UnitCost         *float64 `json:"unit_cost"`
+	InventoryItemID string   `json:"inventory_item_id" binding:"required"`
+	ExpectedQty     float64  `json:"expected_qty" binding:"required,gte=0"`
+	ActualIssuedQty float64  `json:"actual_issued_qty" binding:"required,gt=0"`
+	UnitCost        *float64 `json:"unit_cost"`
 }
 
 func (s *Service) q(ctx context.Context) queryer {
@@ -104,9 +105,9 @@ func (s *Service) q(ctx context.Context) queryer {
 }
 
 type RequisitionWithItems struct {
-	Requisition  StoreRequisition
-	Items        []StoreRequisitionItem
-	RecipeName   *string `json:"recipe_name,omitempty"`
+	Requisition   StoreRequisition
+	Items         []StoreRequisitionItem
+	RecipeName    *string `json:"recipe_name,omitempty"`
 	TotalIssuedKg float64 `json:"total_issued_kg"`
 }
 
@@ -129,7 +130,7 @@ func (s *Service) GetRequisition(ctx context.Context, tenantID, requisitionID st
 		if err := q.QueryRow(
 			`SELECT name FROM meal_recipes WHERE tenant_id = $1 AND id = $2`,
 			tenantID, *r.RecipeID,
-		).Scan(&recipeName) == nil {
+		).Scan(&recipeName); err == nil {
 			r.RecipeName = &recipeName
 		}
 	}
@@ -162,9 +163,9 @@ func (s *Service) GetRequisition(ctx context.Context, tenantID, requisitionID st
 	}
 
 	return &RequisitionWithItems{
-		Requisition:  r,
-		Items:        items,
-		RecipeName:   r.RecipeName,
+		Requisition:   r,
+		Items:         items,
+		RecipeName:    r.RecipeName,
 		TotalIssuedKg: totalIssued,
 	}, nil
 }
@@ -408,9 +409,9 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 	defer rows.Close()
 
 	type reqItem struct {
-		ID             string
+		ID              string
 		InventoryItemID string
-		ActualIssued   float64
+		ActualIssued    float64
 	}
 	var reqItems []reqItem
 	for rows.Next() {
@@ -521,7 +522,6 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 		}
 	}
 
-	
 	r.Status = status
 	r.BoarderCountFed = boarderCount
 	return &r, nil
@@ -561,9 +561,9 @@ func (s *Service) ApproveRequisition(ctx context.Context, tenantID, userID, requ
 	defer rows.Close()
 
 	type reqItem struct {
-		ID             string
+		ID              string
 		InventoryItemID string
-		ActualIssued   float64
+		ActualIssued    float64
 	}
 	var reqItems []reqItem
 	for rows.Next() {
@@ -622,7 +622,7 @@ func (s *Service) ApproveRequisition(ctx context.Context, tenantID, userID, requ
 		}
 	}
 
-	_, err := tx.Exec(
+	_, err = tx.Exec(
 		`UPDATE daily_store_requisitions SET status = 'APPROVED', approved_by = $1, approval_reason = $2,
 			 approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 		 WHERE tenant_id = $3 AND id = $4`,
@@ -658,7 +658,7 @@ func (s *Service) RejectRequisition(ctx context.Context, tenantID, userID, requi
 		return nil, errors.New("requisition is not pending approval")
 	}
 
-	_, err := tx.Exec(
+	_, err = tx.Exec(
 		`UPDATE daily_store_requisitions SET status = 'REJECTED', approved_by = $1, approval_reason = $2,
 			 approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 		 WHERE tenant_id = $3 AND id = $4`,
@@ -668,10 +668,5 @@ func (s *Service) RejectRequisition(ctx context.Context, tenantID, userID, requi
 		return nil, err
 	}
 	r.Status = "REJECTED"
-	return &r, nil
-}
-
-
-	r.BoarderCountFed = boarderCount
 	return &r, nil
 }

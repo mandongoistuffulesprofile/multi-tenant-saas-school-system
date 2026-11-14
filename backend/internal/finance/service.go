@@ -1376,10 +1376,11 @@ func NewService(database *db.DB) *Service {
 
 type Handler struct {
 	service *Service
+	db      *db.DB
 }
 
 func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+	return &Handler{service: service, db: service.database}
 }
 
 // Fee Structures handlers
@@ -2043,13 +2044,13 @@ func (h *Handler) ListCapitationReceipts(c *gin.Context) {
 // and an estimated capitation exposure without maintaining a separate
 // hardcoded ledger of assumed rates.
 type CapitationComplianceResult struct {
-	TenantID                string  `json:"tenant_id"`
-	TotalEnrolled           int     `json:"total_enrolled"`
-	VerifiedUPICount        int     `json:"verified_upi_count"`
-	MissingUPICount         int     `json:"missing_upi_count"`
-	AtRiskPercentage        float64 `json:"at_risk_percentage"`
-	PrimaryAndJSSAtRiskCount int    `json:"primary_and_jss_at_risk_count"`
-	Grade6AndBelowAtRiskCount int   `json:"grade_6_and_below_at_risk_count"`
+	TenantID                  string  `json:"tenant_id"`
+	TotalEnrolled             int     `json:"total_enrolled"`
+	VerifiedUPICount          int     `json:"verified_upi_count"`
+	MissingUPICount           int     `json:"missing_upi_count"`
+	AtRiskPercentage          float64 `json:"at_risk_percentage"`
+	PrimaryAndJSSAtRiskCount  int     `json:"primary_and_jss_at_risk_count"`
+	Grade6AndBelowAtRiskCount int     `json:"grade_6_and_below_at_risk_count"`
 	EstimatedPrimaryExposure  float64 `json:"estimated_primary_exposure_kes"`
 	EstimatedJSSExposure      float64 `json:"estimated_jss_exposure_kes"`
 	EstimatedTotalExposure    float64 `json:"estimated_total_exposure_kes"`
@@ -2058,28 +2059,27 @@ type CapitationComplianceResult struct {
 }
 
 func (s *Service) CapitationCompliance(ctx context.Context, tenantID string) (*CapitationComplianceResult, error) {
-	q := s.q(ctx)
+	q := s.database
 
-	// Resolve the current academic year for the tenant.
+	// Resolve the current academic year for the tenant: the year flagged
+	// current, else the most recently started one.
 	var yearID, yearLabel string
-	err := q.QueryRow(
-		`SELECT year_id, label FROM academic_years
-		 WHERE tenant_id = $1 AND is_current = true
-		 UNION ALL
-		 SELECT year_id, label FROM academic_years
-		 WHERE tenant_id = $1 AND start_date <= CURRENT_DATE
-		 ORDER BY start_date DESC LIMIT 1`,
+	err := q.QueryRowxContext(ctx,
+		`SELECT year_id, year_label FROM academic_years
+		 WHERE tenant_id = $1
+		 ORDER BY is_current DESC, start_date DESC
+		 LIMIT 1`,
 		tenantID,
 	).Scan(&yearID, &yearLabel)
 	if err == sql.ErrNoRows {
 		return &CapitationComplianceResult{
-			TenantID:           tenantID,
+			TenantID:                  tenantID,
 			CurrentAcademicYearID:     "",
 			CurrentAcademicYearLabel:  "",
-			TotalEnrolled:        0,
-			VerifiedUPICount:     0,
-			MissingUPICount:      0,
-			AtRiskPercentage:     0,
+			TotalEnrolled:             0,
+			VerifiedUPICount:          0,
+			MissingUPICount:           0,
+			AtRiskPercentage:          0,
 			Grade6AndBelowAtRiskCount: 0,
 			PrimaryAndJSSAtRiskCount:  0,
 		}, nil
@@ -2092,7 +2092,7 @@ func (s *Service) CapitationCompliance(ctx context.Context, tenantID string) (*C
 	// the current year. Learner UPI verification is judged by a present, non-
 	// trivial upi_nemis_number. Grade banding comes from the class_group's grade.
 	var r CapitationComplianceResult
-	err = q.QueryRow(
+	err = q.QueryRowxContext(ctx,
 		`SELECT
 			COUNT(DISTINCT l.learner_id),
 			COUNT(DISTINCT CASE WHEN NULLIF(TRIM(l.upi_nemis_number), '') IS NOT NULL THEN l.learner_id END),

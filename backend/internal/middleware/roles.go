@@ -66,6 +66,31 @@ var RoleAllStaff = []string{
 // RolePlatformAdministrators manage SaaS root operations, subscriptions and tenant onboarding.
 var RolePlatformAdministrators = []string{RoleSaasAdmin, RoleSuperAdmin}
 
+// IsSchoolAdmin reports whether the current session holds a school
+// administrator role (school admin, head or deputy).
+func IsSchoolAdmin(c *gin.Context) bool {
+	allowed := make(map[string]struct{}, len(RoleSchoolAdministrators))
+	for _, r := range RoleSchoolAdministrators {
+		allowed[r] = struct{}{}
+	}
+	if rolesVal, ok := c.Get(ContextRoles); ok {
+		if roles, ok := rolesVal.([]string); ok {
+			for _, role := range roles {
+				if _, ok := allowed[role]; ok {
+					return true
+				}
+			}
+		}
+	}
+	if role, ok := c.Get(ContextRole); ok {
+		if roleStr, ok := role.(string); ok {
+			_, found := allowed[roleStr]
+			return found
+		}
+	}
+	return false
+}
+
 // RequireRole restricts a Gin route to one of the given roles.
 // It checks all roles in the token claims (ContextRoles) to support
 // multi-membership users.

@@ -21,13 +21,6 @@ func indicatorWindow(window string) string {
 	return " (" + window + ")"
 }
 
-func scoreText(total, max float64) string {
-	if total == 0 && max == 0 {
-		return "—"
-	}
-	return fmt.Sprintf("%.1f / %.1f", total, max)
-}
-
 func (h *Handler) GetReportCardPDF(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
@@ -124,8 +117,8 @@ func (h *Handler) GetReportCardPDF(c *gin.Context) {
 				LearningAreaName: r.LearningAreaName,
 				AssessmentType:   fmt.Sprintf("%s%s", r.AssessmentType, indicatorWindow(r.AssessmentWindow)),
 				Score:            scoreText(r.RawScore, r.MaxScore),
-				LevelCode:       r.LevelCode,
-				Comment:         r.Comment,
+				LevelCode:        r.LevelCode,
+				Comment:          r.Comment,
 			})
 		}
 	}

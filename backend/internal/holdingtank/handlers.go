@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Handler struct {
@@ -127,31 +125,8 @@ func (h *Handler) MatchHoldingEntry(c *gin.Context) {
 		return
 	}
 
-	// MatchCandidates needs the inbox context for the entry. Populate the
-	// helper fields the matcher consumes from the entry and the M-Pesa inbox.
-	type holder struct {
-		HoldingEntry
-		ReceiverName  string `json:"-"`
-		ReceiverPhone string `json:"-"`
-		AccountReference string `json:"-"`
-	}
-	h := holder{
-		HoldingEntry: *target,
-	}
-	if h.Reference != "" {
-		var inboxSenderName, inboxSenderPhone, inboxAccountRef string
-		if err := h.service.q(c.Request.Context()).QueryRowContext(c.Request.Context(), `
-			SELECT sender_name, sender_phone, account_reference
-			FROM mpesa_raw_inbox
-			WHERE tenant_id = $1 AND trans_id = $2
-			LIMIT 1`, tenantID, h.Reference).Scan(&inboxSenderName, &inboxSenderPhone, &inboxAccountRef); err == nil {
-			h.ReceiverName = inboxSenderName
-			h.ReceiverPhone = inboxSenderPhone
-			h.AccountReference = inboxAccountRef
-		}
-	}
-
-	matches, err := NewMatcher(h.service.database).FindCandidates(c.Request.Context(), tenantID, h.HoldingEntry)
+	// The matcher reads the M-Pesa inbox context for the entry itself.
+	matches, err := NewMatcher(h.service.database).FindCandidates(c.Request.Context(), tenantID, *target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return

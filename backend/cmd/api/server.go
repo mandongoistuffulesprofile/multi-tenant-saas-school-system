@@ -151,12 +151,14 @@ func Run() error {
 	syncService := sync.NewService()
 	syncHandler := sync.NewHandler(syncService)
 
-		inkindService := inkind.NewService(database)
+	inkindService := inkind.NewService(database)
 	valueLedgerService := valueledger.NewService(database)
 	valueLedgerHandler := valueledger.NewHandler(valueLedgerService)
-openingBalanceService := openingbalance.NewService(database)
-openingBalanceHandler := openingbalance.NewHandler(openingBalanceService)	holdingtankService := holdingtank.NewService(database)	holdingtankHandler := holdingtank.NewHandler(holdingtankService)
-inkindHandler := inkind.NewHandler(inkindService, financeHandler)
+	openingBalanceService := openingbalance.NewService(database)
+	openingBalanceHandler := openingbalance.NewHandler(openingBalanceService)
+	holdingtankService := holdingtank.NewService(database)
+	holdingtankHandler := holdingtank.NewHandler(holdingtankService)
+	inkindHandler := inkind.NewHandler(inkindService, financeHandler)
 
 	kitchenService := kitchen.NewService(database)
 	kitchenHandler := kitchen.NewHandler(kitchenService)

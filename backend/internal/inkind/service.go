@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 )
@@ -19,6 +21,7 @@ type queryer interface {
 
 type Service struct {
 	database *db.DB
+	fin      *finance.Handler
 }
 
 func NewService(database *db.DB) *Service {
@@ -305,15 +308,15 @@ func (s *Service) CurrentRate(ctx context.Context, tenantID, inventoryItemID, te
 }
 
 type InventoryLot struct {
-	ID             string  `json:"id"`
-	TenantID       string  `json:"tenant_id"`
-	InventoryItemID string `json:"inventory_item_id"`
-	SourceType     string  `json:"source_type"`
-	SourceID       string  `json:"source_id"`
-	QtyReceived    float64 `json:"qty_received"`
-	QtyRemaining   float64 `json:"qty_remaining"`
-	UnitCost       string  `json:"unit_cost"`
-	ReceivedAt     string  `json:"received_at"`
+	ID              string  `json:"id"`
+	TenantID        string  `json:"tenant_id"`
+	InventoryItemID string  `json:"inventory_item_id"`
+	SourceType      string  `json:"source_type"`
+	SourceID        string  `json:"source_id"`
+	QtyReceived     float64 `json:"qty_received"`
+	QtyRemaining    float64 `json:"qty_remaining"`
+	UnitCost        string  `json:"unit_cost"`
+	ReceivedAt      string  `json:"received_at"`
 }
 
 // LotsForItem returns FIFO lots for one inventory item, including only lots
@@ -353,9 +356,9 @@ func (s *Service) SetFinanceCrediter(f *finance.Handler) {
 }
 
 func (s *Service) creditStudentInvoiceForInKind(
-	tenantID, userID, studentID, admissionNumber, intakeNumber string,
+	tenantID, userID, studentID, intakeNumber string,
 	sourceType string,
-	amount money.Amount,
+	amount money.Decimal,
 ) {
 	voteheadCode := "BOARDING_PRODUCE"
 	if strings.EqualFold(sourceType, "LUNCH") || strings.EqualFold(sourceType, "FOOD") {
@@ -363,8 +366,8 @@ func (s *Service) creditStudentInvoiceForInKind(
 	}
 
 	if s.fin != nil {
-		_ = s.fin.CreditStudentInvoiceForInKind(
-			tenantID, userID, studentID, admissionNumber, voteheadCode, intakeNumber, amount,
+		_, _ = s.fin.CreditStudentInvoiceForInKind(
+			tenantID, userID, studentID, voteheadCode, amount, intakeNumber,
 		)
 	}
 }
@@ -573,8 +576,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 	// This is the operational fix for the maize-barter scenario: Faith's
 	// boarding balance must actually clear when the grain is weighed in.
 	s.creditStudentInvoiceForInKind(
-		tenantID, userID, req.StudentID, req.IntakeNumber, "IN_KIND",
-		totalValue,
+		tenantID, userID, req.StudentID, req.IntakeNumber, "IN_KIND", totalValue,
 	)
 
 	return &l, nil

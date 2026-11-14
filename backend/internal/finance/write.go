@@ -25,12 +25,12 @@ type feeLineDraft struct {
 
 // InKindCreditResult records that an in-kind produce intake credited an invoice.
 type InKindCreditResult struct {
-	PaymentID        string  `json:"payment_id"`
-	InvoiceID        string  `json:"invoice_id"`
-	InvoiceNumber    string  `json:"invoice_number"`
+	PaymentID           string  `json:"payment_id"`
+	InvoiceID           string  `json:"invoice_id"`
+	InvoiceNumber       string  `json:"invoice_number"`
 	PreviousOutstanding float64 `json:"previous_outstanding"`
-	NewOutstanding   float64 `json:"new_outstanding"`
-	VoteheadCode     string  `json:"votehead_code"`
+	NewOutstanding      float64 `json:"new_outstanding"`
+	VoteheadCode        string  `json:"votehead_code"`
 }
 
 // CreditStudentInvoiceForInKind credits one student's open invoice for a
@@ -42,9 +42,8 @@ func (h *Handler) CreditStudentInvoiceForInKind(
 	tenantID string,
 	userID string,
 	studentID string,
-	admissionNumber string,
 	voteheadCode string,
-	amount money.Amount,
+	amount money.Decimal,
 	sourceRef string,
 ) (*InKindCreditResult, error) {
 	// Find an open invoice for the student on the requested votehead.
@@ -64,7 +63,7 @@ func (h *Handler) CreditStudentInvoiceForInKind(
 		return nil, fmt.Errorf("no open invoice for student %s: %w", studentID, err)
 	}
 
-	centsToCredit := amount.Cents()
+	centsToCredit := money.ToCents(amount)
 	if centsToCredit > int64(amountOutstanding*100) {
 		centsToCredit = int64(amountOutstanding * 100)
 	}
@@ -84,7 +83,7 @@ func (h *Handler) CreditStudentInvoiceForInKind(
 		shortPaymentRef(sourceRef),
 		studentID,
 		"IN_KIND_PRODUCE",
-		amount.StringFixed(2),
+		money.FloatString(amount, 2),
 		nullableString(userID),
 	).Scan(&paymentID)
 	if err != nil {
@@ -95,7 +94,7 @@ func (h *Handler) CreditStudentInvoiceForInKind(
 	_, _ = h.db.Exec(
 		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 		 VALUES ($1, $2, $3, $4, $5)`,
-		tenantID, paymentID, invoiceID, amount.StringFixed(2), nullableString(userID))
+		tenantID, paymentID, invoiceID, money.FloatString(amount, 2), nullableString(userID))
 
 	_, _ = h.db.Exec(
 		`UPDATE invoices SET amount_paid = amount_paid + $1,
@@ -103,16 +102,16 @@ func (h *Handler) CreditStudentInvoiceForInKind(
 		   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
 		   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
 		   updated_at = now()
-		 WHERE invoice_id = $2 AND tenant_id = $3`, amount.StringFixed(2), invoiceID, tenantID)
+		 WHERE invoice_id = $2 AND tenant_id = $3`, money.FloatString(amount, 2), invoiceID, tenantID)
 
 	newOutstanding := amountOutstanding - float64(centsToCredit)/100.0
 	return &InKindCreditResult{
-		PaymentID:        paymentID,
-		InvoiceID:        invoiceID,
-		InvoiceNumber:    invoiceNumber,
+		PaymentID:           paymentID,
+		InvoiceID:           invoiceID,
+		InvoiceNumber:       invoiceNumber,
 		PreviousOutstanding: previousOutstanding,
-		NewOutstanding:   newOutstanding,
-		VoteheadCode:     voteheadCode,
+		NewOutstanding:      newOutstanding,
+		VoteheadCode:        voteheadCode,
 	}, nil
 }
 
@@ -125,14 +124,6 @@ func shortPaymentRef(sourceRef string) string {
 	}
 	return "INKIND-" + strings.ToUpper(strings.TrimSpace(sourceRef))
 }
-
-func nullableString(s string) interface{} {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
 
 // invoiceDraft groups the fee lines belonging to a single learner.
 type invoiceDraft struct {
