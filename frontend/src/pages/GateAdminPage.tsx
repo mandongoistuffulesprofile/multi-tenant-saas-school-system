@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import Card from "../components/atoms/Card";
@@ -43,6 +43,26 @@ const DEFAULT_POLICY: GatePolicy = {
 
 const HOLDER_TYPES = ["LEARNER", "STAFF", "GUARDIAN"] as const;
 
+// A person a tag can belong to, already labelled for the picker.
+type HolderOption = {
+  id: string;
+  label: string;
+  hint: string;
+  search: string; // lower-cased label + hint + identifiers
+};
+
+const HOLDER_HELP: Record<string, string> = {
+  LEARNER: "Search by name or admission number.",
+  STAFF: "Search by name, email or role.",
+  GUARDIAN: "Search by name, phone or email.",
+};
+
+const HOLDER_ENDPOINTS: Record<string, string> = {
+  LEARNER: "/learners?limit=200",
+  STAFF: "/staff",
+  GUARDIAN: "/guardians",
+};
+
 function errorMessage(err: unknown, fallback: string): string {
   const e = err as { response?: { data?: { message?: string } } };
   return e?.response?.data?.message || fallback;
@@ -72,6 +92,10 @@ export default function GateAdminPage() {
 
   const [tagForm, setTagForm] = useState({ tag_uid: "", holder_type: "LEARNER", holder_id: "" });
   const [issuing, setIssuing] = useState(false);
+  const [holderOptions, setHolderOptions] = useState<HolderOption[]>([]);
+  const [holderState, setHolderState] = useState<"loading" | "content" | "error">("loading");
+  const [holderQuery, setHolderQuery] = useState("");
+  const [selectedHolder, setSelectedHolder] = useState<HolderOption | null>(null);
 
   const load = async () => {
     try {
@@ -93,6 +117,65 @@ export default function GateAdminPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSelectedHolder(null);
+    setHolderQuery("");
+    setTagForm((f) => ({ ...f, holder_id: "" }));
+    setHolderState("loading");
+
+    const loadHolders = async () => {
+      try {
+        const res = await api.get<any[]>(HOLDER_ENDPOINTS[tagForm.holder_type]);
+        if (cancelled) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        const options: HolderOption[] = rows.map((row) => {
+          if (tagForm.holder_type === "LEARNER") {
+            const label = `${row.first_name} ${row.last_name}`;
+            return {
+              id: row.learner_id,
+              label,
+              hint: `${row.admission_number}${row.grade_label ? ` · ${row.grade_label}` : ""}`,
+              search: `${label} ${row.admission_number}`.toLowerCase(),
+            };
+          }
+          if (tagForm.holder_type === "STAFF") {
+            const label = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.email || row.phone_number;
+            return {
+              // The tenant staff record, which is what a membership-based
+              // holder_id refers to.
+              id: row.membership_id,
+              label,
+              hint: `${row.role}${row.email ? ` · ${row.email}` : ""}`,
+              search: `${label} ${row.email} ${row.role}`.toLowerCase(),
+            };
+          }
+          return {
+            id: row.guardian_id,
+            label: row.full_name,
+            hint: `${row.phone_number}${row.learner_count ? ` · ${row.learner_count} learners` : ""}`,
+            search: `${row.full_name} ${row.phone_number} ${row.email ?? ""}`.toLowerCase(),
+          };
+        });
+        setHolderOptions(options);
+        setHolderState("content");
+      } catch {
+        if (cancelled) return;
+        setHolderOptions([]);
+        setHolderState("error");
+      }
+    };
+
+    loadHolders();
+    return () => { cancelled = true; };
+  }, [tagForm.holder_type]);
+
+  const holderMatches = useMemo(() => {
+    const q = holderQuery.trim().toLowerCase();
+    const pool = q ? holderOptions.filter((o) => o.search.includes(q)) : holderOptions;
+    return pool.slice(0, 8);
+  }, [holderOptions, holderQuery]);
 
   const pairDevice = async () => {
     if (!deviceForm.device_name.trim()) {
@@ -118,8 +201,8 @@ export default function GateAdminPage() {
   };
 
   const issueTag = async () => {
-    if (!tagForm.tag_uid.trim() || !tagForm.holder_id.trim()) {
-      toast("A tag needs its UID and the ID of the person it belongs to.", { type: "error" });
+    if (!tagForm.tag_uid.trim() || !selectedHolder) {
+      toast("A tag needs its UID and the person it belongs to.", { type: "error" });
       return;
     }
     setIssuing(true);
@@ -127,9 +210,11 @@ export default function GateAdminPage() {
       await api.post("/gate/tags", {
         tag_uid: tagForm.tag_uid.trim(),
         holder_type: tagForm.holder_type,
-        holder_id: tagForm.holder_id.trim(),
+        holder_id: selectedHolder.id,
       });
       setTagForm({ tag_uid: "", holder_type: tagForm.holder_type, holder_id: "" });
+      setSelectedHolder(null);
+      setHolderQuery("");
       toast("Tag issued.", { type: "success" });
       await load();
     } catch (err) {
@@ -249,32 +334,79 @@ export default function GateAdminPage() {
                 placeholder="04:A2:1B:…"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label block mb-1" htmlFor="tag-holder-type">Holder</label>
-                <select
-                  id="tag-holder-type"
-                  className="input-field w-full"
-                  value={tagForm.holder_type}
-                  onChange={(e) => setTagForm((f) => ({ ...f, holder_type: e.target.value }))}
-                >
-                  {HOLDER_TYPES.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label block mb-1" htmlFor="tag-holder-id">Holder ID</label>
-                <input
-                  id="tag-holder-id"
-                  className="input-field w-full font-mono text-xs"
-                  value={tagForm.holder_id}
-                  onChange={(e) => setTagForm((f) => ({ ...f, holder_id: e.target.value }))}
-                  placeholder="Learner or staff record ID"
-                />
-              </div>
+            <div>
+              <label className="label block mb-1" htmlFor="tag-holder-type">Holder type</label>
+              <select
+                id="tag-holder-type"
+                className="input-field w-full"
+                value={tagForm.holder_type}
+                onChange={(e) => setTagForm((f) => ({ ...f, holder_type: e.target.value }))}
+              >
+                {HOLDER_TYPES.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
             </div>
-            <Button variant="primary" fullWidth onClick={issueTag} disabled={issuing}>
+            <div>
+              <label className="label block mb-1" htmlFor="tag-holder-search">Holder</label>
+              {selectedHolder ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-300 px-3 py-2">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-gray-900 truncate">{selectedHolder.label}</span>
+                    <span className="block text-xs text-gray-500 truncate">{selectedHolder.hint}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs text-gray-500 hover:text-kenyan-red shrink-0"
+                    onClick={() => { setSelectedHolder(null); setTagForm((f) => ({ ...f, holder_id: "" })); }}
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    id="tag-holder-search"
+                    className="input-field w-full"
+                    value={holderQuery}
+                    onChange={(e) => setHolderQuery(e.target.value)}
+                    placeholder={holderState === "loading" ? "Loading…" : "Type a name…"}
+                    disabled={holderState === "loading"}
+                    autoComplete="off"
+                  />
+                  <p className="text-caption text-muted mt-1">{HOLDER_HELP[tagForm.holder_type]}</p>
+                  {holderState === "error" && (
+                    <p className="text-xs text-kenyan-red mt-1">Could not load the {tagForm.holder_type.toLowerCase()} list.</p>
+                  )}
+                  {holderState === "content" && holderMatches.length === 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {holderQuery.trim() ? "No match." : "Nothing to choose from yet."}
+                    </p>
+                  )}
+                  {holderMatches.length > 0 && (
+                    <ul className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+                      {holderMatches.map((option) => (
+                        <li key={option.id}>
+                          <button
+                            type="button"
+                            className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                            onClick={() => {
+                              setSelectedHolder(option);
+                              setTagForm((f) => ({ ...f, holder_id: option.id }));
+                              setHolderQuery("");
+                            }}
+                          >
+                            <span className="block text-sm text-gray-900">{option.label}</span>
+                            <span className="block text-xs text-gray-500">{option.hint}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+            <Button variant="primary" fullWidth onClick={issueTag} disabled={issuing || !selectedHolder}>
               {issuing ? "Issuing…" : "Issue tag"}
             </Button>
           </div>
