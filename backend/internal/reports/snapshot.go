@@ -182,14 +182,15 @@ func loadSnapshotAreas(tx *sqlx.Tx, tenantID, learnerID, termID, cardID string) 
 	for rows.Next() {
 		var areaID, code, name, strand string
 		var result SnapshotResult
-		var levelCode string
-		var comment string
+		var levelCode, comment string
+		var points float64
 		if err := rows.Scan(&areaID, &code, &name, &strand,
 			&result.AssessmentType, &result.AssessmentWindow,
-			&levelCode, &result.Points, &result.RawScore, &result.MaxScore,
+			&levelCode, &points, &result.RawScore, &result.MaxScore,
 			&comment); err != nil {
 			return nil, err
 		}
+		result.Points = int(points)
 		result.LevelCode = grading.NormalizeCode(levelCode)
 		result.Band = grading.BandOf(result.LevelCode)
 		result.Descriptor = grading.DescriptorFor(result.LevelCode)
