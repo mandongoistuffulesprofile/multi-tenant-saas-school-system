@@ -63,6 +63,106 @@ const DONE_EVENT_WAIT = 60_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const PREFLIGHT_TIMEOUT_MS = 4000;
+
+function preflightFix(kind) {
+  switch (kind) {
+    case "chrome":
+      return "install Google Chrome, or pass --chrome /path/to/chrome";
+    case "api":
+      return "start the API (needs PostgreSQL and Redis): cd backend && go run ./cmd/api — or point --api-url at the running one";
+    case "database":
+      return "start PostgreSQL (e.g. docker compose up -d postgres) and make sure DATABASE_URL points at it";
+    case "redis":
+      return "start Redis (e.g. docker compose up -d redis) and make sure REDIS_URL points at it";
+    case "web":
+      return "start the frontend: cd frontend && npm run dev — or point --base-url at the running one";
+    case "puppeteer":
+      return `install puppeteer-core where the harness can see it: npm install puppeteer-core (currently ${PUPPETEER_ROOT}), or pass --puppeteer-root`;
+    default:
+      return "check the flag values for this run";
+  }
+}
+
+/**
+ * Verifies the browser, the API and the dev server before any persona work, so
+ * a missing service fails once with an instruction instead of ten confusing
+ * per-route errors.
+ */
+async function preflight() {
+  const problems = [];
+
+  try {
+    fs.accessSync(CHROME, fs.constants.X_OK);
+  } catch {
+    problems.push({ label: `Chrome at ${CHROME}`, detail: "not found or not executable", fix: preflightFix("chrome") });
+  }
+
+  const probe = async (label, url, fix) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PREFLIGHT_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { signal: controller.signal, redirect: "manual" });
+      if (response.status >= 500) {
+        problems.push({ label, detail: `answered HTTP ${response.status} — the process is up but unhealthy`, fix });
+      }
+    } catch (error) {
+      const reason = error?.name === "AbortError"
+        ? `no answer within ${PREFLIGHT_TIMEOUT_MS}ms`
+        : error?.cause?.code || error?.message || String(error);
+      problems.push({ label, detail: `not reachable at ${url} (${reason})`, fix });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  // /health/ready also pings PostgreSQL and Redis, so a half-up stack is named
+  // here instead of failing later as a wall of per-page 500s.
+  const apiLabel = `API at ${API_URL}`;
+  const apiController = new AbortController();
+  const apiTimer = setTimeout(() => apiController.abort(), PREFLIGHT_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_URL}/health/ready`, {
+      signal: apiController.signal,
+      redirect: "manual",
+    });
+    if (response.status === 503) {
+      let dependency = "";
+      try {
+        dependency = String((await response.json())?.dependency ?? "");
+      } catch {
+        // Non-JSON 503; fall through to the generic message.
+      }
+      problems.push({
+        label: apiLabel,
+        detail: dependency
+          ? `answering, but its ${dependency} is unreachable (HTTP 503)`
+          : "answering HTTP 503 — a dependency is down",
+        fix: preflightFix(dependency || "api"),
+      });
+    } else if (response.status >= 500) {
+      problems.push({ label: apiLabel, detail: `answered HTTP ${response.status} — up but unhealthy`, fix: preflightFix("api") });
+    }
+  } catch (error) {
+    const reason = error?.name === "AbortError"
+      ? `no answer within ${PREFLIGHT_TIMEOUT_MS}ms`
+      : error?.cause?.code || error?.message || String(error);
+    problems.push({ label: apiLabel, detail: `not reachable at ${API_URL}/health/ready (${reason})`, fix: preflightFix("api") });
+  } finally {
+    clearTimeout(apiTimer);
+  }
+
+  await probe(`dev server at ${BASE_URL}`, `${BASE_URL}/`, preflightFix("web"));
+
+  try {
+    await loadPuppeteer();
+  } catch {
+    problems.push({ label: "puppeteer-core", detail: "could not be loaded", fix: preflightFix("puppeteer") });
+  }
+
+  return problems;
+}
+
 async function loadPuppeteer() {
   try {
     const mod = await import("puppeteer-core");
@@ -334,6 +434,19 @@ async function main() {
     }
     console.log(`\nchrome: ${CHROME}`);
     console.log(`puppeteer: ${PUPPETEER_ROOT}`);
+    return;
+  }
+
+  const problems = await preflight();
+  if (problems.length) {
+    console.error("\nPreflight failed — no screenshots were taken and nothing was replaced.\n");
+    for (const problem of problems) {
+      console.error(`  x ${problem.label}: ${problem.detail}`);
+      console.error(`      fix: ${problem.fix}`);
+    }
+    console.error("\nBring the stack up, then re-run:");
+    console.error(`  node scripts/ui-screenshots/capture.mjs${REPLACE ? " --replace" : ""}`);
+    process.exitCode = 1;
     return;
   }
 

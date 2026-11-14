@@ -26,6 +26,23 @@ node scripts/ui-screenshots/capture.mjs --replace
 | `check-routes.mjs` | Parses `App.tsx` and fails if the manifest and the router drift apart. |
 | `capture.mjs` | Logs in per persona, captures, asserts, and promotes only after a clean run. |
 
+## Preflight
+
+Before any persona work, the run checks four things and stops with a single
+message if any is missing — nothing is captured and nothing is replaced:
+
+| Check | How | If it fails |
+| --- | --- | --- |
+| Chrome | executable at `--chrome` | install Chrome or pass `--chrome /path` |
+| API | `GET <api-url>/health/ready` (also pings PostgreSQL and Redis) | start the API, or start the named dependency |
+| dev server | `GET <base-url>/` | `cd frontend && npm run dev` |
+| puppeteer-core | module loads from `--puppeteer-root` | `npm install puppeteer-core`, or point `--puppeteer-root` |
+
+`/health/ready` returns 503 naming the dependency that is down, so a half-up
+stack reports `API … answering, but its database is unreachable` with the
+PostgreSQL hint rather than a wall of per-page 500s. `--dry-run` skips the
+preflight, since it does not touch the network or the browser.
+
 ## What a run checks per route
 
 - document response is not 4xx/5xx, and no API call on the page returned 5xx
