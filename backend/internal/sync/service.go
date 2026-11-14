@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/grading"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
@@ -165,6 +166,12 @@ func (h *Handler) applyAssessmentResult(tx *sqlx.Tx, tenantID, userID string, it
 	}
 	subStrand, _ := item.Payload["sub_strand_id"].(string)
 	levelCode, _ := item.Payload["level_code"].(string)
+	if levelCode != "" {
+		levelCode = grading.NormalizeCode(levelCode)
+		if !grading.IsKnownLevel(levelCode) {
+			return gin.H{}, "FAILED", &syncError{"level_code must be EE/ME/AE/BE or EE1-BE2"}
+		}
+	}
 	remarks, _ := item.Payload["remarks"].(string)
 	deviceID, _ := item.Payload["device_id"].(string)
 	clientTS, _ := item.Payload["client_ts"].(string)
@@ -173,6 +180,9 @@ func (h *Handler) applyAssessmentResult(tx *sqlx.Tx, tenantID, userID string, it
 		teacherID = userID
 	}
 	points := numberOf(item.Payload["points"])
+	if p, ok := grading.PointsFor(levelCode); ok {
+		points = float64(p)
+	}
 	rawScore := numberOf(item.Payload["raw_score"])
 	maxScore := numberOf(item.Payload["max_score"])
 

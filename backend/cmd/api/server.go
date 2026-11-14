@@ -31,6 +31,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/email"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/grading"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/holdingtank"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/imports"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/inkind"
@@ -120,6 +121,8 @@ func Run() error {
 
 	knecService := knec.NewService()
 	knecHandler := knec.NewHandler(knecService)
+
+	gradingHandler := grading.NewHandler()
 
 	reportsService := reports.NewService(database)
 	reportsHandler := reports.NewHandler(reportsService)
@@ -724,6 +727,16 @@ func Run() error {
 		financeGroup.GET("/dashboard", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.FinanceDashboard)
 		financeGroup.POST("/capitation/receipts", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateCapitationReceipt)
 		financeGroup.GET("/mpesa/stk-requests/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.STKStatus)
+	}
+
+	// Grading configuration: the official 4-band and 8-point scales, with
+	// school-editable cutoffs. Reads are staff-wide; writes are admin-only.
+	gradingGroup := apiV1.Group("/grading")
+	gradingGroup.Use(middleware.RequireAuthGin(jwtManager))
+	{
+		gradingGroup.GET("/settings", middleware.RequireRole(middleware.RoleAcademicStaff...), gradingHandler.GetSettings)
+		gradingGroup.GET("/levels", middleware.RequireRole(middleware.RoleAcademicStaff...), gradingHandler.ListLevels)
+		gradingGroup.PATCH("/settings", middleware.RequireRole(middleware.RoleSchoolAdministrators...), gradingHandler.UpdateSettings)
 	}
 
 	// Reports routes (M8)
