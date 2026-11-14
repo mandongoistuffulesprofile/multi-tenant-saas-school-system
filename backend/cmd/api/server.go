@@ -546,6 +546,7 @@ func Run() error {
 	vlGroup := apiV1.Group("/value-ledger")
 	vlGroup.Use(middleware.RequireAuthGin(jwtManager))
 	vlGroup.GET("/metrics", valueLedgerHandler.GetMetrics)
+	vlGroup.GET("/trend", valueLedgerHandler.GetTrend)
 
 	obGroup := apiV1.Group("/opening-balances")
 	obGroup.Use(middleware.RequireAuthGin(jwtManager))
