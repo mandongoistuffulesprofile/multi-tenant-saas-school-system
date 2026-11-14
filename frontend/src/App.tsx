@@ -33,6 +33,7 @@ import ParentLayout from "./components/organisms/ParentLayout";
 import TeacherLayout from "./components/organisms/TeacherLayout";
 import SaaSLayout from "./components/organisms/SaaSLayout";
 import GateAdminPage from "./pages/GateAdminPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import RequireRole from "./components/RequireRole";
 import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
 import PWAUpdateBanner from "./components/PWAUpdateBanner";

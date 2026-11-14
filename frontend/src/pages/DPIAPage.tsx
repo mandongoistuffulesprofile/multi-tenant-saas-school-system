@@ -30,13 +30,13 @@ export default function DPIAPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
 
-  const dpiaForm = {
+  const [dpiaForm, setDPIAForm] = useState({
     processing_activity: "",
     description: "",
     risk_level: "LOW",
     mitigation_measures: "",
     review_date: "",
-  };
+  });
 
   const resetForm = () => {
     setDPIAForm({ processing_activity: "", description: "", risk_level: "LOW", mitigation_measures: "", review_date: "" });

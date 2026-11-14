@@ -26,12 +26,12 @@ export default function RetentionPoliciesPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
 
-  const policyForm = {
+  const [policyForm, setPolicyForm] = useState({
     resource_type: "",
     retention_days: 365,
     action_after_retention: "ARCHIVE",
     is_active: true,
-  };
+  });
 
   const resetForm = () => {
     setPolicyForm({ resource_type: "", retention_days: 365, action_after_retention: "ARCHIVE", is_active: true });

@@ -1,18 +1,20 @@
 import React from 'react';
-import { Receipt, FileSpreadsheet, X } from 'lucide-react';
+import { Receipt, FileSpreadsheet, UserMinus, X } from 'lucide-react';
 
 export interface FloatingBulkDockProps {
   selectedCount: number;
   onClear: () => void;
   onBatchInvoice?: () => void;
   onExportCsv?: () => void;
+  onTerminate?: () => void;
 }
 
 export const FloatingBulkDock: React.FC<FloatingBulkDockProps> = ({
   selectedCount,
   onClear,
   onBatchInvoice,
-  onExportCsv
+  onExportCsv,
+  onTerminate
 }) => {
   if (selectedCount === 0) return null;
 
@@ -34,6 +36,15 @@ export const FloatingBulkDock: React.FC<FloatingBulkDockProps> = ({
             >
               <Receipt className="w-3.5 h-3.5 text-indigo-400" />
               Batch Invoice
+            </button>
+          )}
+          {onTerminate && (
+            <button
+              onClick={onTerminate}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600/80 transition text-slate-100 cursor-pointer"
+            >
+              <UserMinus className="w-3.5 h-3.5 text-red-400" />
+              Terminate
             </button>
           )}
           {onExportCsv && (

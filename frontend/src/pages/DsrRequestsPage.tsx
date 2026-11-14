@@ -33,14 +33,14 @@ export default function DsrRequestsPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
 
-  const requestForm = {
+  const [requestForm, setRequestForm] = useState({
     user_id: "",
     request_type: "ACCESS",
     description: "",
     due_date: "",
     status: "PENDING",
     response_data: "",
-  };
+  });
 
   const resetForm = () => {
     setRequestForm({ user_id: "", request_type: "ACCESS", description: "", due_date: "", status: "PENDING", response_data: "" });

@@ -29,7 +29,7 @@ export default function ConsentNoticesPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
 
-  const noticeForm = {
+  const [noticeForm, setNoticeForm] = useState({
     notice_code: "",
     title: "",
     content_text: "",
@@ -37,7 +37,7 @@ export default function ConsentNoticesPage() {
     requires_renewal: false,
     renewal_period_days: "",
     is_active: true,
-  };
+  });
 
   const resetForm = () => {
     setNoticeForm({ notice_code: "", title: "", content_text: "", version: 1, requires_renewal: false, renewal_period_days: "", is_active: true });

@@ -505,7 +505,7 @@ export default function LearnersPage() {
               />
             )},
             { key: "status", header: t("status"), render: (row) => (
-              <Badge variant={row.status === "ACTIVE" ? "success" : row.status === "terminated" ? "destructive" : "warning"}>{row.status}</Badge>
+              <Badge variant={row.status === "ACTIVE" ? "success" : row.status === "terminated" ? "danger" : "warning"}>{row.status}</Badge>
             )},
             { key: "actions", header: "Actions", sortable: false, className: "w-10", render: (row) => canManageLearners ? (
               <div className="flex gap-2">

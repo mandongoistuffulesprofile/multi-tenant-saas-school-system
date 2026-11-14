@@ -485,7 +485,7 @@ export default function ReportsPage() {
               </div>
               <label style={{ display: "block", marginBottom: "0.75rem" }}>
                 <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Default Template</span>
-                <label style={{ display: "flex", items: "center", gap: "0.5rem" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <input
                     type="checkbox"
                     checked={templateForm.is_default}

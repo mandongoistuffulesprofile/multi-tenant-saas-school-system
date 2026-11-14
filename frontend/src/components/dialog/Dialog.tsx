@@ -6,9 +6,34 @@ interface DialogProps {
   title?: string;
   children: ReactNode;
   className?: string;
+  initialFocusRef?: React.RefObject<HTMLElement | null>;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
-export default function Dialog({ open, onClose, title, children, className }: DialogProps) {
+export default function Dialog({
+  open,
+  onClose,
+  title,
+  children,
+  className,
+  initialFocusRef,
+  returnFocusRef,
+}: DialogProps) {
+  // Move focus into the dialog on open and hand it back on close, so keyboard
+  // users are not dropped at the top of the page behind the overlay.
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusTimer = window.setTimeout(() => {
+      initialFocusRef?.current?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(focusTimer);
+      const target = returnFocusRef?.current ?? previouslyFocused;
+      if (target && document.contains(target)) target.focus();
+    };
+  }, [open, initialFocusRef, returnFocusRef]);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {

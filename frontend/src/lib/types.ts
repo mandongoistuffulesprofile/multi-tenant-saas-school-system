@@ -224,6 +224,8 @@ export interface StaffRow {
   user_id: ID;
   email: string;
   phone_number: string;
+  first_name?: string | null;
+  last_name?: string | null;
   role: string; // HEAD, DEPUTY, BURSAR, CLERK, TEACHER
   status: string;
   tsc_number?: string | null;
