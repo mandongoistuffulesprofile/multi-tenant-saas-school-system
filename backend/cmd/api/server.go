@@ -183,6 +183,12 @@ func Run() error {
 	defer stopAlloc()
 	go allocationWorker.Start(allocCtx, 15*time.Second)
 
+	// Allocation reconciliation: proves nightly that receipts, credits and line
+	// balances still agree, and records any discrepancy for review instead of
+	// rewriting money automatically.
+	reconcileWorker := finance.NewReconcileWorker(database.DB.DB, slog.Default())
+	go reconcileWorker.Start(allocCtx, 24*time.Hour)
+
 	// Outbox worker: deliver SMS/receipt/alert events idempotently with retries.
 	// Uses the new robust worker with lease timeouts and exponential backoff.
 	smsSvc := sms.NewSMSService()
