@@ -140,6 +140,18 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		return
 	}
 
+	// Opening balances post against these accounts; without them the ledger
+	// insert has no account_id to reference and the feature cannot work.
+	if _, err := tx.Exec(
+		`INSERT INTO ledger_accounts (tenant_id, code, name, type) VALUES
+		 ($1, '1100', 'Fee Receivable', 'ASSET'),
+		 ($1, '1200', 'Inventory', 'ASSET'),
+		 ($1, '3900', 'Opening Balance Equity', 'EQUITY')
+		 ON CONFLICT DO NOTHING`, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
 	if strings.TrimSpace(req.AdminPassword) == "" {
 		b := make([]byte, 8)
 		_, _ = rand.Read(b)

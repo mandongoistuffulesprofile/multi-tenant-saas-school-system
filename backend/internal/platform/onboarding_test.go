@@ -368,12 +368,16 @@ func TestCreateTenantProvisionsFinanceSettings(t *testing.T) {
 		invoicing  bool
 		reminders  bool
 		membership int
+		accounts   int
 	)
 	if err := database.WithTenant(ctx, subdomain, "", func(tx *db.Tx) error {
 		if err := tx.QueryRow(`SELECT count(*) FROM school_finance_settings WHERE tenant_id = $1`, subdomain).Scan(&settings); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(`SELECT tuition_invoicing, arrears_reminders FROM school_finance_settings WHERE tenant_id = $1`, subdomain).Scan(&invoicing, &reminders); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(`SELECT count(*) FROM ledger_accounts WHERE tenant_id = $1`, subdomain).Scan(&accounts); err != nil {
 			return err
 		}
 		return tx.QueryRow(`SELECT count(*) FROM tenant_memberships WHERE tenant_id = $1`, subdomain).Scan(&membership)
@@ -391,5 +395,8 @@ func TestCreateTenantProvisionsFinanceSettings(t *testing.T) {
 	}
 	if membership != 1 {
 		t.Fatalf("admin memberships = %d, want 1", membership)
+	}
+	if accounts != 3 {
+		t.Fatalf("ledger accounts = %d, want the three opening-balance accounts", accounts)
 	}
 }
