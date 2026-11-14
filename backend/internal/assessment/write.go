@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/grading"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
@@ -39,20 +40,20 @@ const (
 // ResultInput is one captured result. It accepts both the online shape
 // (event_id + learner_id) and the offline shape (client_uuid + device_id).
 type ResultInput struct {
-	EventID     string  `json:"event_id"`
-	LearnerID   string  `json:"learner_id"`
-	SubStrandID string  `json:"sub_strand_id"`
-	LevelCode   string  `json:"level_code"`
-	Points      float64 `json:"points"`
-	RawScore    float64 `json:"raw_score"`
-	MaxScore    float64 `json:"max_score"`
-	Remarks     string  `json:"remarks"`
-	TeacherID   string  `json:"teacher_id"`
-	ClientUUID  string  `json:"client_uuid"`
-	Version     int     `json:"version"`
-	State       string  `json:"state"`
-	DeviceID    string  `json:"device_id"`
-	ClientTS    string  `json:"client_ts"`
+	EventID     string         `json:"event_id"`
+	LearnerID   string         `json:"learner_id"`
+	SubStrandID string         `json:"sub_strand_id"`
+	LevelCode   string         `json:"level_code"`
+	Points      money.Decimal  `json:"points"`
+	RawScore    money.Decimal  `json:"raw_score"`
+	MaxScore    money.Decimal  `json:"max_score"`
+	Remarks     string         `json:"remarks"`
+	TeacherID   string         `json:"teacher_id"`
+	ClientUUID  string         `json:"client_uuid"`
+	Version     int            `json:"version"`
+	State       string         `json:"state"`
+	DeviceID    string         `json:"device_id"`
+	ClientTS    string         `json:"client_ts"`
 }
 
 // UpsertResult inserts or updates a single result.
@@ -185,7 +186,7 @@ func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID, role string, input
 		code := grading.NormalizeCode(input.LevelCode)
 		if points, ok := grading.PointsFor(code); ok {
 			input.LevelCode = code
-			input.Points = float64(points)
+			input.Points = money.New(points)
 		}
 	}
 	event := ResultEvent(strings.ToUpper(strings.TrimSpace(input.State)))
@@ -218,17 +219,20 @@ func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID, role string, input
 	} else if userID != "" {
 		teacherID = userID
 	}
-	maxScore := interface{}(nil)
-	if input.MaxScore != 0 {
-		maxScore = input.MaxScore
+	maxScore := (*string)(nil)
+	if !input.MaxScore.IsZero() {
+		s := input.MaxScore.StringFixed(2)
+		maxScore = &s
 	}
-	rawScore := interface{}(nil)
-	if input.RawScore != 0 {
-		rawScore = input.RawScore
+	rawScore := (*string)(nil)
+	if !input.RawScore.IsZero() {
+		s := input.RawScore.StringFixed(2)
+		rawScore = &s
 	}
-	points := interface{}(nil)
-	if input.Points != 0 {
-		points = input.Points
+	points := (*string)(nil)
+	if !input.Points.IsZero() {
+		s := input.Points.StringFixed(2)
+		points = &s
 	}
 
 	var existingState string
@@ -339,14 +343,14 @@ func (h *Handler) CreateAssessmentEvent(c *gin.Context) {
 		return
 	}
 	var req struct {
-		TermID             string  `json:"term_id" binding:"required"`
-		GradeID            string  `json:"grade_id" binding:"required"`
-		LearningAreaID     string  `json:"learning_area_id" binding:"required"`
-		AssessmentType     string  `json:"assessment_type" binding:"required"`
-		ScoringMode        string  `json:"scoring_mode" binding:"required"`
-		AssessmentWindow   string  `json:"assessment_window" binding:"required"`
-		WeightingProfileID string  `json:"weighting_profile_id"`
-		MaxScore           float64 `json:"max_score"`
+		TermID             string         `json:"term_id" binding:"required"`
+		GradeID            string         `json:"grade_id" binding:"required"`
+		LearningAreaID     string         `json:"learning_area_id" binding:"required"`
+		AssessmentType     string         `json:"assessment_type" binding:"required"`
+		ScoringMode        string         `json:"scoring_mode" binding:"required"`
+		AssessmentWindow   string         `json:"assessment_window" binding:"required"`
+		WeightingProfileID string         `json:"weighting_profile_id"`
+		MaxScore           money.Decimal  `json:"max_score"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -356,9 +360,10 @@ func (h *Handler) CreateAssessmentEvent(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
-	maxScore := interface{}(nil)
-	if req.MaxScore != 0 {
-		maxScore = req.MaxScore
+	maxScore := (*string)(nil)
+	if !req.MaxScore.IsZero() {
+		s := req.MaxScore.StringFixed(2)
+		maxScore = &s
 	}
 	profileID := interface{}(nil)
 	if strings.TrimSpace(req.WeightingProfileID) != "" {
@@ -402,12 +407,12 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 	}
 	eventID := c.Param("event_id")
 	var req struct {
-		AssessmentType     string  `json:"assessment_type"`
-		ScoringMode        string  `json:"scoring_mode"`
-		AssessmentWindow   string  `json:"assessment_window"`
-		WeightingProfileID string  `json:"weighting_profile_id"`
-		MaxScore           float64 `json:"max_score"`
-		Status             string  `json:"status"`
+		AssessmentType     string         `json:"assessment_type"`
+		ScoringMode        string         `json:"scoring_mode"`
+		AssessmentWindow   string         `json:"assessment_window"`
+		WeightingProfileID string         `json:"weighting_profile_id"`
+		MaxScore           money.Decimal  `json:"max_score"`
+		Status             string         `json:"status"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -463,8 +468,9 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 	if strings.TrimSpace(req.WeightingProfileID) != "" {
 		add("weighting_profile_id", req.WeightingProfileID)
 	}
-	if req.MaxScore != 0 {
-		add("max_score", req.MaxScore)
+	if !req.MaxScore.IsZero() {
+		s := req.MaxScore.StringFixed(2)
+		add("max_score", s)
 	}
 	if status != "" {
 		add("status", status)
@@ -741,11 +747,11 @@ func (h *Handler) EventGrid(c *gin.Context) {
 		for resultRows.Next() {
 			var learnerID, subStrandID string
 			var levelCode, remarks sql.NullString
-			var points, rawScore, maxScore sql.NullFloat64
+			var pointsStr, rawScoreStr, maxScoreStr sql.NullString
 			var state string
 			var version int
-			if err := resultRows.Scan(&learnerID, &subStrandID, &levelCode, &points,
-				&rawScore, &maxScore, &remarks, &state, &version); err != nil {
+			if err := resultRows.Scan(&learnerID, &subStrandID, &levelCode, &pointsStr,
+				&rawScoreStr, &maxScoreStr, &remarks, &state, &version); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 				return
 			}
@@ -756,9 +762,9 @@ func (h *Handler) EventGrid(c *gin.Context) {
 			learners[i].Results = append(learners[i].Results, gin.H{
 				"sub_strand_id": subStrandID,
 				"level_code":    levelCode.String,
-				"points":        points.Float64,
-				"raw_score":     rawScore.Float64,
-				"max_score":     maxScore.Float64,
+				"points":        money.New(pointsStr.String).StringFixed(2),
+				"raw_score":     money.New(rawScoreStr.String).StringFixed(2),
+				"max_score":     money.New(maxScoreStr.String).StringFixed(2),
 				"remarks":       remarks.String,
 				"state":         state,
 				"version":       version,

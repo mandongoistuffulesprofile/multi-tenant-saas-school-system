@@ -14,8 +14,8 @@ import (
 //
 //  1. If a bearer token is present it is verified once and the user, tenant and
 //     role claims are copied into the gin context.
-//  2. Otherwise the tenant may still be resolved from the X-Tenant-ID header
-//     (tenant id or subdomain) for public, tenant-aware routes.
+//  2. Without a valid token the tenant remains unset; there is no header or
+//     subdomain fallback, so callers cannot spoof a tenant.
 //
 // Handlers read the values with c.GetString("tenant_id") etc., and pass them to
 // db.BeginTenantTx so PostgreSQL RLS enforces isolation inside each transaction.
@@ -49,19 +49,6 @@ func TenantContextMiddleware(jwtManager *auth.JWTManager, database *db.DB) gin.H
 		}
 
 		if claims != nil {
-			// A header may not override the signed tenant claim. Fail closed if
-			// it names a different tenant (including an unknown one).
-			if headerTenant := strings.TrimSpace(c.GetHeader("X-Tenant-ID")); headerTenant != "" {
-				if resolveTenantValue(database, headerTenant) != claims.TenantID {
-					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-						"code":       "TENANT_MISMATCH",
-						"message":    "X-Tenant-ID does not match the access token",
-						"request_id": c.GetString(ContextRequestID),
-					})
-					return
-				}
-			}
-
 			c.Set(ContextUserID, claims.UserID)
 			c.Set("current_user_id", claims.UserID)
 			c.Set(ContextTenantID, claims.TenantID)
@@ -71,51 +58,8 @@ func TenantContextMiddleware(jwtManager *auth.JWTManager, database *db.DB) gin.H
 			}
 		}
 
-		if c.GetString(ContextTenantID) == "" {
-			if tenantID := resolveTenant(c, database); tenantID != "" {
-				c.Set(ContextTenantID, tenantID)
-			}
-		}
-
 		c.Next()
 	}
-}
-
-// resolveTenant reads X-Tenant-ID, falling back to the subdomain of the host.
-// Values may be a tenant id or a subdomain; both are verified against schools.
-func resolveTenant(c *gin.Context, database *db.DB) string {
-	value := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
-	if value == "" {
-		host := c.Request.Host
-		if i := strings.IndexByte(host, ':'); i >= 0 {
-			host = host[:i]
-		}
-		parts := strings.Split(host, ".")
-		if len(parts) > 2 {
-			value = parts[0]
-		}
-	}
-	if value == "" || database == nil {
-		return ""
-	}
-
-	return resolveTenantValue(database, value)
-}
-
-func resolveTenantValue(database *db.DB, value string) string {
-	if database == nil || value == "" {
-		return ""
-	}
-	var tenantID string
-	if err := database.QueryRow(
-		`SELECT tenant_id FROM schools
-		  WHERE status = 'ACTIVE' AND (tenant_id = $1 OR subdomain = $1)
-		  LIMIT 1`,
-		value,
-	).Scan(&tenantID); err != nil {
-		return ""
-	}
-	return tenantID
 }
 
 func isUnsafeMethod(method string) bool {

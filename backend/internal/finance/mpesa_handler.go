@@ -82,9 +82,21 @@ func (h *MpesaHandler) HandleC2BConfirmation(c *gin.Context) {
 	}
 
 	if tenantID == "" {
-		// Fallback: resolve tenant from shortcode
-		// This is handled by the allocation worker
-		tenantID = "unknown"
+		// Resolve tenant from the M-Pesa business short code so callbacks are
+		// always tenant-scoped. Never fall back to an "unknown" tenant.
+		var found string
+		err := h.db.QueryRowContext(
+			c.Request.Context(),
+			`SELECT tenant_id FROM school_payment_channels
+			 WHERE shortcode_or_account = $1 AND status = 'ACTIVE'
+			 LIMIT 1`,
+			payload.BusinessShortCode,
+		).Scan(&found)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"ResultCode": 1, "ResultDesc": "Tenant not configured for shortcode"})
+			return
+		}
+		tenantID = found
 	}
 
 	// 2. Persist to Inbox with ON CONFLICT DO NOTHING (Pure Idempotence)
@@ -169,11 +181,17 @@ func (h *MpesaHandler) HandleSTKCallback(c *gin.Context) {
 		for _, item := range payload.Body.StkCallback.CallbackMetadata.Item {
 			switch item.Name {
 			case "MpesaReceiptNumber":
-				transID = item.Value.(string)
+				if v, ok := item.Value.(string); ok {
+					transID = v
+				}
 			case "Amount":
-				transAmount = item.Value.(string)
+				if v, ok := item.Value.(string); ok {
+					transAmount = v
+				}
 			case "PhoneNumber":
-				msisdn = item.Value.(string)
+				if v, ok := item.Value.(string); ok {
+					msisdn = v
+				}
 			}
 		}
 

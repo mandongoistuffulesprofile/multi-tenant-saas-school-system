@@ -17,14 +17,14 @@ import (
 // the Safaricom callback before any allocation, so this is the authoritative
 // list of money that reached the school but may not yet be on a learner.
 type MPESAEvent struct {
-	EventID      string  `json:"event_id"`
-	TransID      string  `json:"trans_id"`
-	TransTime    string  `json:"trans_time"`
-	Amount       float64 `json:"amount"`
-	BillRef      string  `json:"bill_ref,omitempty"`
-	MSISDNMasked string  `json:"msisdn_masked,omitempty"`
-	Status       string  `json:"status"`
-	Error        string  `json:"error,omitempty"`
+	EventID      string         `json:"event_id"`
+	TransID      string         `json:"trans_id"`
+	TransTime    string         `json:"trans_time"`
+	Amount       money.Decimal  `json:"amount"`
+	BillRef      string         `json:"bill_ref,omitempty"`
+	MSISDNMasked string         `json:"msisdn_masked,omitempty"`
+	Status       string         `json:"status"`
+	Error        string         `json:"error,omitempty"`
 }
 
 // MPESAEventStats powers the ledger header without a second round trip.
@@ -62,12 +62,12 @@ func (s *Service) ListMPESAEvents(ctx context.Context, tenantID string) ([]MPESA
 	events := make([]MPESAEvent, 0)
 
 	rows, err := q.Query(
-		`SELECT inbox_id, trans_id, received_at::text, amount::float8,
-		        COALESCE(account_reference, ''), sender_phone, processing_status,
-		        COALESCE(error_log, '')
-		   FROM mpesa_raw_inbox
+		`SELECT id::text, trans_id, created_at::text, trans_amount::text,
+		        COALESCE(bill_ref_number, ''), msisdn, status,
+		        COALESCE(error_message, '')
+		   FROM mpesa_inbox
 		  WHERE tenant_id = $1
-		  ORDER BY received_at DESC
+		  ORDER BY created_at DESC
 		  LIMIT 500`,
 		tenantID,
 	)
@@ -78,11 +78,12 @@ func (s *Service) ListMPESAEvents(ctx context.Context, tenantID string) ([]MPESA
 
 	for rows.Next() {
 		var e MPESAEvent
-		var phone, rawStatus string
-		if err := rows.Scan(&e.EventID, &e.TransID, &e.TransTime, &e.Amount,
+		var phone, rawStatus, amountStr string
+		if err := rows.Scan(&e.EventID, &e.TransID, &e.TransTime, &amountStr,
 			&e.BillRef, &phone, &rawStatus, &e.Error); err != nil {
 			return nil, stats, err
 		}
+		e.Amount = money.New(amountStr)
 		e.MSISDNMasked = maskMSISDN(phone)
 		e.Status = mpesaEventStatus(rawStatus)
 		stats.Total++
@@ -125,9 +126,9 @@ func (s *Service) ResolveMPESAEvent(ctx context.Context, tenantID, eventID, lear
 
 	var transID, amountStr, status string
 	err := q.QueryRow(
-		`SELECT trans_id, amount::text, processing_status
-		   FROM mpesa_raw_inbox
-		  WHERE inbox_id = $1 AND tenant_id = $2
+		`SELECT trans_id, trans_amount::text, status
+		   FROM mpesa_inbox
+		  WHERE id = $1 AND tenant_id = $2
 		  FOR UPDATE`,
 		eventID, tenantID,
 	).Scan(&transID, &amountStr, &status)
@@ -177,9 +178,9 @@ func (s *Service) ResolveMPESAEvent(ctx context.Context, tenantID, eventID, lear
 			return nil, err
 		}
 		_, _ = q.Exec(
-			`UPDATE mpesa_raw_inbox SET processing_status = 'PROCESSED',
-			        processed_at = COALESCE(processed_at, now()), error_log = NULL
-			  WHERE inbox_id = $1 AND tenant_id = $2`,
+			`UPDATE mpesa_inbox SET status = 'PROCESSED',
+			        updated_at = COALESCE(updated_at, now()), error_message = NULL
+			  WHERE id = $1 AND tenant_id = $2`,
 			eventID, tenantID,
 		)
 		return gin.H{"payment_id": paymentID, "already_reconciled": true}, nil
@@ -230,9 +231,9 @@ func (s *Service) ResolveMPESAEvent(ctx context.Context, tenantID, eventID, lear
 	}
 
 	if _, err := q.Exec(
-		`UPDATE mpesa_raw_inbox SET processing_status = 'PROCESSED',
-		        processed_at = now(), attempts = attempts + 1, error_log = NULL
-		  WHERE inbox_id = $1 AND tenant_id = $2`,
+		`UPDATE mpesa_inbox SET status = 'PROCESSED',
+		        updated_at = now(), retry_count = retry_count + 1, error_message = NULL
+		  WHERE id = $1 AND tenant_id = $2`,
 		eventID, tenantID,
 	); err != nil {
 		return nil, err

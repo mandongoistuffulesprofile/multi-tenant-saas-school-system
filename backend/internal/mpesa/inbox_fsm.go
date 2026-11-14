@@ -3,6 +3,8 @@ package mpesa
 import (
 	"errors"
 	"fmt"
+
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 )
 
 // InboxState is the lifecycle of an M-Pesa inbox row. A row exists in exactly
@@ -61,7 +63,7 @@ var inboxTransitions = map[InboxState]map[InboxEvent]InboxState{
 type InboxContext struct {
 	TenantID        string
 	TransID         string
-	Amount          float64
+	Amount          money.Decimal
 	LearnerID       string
 	InvoiceID       string
 	IdempotencyKey  string
@@ -90,7 +92,7 @@ func TransitionInbox(current InboxState, event InboxEvent, ctx InboxContext) (In
 		if ctx.LearnerID == "" {
 			return current, fmt.Errorf("%w: learner required to allocate", ErrInvariantFailed)
 		}
-		if ctx.Amount <= 0 {
+		if !ctx.Amount.IsPositive() {
 			return current, fmt.Errorf("%w: allocation amount must exceed zero", ErrInvariantFailed)
 		}
 		return targetState, nil

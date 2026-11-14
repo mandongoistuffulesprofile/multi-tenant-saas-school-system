@@ -19,7 +19,7 @@ type feeLineDraft struct {
 	learnerID   string
 	admissionNo string
 	categoryID  string
-	amount      float64
+	amount      money.Decimal
 	description string
 }
 
@@ -28,7 +28,7 @@ type invoiceDraft struct {
 	learnerID   string
 	admissionNo string
 	lines       []feeLineDraft
-	total       float64
+	total       money.Decimal
 }
 
 // Write-side finance operations that the bursar's screens need: invoice
@@ -93,22 +93,26 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 		learnerID     string
 		admissionNo   string
 		categoryID    string
-		amount        float64
+		amount        money.Decimal
 		description   string
 		transportTrip string
 		zoneName      string
-		oneWayFee     float64
-		twoWayFee     float64
+		oneWayFee     money.Decimal
+		twoWayFee     money.Decimal
 	}
 	lines := make([]feeLine, 0)
 	for rows.Next() {
 		var f feeLine
-		if err := rows.Scan(&f.learnerID, &f.admissionNo, &f.categoryID, &f.amount, &f.description,
-			&f.transportTrip, &f.zoneName, &f.oneWayFee, &f.twoWayFee); err != nil {
+		var amount, oneWayFee, twoWayFee float64
+		if err := rows.Scan(&f.learnerID, &f.admissionNo, &f.categoryID, &amount, &f.description,
+			&f.transportTrip, &f.zoneName, &oneWayFee, &twoWayFee); err != nil {
 			rows.Close()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		f.amount = money.New(amount)
+		f.oneWayFee = money.New(oneWayFee)
+		f.twoWayFee = money.New(twoWayFee)
 		lines = append(lines, f)
 	}
 	rows.Close()
@@ -138,7 +142,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 				if l.transportTrip == "ONE_WAY_AM" || l.transportTrip == "ONE_WAY_PM" {
 					transportCost = l.oneWayFee
 				}
-				if transportCost > 0 {
+				if transportCost.GreaterThan(money.Zero()) {
 					if transportCategoryID == "" {
 						c.JSON(http.StatusBadRequest, gin.H{
 							"code":    "TRANSPORT_CATEGORY_MISSING",
@@ -153,7 +157,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 						amount:      transportCost,
 						description: fmt.Sprintf("Transport (%s - %s)", l.zoneName, l.transportTrip),
 					})
-					drafts[i].total += transportCost
+					drafts[i].total = drafts[i].total.Add(transportCost)
 				}
 			}
 		}
@@ -164,7 +168,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 			amount:      l.amount,
 			description: l.description,
 		})
-		drafts[i].total += l.amount
+		drafts[i].total = drafts[i].total.Add(l.amount)
 	}
 
 	lineCount := 0
@@ -194,15 +198,15 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 			continue
 		}
 
-		invoiceNumber := "INV-" + req.AcademicYearID + "-" + d.admissionNo
+		invoiceNumber := "INV-" + req.AcademicYearID + "-" + req.TermID + "-" + d.admissionNo
 		var invoiceID string
 		err := tx.QueryRow(
 			`INSERT INTO invoices (tenant_id, invoice_number, learner_id, academic_year_id, term_id, status, total_amount, amount_paid, amount_outstanding, issue_date, due_date, created_by)
-			 VALUES ($1, $2, $3, $4, $5, 'ISSUED', $6, 0, $6, CURRENT_DATE, $7, $8)
+			 VALUES ($1, $2, $3, $4, $5, 'ISSUED', $6::numeric, 0, $6::numeric, CURRENT_DATE, $7, $8)
 			 ON CONFLICT (tenant_id, invoice_number) DO NOTHING
 			 RETURNING invoice_id`,
 			tenantID, invoiceNumber, d.learnerID, req.AcademicYearID, req.TermID,
-			d.total, nullableString(req.DueDate), nullableString(userID)).Scan(&invoiceID)
+			d.total.StringFixed(2), nullableString(req.DueDate), nullableString(userID)).Scan(&invoiceID)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				skipped++
@@ -215,8 +219,8 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 		for _, l := range d.lines {
 			_, _ = tx.Exec(
 				`INSERT INTO invoice_lines (tenant_id, invoice_id, category_id, description, quantity, unit_amount, line_amount, academic_year_id, term_id)
-				 VALUES ($1, $2, $3, $4, 1, $5, $5, $6, $7)`,
-				tenantID, invoiceID, l.categoryID, l.description, l.amount, req.AcademicYearID, req.TermID)
+				 VALUES ($1, $2, $3, $4, 1, $5::numeric, $5::numeric, $6, $7)`,
+				tenantID, invoiceID, l.categoryID, l.description, l.amount.StringFixed(2), req.AcademicYearID, req.TermID)
 		}
 		created++
 	}
@@ -228,10 +232,10 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 	})
 }
 
-func sumAmounts(drafts []invoiceDraft) float64 {
-	total := 0.0
+func sumAmounts(drafts []invoiceDraft) money.Decimal {
+	total := money.Zero()
 	for _, d := range drafts {
-		total += d.total
+		total = total.Add(d.total)
 	}
 	return total
 }
@@ -244,9 +248,9 @@ func (h *Handler) ArrearsReport(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
-	minAmount := 0.0
+	var minAmount money.Decimal
 	if v := c.Query("min_amount"); v != "" {
-		minAmount = parseFloat(v)
+		minAmount = money.New(v)
 	}
 
 	rows, err := tx.Query(
@@ -261,10 +265,10 @@ func (h *Handler) ArrearsReport(c *gin.Context) {
 		 LEFT JOIN grades g ON g.grade_id = cg.grade_id
 		 LEFT JOIN streams s ON s.stream_id = cg.stream_id
 		 JOIN invoices i ON i.learner_id = l.learner_id AND i.tenant_id = l.tenant_id
-		 WHERE l.tenant_id = $1 AND i.amount_outstanding > $2
+		 WHERE l.tenant_id = $1 AND i.amount_outstanding > $2::numeric
 		 GROUP BY l.learner_id, l.admission_number, l.first_name, l.last_name, g.grade_label, s.stream_name
 		 ORDER BY 7 DESC`,
-		tenantID, minAmount)
+		tenantID, minAmount.StringFixed(2))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -272,42 +276,45 @@ func (h *Handler) ArrearsReport(c *gin.Context) {
 	defer rows.Close()
 
 	type arrears struct {
-		LearnerID     string  `json:"learner_id"`
-		AdmissionNo   string  `json:"admission_number"`
-		LearnerName   string  `json:"learner_name"`
-		GradeLabel    string  `json:"grade_label"`
-		StreamName    string  `json:"stream_name"`
-		Outstanding   float64 `json:"outstanding"`
-		InvoiceCount  int     `json:"invoice_count"`
-		OldestDueDate string  `json:"oldest_due_date"`
-		Bucket        string  `json:"bucket"`
+		LearnerID     string         `json:"learner_id"`
+		AdmissionNo   string         `json:"admission_number"`
+		LearnerName   string         `json:"learner_name"`
+		GradeLabel    string         `json:"grade_label"`
+		StreamName    string         `json:"stream_name"`
+		Outstanding   money.Decimal  `json:"outstanding"`
+		InvoiceCount  int            `json:"invoice_count"`
+		OldestDueDate string         `json:"oldest_due_date"`
+		Bucket        string         `json:"bucket"`
 	}
 	items := make([]arrears, 0)
-	total := 0.0
+	total := money.Zero()
 	for rows.Next() {
 		var a arrears
-		var firstName, lastName, dueDate sql.NullString
+		var firstName, lastName, dueDate, outstandingStr sql.NullString
 		if err := rows.Scan(&a.LearnerID, &a.AdmissionNo, &firstName, &lastName, &a.GradeLabel,
-			&a.StreamName, &a.Outstanding, &a.InvoiceCount, &dueDate); err != nil {
+			&a.StreamName, &outstandingStr, &a.InvoiceCount, &dueDate); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
 		a.LearnerName = strings.TrimSpace(firstName.String + " " + lastName.String)
 		a.OldestDueDate = dueDate.String
+		if outstandingStr.Valid {
+			a.Outstanding = money.New(outstandingStr.String)
+		}
 		a.Bucket = arrearsBucket(a.Outstanding)
-		total += a.Outstanding
+		total = total.Add(a.Outstanding)
 		items = append(items, a)
 	}
-	c.JSON(http.StatusOK, gin.H{"learners": items, "count": len(items), "total_outstanding": total})
+	c.JSON(http.StatusOK, gin.H{"learners": items, "count": len(items), "total_outstanding": total.StringFixed(2)})
 }
 
-func arrearsBucket(amount float64) string {
+func arrearsBucket(amount money.Decimal) string {
 	switch {
-	case amount >= 50000:
+	case amount.GreaterThanOrEqual(money.New(50000)):
 		return "90_PLUS"
-	case amount >= 20000:
+	case amount.GreaterThanOrEqual(money.New(20000)):
 		return "60_90"
-	case amount >= 5000:
+	case amount.GreaterThanOrEqual(money.New(5000)):
 		return "30_60"
 	default:
 		return "0_30"
@@ -384,9 +391,9 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 	}
 	transactionID := c.Param("txn_id")
 	var req struct {
-		InvoiceID string  `json:"invoice_id" binding:"required"`
-		LearnerID string  `json:"learner_id"`
-		Amount    float64 `json:"amount"`
+		InvoiceID string         `json:"invoice_id" binding:"required"`
+		LearnerID string         `json:"learner_id"`
+		Amount    money.Decimal  `json:"amount"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -395,14 +402,13 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
-	var transactionAmount float64
-	var billRef, status string
+	var transactionAmountStr, billRef, status string
 	// Lock the transaction row so two concurrent match requests cannot both
 	// pass the status check and create duplicate payments for the same money.
 	err := tx.QueryRow(
-		`SELECT amount, COALESCE(bill_ref, ''), status FROM mpesa_transactions
+		`SELECT amount::text, COALESCE(bill_ref, ''), status FROM mpesa_transactions
 		 WHERE trans_id = $1 AND tenant_id = $2 FOR UPDATE`,
-		transactionID, tenantID).Scan(&transactionAmount, &billRef, &status)
+		transactionID, tenantID).Scan(&transactionAmountStr, &billRef, &status)
 	if err == sql.ErrNoRows {
 		validation.NotFound(c, "Transaction not found")
 		return
@@ -432,10 +438,10 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 	}
 
 	amount := req.Amount
-	if amount == 0 {
-		amount = transactionAmount
+	if amount.IsZero() {
+		amount = money.New(transactionAmountStr)
 	}
-	if amount <= 0 {
+	if !amount.IsPositive() {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
 			{Field: "amount", Code: "INVALID_VALUE", Message: "amount must be greater than zero"},
 		})
@@ -444,10 +450,10 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 
 	// Lock invoice and validate tenant/learner ownership before allocating.
 	var invLearnerID string
-	var outstanding float64
+	var outstandingStr string
 	err = tx.QueryRow(
-		`SELECT learner_id, amount_outstanding FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
-		req.InvoiceID, tenantID).Scan(&invLearnerID, &outstanding)
+		`SELECT learner_id, amount_outstanding::text FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
+		req.InvoiceID, tenantID).Scan(&invLearnerID, &outstandingStr)
 	if err == sql.ErrNoRows {
 		validation.NotFound(c, "Invoice not found")
 		return
@@ -465,10 +471,11 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 	if learnerID == "" {
 		learnerID = invLearnerID
 	}
-	if amount > outstanding+0.001 {
+	outstanding := money.New(outstandingStr)
+	if amount.GreaterThan(outstanding) {
 		amount = outstanding
 	}
-	if amount <= 0 {
+	if !amount.IsPositive() {
 		validation.Conflict(c, "Invoice has no outstanding balance")
 		return
 	}
@@ -477,8 +484,8 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 	var paymentID string
 	err = tx.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, mpesa_trans_id, recorded_by)
-		 VALUES ($1, $2, $3, 'MPESA', $4, 'COMPLETED', $5, $6) RETURNING payment_id`,
-		tenantID, "MPESA-"+shortID(transactionID), learnerID, amount, transactionID, nullableString(userID)).Scan(&paymentID)
+		 VALUES ($1, $2, $3, 'MPESA', $4::numeric, 'COMPLETED', $5, $6) RETURNING payment_id`,
+		tenantID, "MPESA-"+shortID(transactionID), learnerID, amount.StringFixed(2), transactionID, nullableString(userID)).Scan(&paymentID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -490,18 +497,43 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 	if _, err := tx.Exec(
 		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 		 VALUES ($1, $2, $3, $4, $5)`,
-		tenantID, paymentID, req.InvoiceID, amount, nullableString(userID)); err != nil {
+		tenantID, paymentID, req.InvoiceID, amount.StringFixed(2), nullableString(userID)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
 
+	// Route the invoice update through the InvoiceState FSM instead of raw
+	// SQL, so the append-only ledger invariant is never bypassed.
+	var currentState, paidAmountStr string
+	err = tx.QueryRow(
+		`SELECT state, amount_paid::text FROM invoices WHERE invoice_id = $1 AND tenant_id = $2`,
+		req.InvoiceID, tenantID).Scan(&currentState, &paidAmountStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	paidAmount := money.New(paidAmountStr)
+	newPaid := paidAmount.Add(amount)
+	totalAmount := outstanding.Add(paidAmount)
+
+	targetState, terr := TransitionInvoice(InvoiceState(currentState), EventApplyCredit, InvoiceContext{
+		TotalAmount:       totalAmount,
+		PaidAmount:        newPaid,
+		AmountOutstanding: outstanding,
+	})
+	if terr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": terr.Error()})
+		return
+	}
+
 	res, err := tx.Exec(
-		`UPDATE invoices SET amount_paid = amount_paid + $1,
-		   amount_outstanding = amount_outstanding - $1,
-		   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-		   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
-		   updated_at = now()
-		 WHERE invoice_id = $2 AND tenant_id = $3`, amount, req.InvoiceID, tenantID)
+		`UPDATE invoices SET amount_paid = $1::numeric,
+		           amount_outstanding = $2::numeric,
+		           status = $3,
+		           paid_at = CASE WHEN $3 = 'PAID' THEN COALESCE(paid_at, now()) ELSE paid_at END,
+		           updated_at = now()
+		 WHERE invoice_id = $4 AND tenant_id = $5`,
+		newPaid.StringFixed(2), outstanding.Sub(amount).StringFixed(2), string(targetState), req.InvoiceID, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -545,10 +577,10 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var learnerID string
-	var amount float64
+	var amountStr string
 	err := tx.QueryRow(
-		`SELECT COALESCE(bill_ref, ''), amount FROM mpesa_transactions WHERE trans_id = $1 AND tenant_id = $2`,
-		transactionID, tenantID).Scan(&learnerID, &amount)
+		`SELECT COALESCE(bill_ref, ''), amount::text FROM mpesa_transactions WHERE trans_id = $1 AND tenant_id = $2`,
+		transactionID, tenantID).Scan(&learnerID, &amountStr)
 	if err == sql.ErrNoRows {
 		validation.NotFound(c, "Transaction not found")
 		return
@@ -557,6 +589,8 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
+
+	amount := money.New(amountStr)
 
 	// The refund references a payment row, so make sure one exists for this
 	// transaction before raising the refund.
@@ -579,8 +613,8 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 		}
 		err = tx.QueryRow(
 			`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, mpesa_trans_id, recorded_by)
-			 VALUES ($1, $2, $3, 'MPESA', $4, 'COMPLETED', $5, $6) RETURNING payment_id`,
-			tenantID, "MPESA-"+shortID(transactionID), resolvedLearner, amount, transactionID,
+			 VALUES ($1, $2, $3, 'MPESA', $4::numeric, 'COMPLETED', $5, $6) RETURNING payment_id`,
+			tenantID, "MPESA-"+shortID(transactionID), resolvedLearner, amount.StringFixed(2), transactionID,
 			nullableString(userID)).Scan(&paymentID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -594,8 +628,8 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 	var refundID string
 	err = tx.QueryRow(
 		`INSERT INTO refunds (tenant_id, payment_id, amount, reason, status, created_by)
-		 VALUES ($1, $2, $3, $4, 'PENDING', $5) RETURNING refund_id`,
-		tenantID, paymentID, amount, req.Reason, nullableString(userID)).Scan(&refundID)
+		 VALUES ($1, $2, $3::numeric, $4, 'PENDING', $5) RETURNING refund_id`,
+		tenantID, paymentID, amount.StringFixed(2), req.Reason, nullableString(userID)).Scan(&refundID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -639,20 +673,23 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
-	totalOutstanding := 0.0
+	totalOutstanding := money.Zero()
 	for rows.Next() {
 		var id, number, status string
-		var total, paid, outstanding float64
+		var totalStr, paidStr, outstandingStr string
 		var dueDate sql.NullString
-		if err := rows.Scan(&id, &number, &status, &total, &paid, &outstanding, &dueDate); err != nil {
+		if err := rows.Scan(&id, &number, &status, &totalStr, &paidStr, &outstandingStr, &dueDate); err != nil {
 			rows.Close()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
-		totalOutstanding += outstanding
+		total := money.New(totalStr)
+		paid := money.New(paidStr)
+		outstanding := money.New(outstandingStr)
+		totalOutstanding = totalOutstanding.Add(outstanding)
 		invoices = append(invoices, gin.H{
 			"invoice_id": id, "invoice_number": number, "status": status,
-			"total_amount": total, "amount_paid": paid, "amount_outstanding": outstanding,
+			"total_amount": total.StringFixed(2), "amount_paid": paid.StringFixed(2), "amount_outstanding": outstanding.StringFixed(2),
 			"due_date": dueDate.String,
 		})
 	}
@@ -668,15 +705,16 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 	}
 	for rows.Next() {
 		var id, reference, source, status, receivedAt string
-		var amount float64
-		if err := rows.Scan(&id, &reference, &source, &amount, &status, &receivedAt); err != nil {
+		var amountStr string
+		if err := rows.Scan(&id, &reference, &source, &amountStr, &status, &receivedAt); err != nil {
 			rows.Close()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		amount := money.New(amountStr)
 		payments = append(payments, gin.H{
 			"payment_id": id, "payment_reference": reference, "source": source,
-			"amount": amount, "status": status, "received_at": receivedAt,
+			"amount": amount.StringFixed(2), "status": status, "received_at": receivedAt,
 		})
 	}
 	rows.Close()
@@ -692,14 +730,15 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 	}
 	for rows.Next() {
 		var id, adjType, reason, createdAt string
-		var amount float64
-		if err := rows.Scan(&id, &adjType, &amount, &reason, &createdAt); err != nil {
+		var amountStr string
+		if err := rows.Scan(&id, &adjType, &amountStr, &reason, &createdAt); err != nil {
 			rows.Close()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		amount := money.New(amountStr)
 		adjustments = append(adjustments, gin.H{
-			"adjustment_id": id, "adjustment_type": adjType, "amount": amount,
+			"adjustment_id": id, "adjustment_type": adjType, "amount": amount.StringFixed(2),
 			"reason": reason, "created_at": createdAt,
 		})
 	}
@@ -712,7 +751,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		"invoices":          invoices,
 		"payments":          payments,
 		"adjustments":       adjustments,
-		"total_outstanding": totalOutstanding,
+		"total_outstanding": totalOutstanding.StringFixed(2),
 	})
 }
 
@@ -725,12 +764,15 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 
-	var collected, outstanding float64
+	var collected, outstanding money.Decimal
 	var invoiceCount, unmatched int
+	var collectedStr, outstandingStr string
 	_ = tx.QueryRow(
-		`SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&collected)
+		`SELECT COALESCE(SUM(amount_paid)::text, '0') FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&collectedStr)
+	collected = money.New(collectedStr)
 	_ = tx.QueryRow(
-		`SELECT COALESCE(SUM(amount_outstanding), 0) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&outstanding)
+		`SELECT COALESCE(SUM(amount_outstanding)::text, '0') FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&outstandingStr)
+	outstanding = money.New(outstandingStr)
 	_ = tx.QueryRow(
 		`SELECT COUNT(*) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&invoiceCount)
 	_ = tx.QueryRow(
@@ -739,9 +781,9 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 	byGrade := make([]gin.H, 0)
 	rows, err := tx.Query(
 		`SELECT COALESCE(g.grade_label, 'Unassigned'),
-			COALESCE(SUM(i.total_amount), 0),
-			COALESCE(SUM(i.amount_paid), 0),
-			COALESCE(SUM(i.amount_outstanding), 0)
+			COALESCE(SUM(i.total_amount)::text, '0'),
+			COALESCE(SUM(i.amount_paid)::text, '0'),
+			COALESCE(SUM(i.amount_outstanding)::text, '0')
 		 FROM invoices i
 		 LEFT JOIN learners l ON l.learner_id = i.learner_id
 		 LEFT JOIN enrolments e ON e.learner_id = l.learner_id AND e.status = 'ACTIVE'
@@ -751,11 +793,11 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 	if err == nil {
 		for rows.Next() {
 			var label string
-			var total, paid, out float64
-			if err := rows.Scan(&label, &total, &paid, &out); err == nil {
+			var totalStr, paidStr, outStr string
+			if err := rows.Scan(&label, &totalStr, &paidStr, &outStr); err == nil {
 				byGrade = append(byGrade, gin.H{
-					"grade_label": label, "total_amount": total,
-					"amount_paid": paid, "amount_outstanding": out,
+					"grade_label": label, "total_amount": money.New(totalStr).StringFixed(2),
+					"amount_paid": money.New(paidStr).StringFixed(2), "amount_outstanding": money.New(outStr).StringFixed(2),
 				})
 			}
 		}
@@ -763,8 +805,8 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"collected":       collected,
-		"outstanding":     outstanding,
+		"collected":       collected.StringFixed(2),
+		"outstanding":     outstanding.StringFixed(2),
 		"invoice_count":   invoiceCount,
 		"unmatched_count": unmatched,
 		"collection_rate": collectionRate(collected, outstanding),
@@ -772,12 +814,12 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 	})
 }
 
-func collectionRate(collected, outstanding float64) float64 {
-	total := collected + outstanding
-	if total == 0 {
-		return 0
+func collectionRate(collected, outstanding money.Decimal) string {
+	total := collected.Add(outstanding)
+	if total.IsZero() {
+		return "0.00"
 	}
-	return collected / total * 100
+	return collected.DivRound(total, 4).Mul(money.New(100)).StringFixed(2)
 }
 
 // CapitationSummary totals the capitation receipts received by the school.
@@ -798,29 +840,31 @@ func (h *Handler) CapitationSummary(c *gin.Context) {
 	defer rows.Close()
 
 	type receipt struct {
-		ReceiptNumber    string  `json:"receipt_number"`
-		Period           string  `json:"capitation_period"`
-		LearnerCount     int     `json:"learner_count"`
-		AmountPerLearner float64 `json:"amount_per_learner"`
-		TotalAmount      float64 `json:"total_amount"`
-		Status           string  `json:"status"`
-		ReceivedAt       string  `json:"received_at"`
+		ReceiptNumber    string         `json:"receipt_number"`
+		Period           string         `json:"capitation_period"`
+		LearnerCount     int            `json:"learner_count"`
+		AmountPerLearner money.Decimal  `json:"amount_per_learner"`
+		TotalAmount      money.Decimal  `json:"total_amount"`
+		Status           string         `json:"status"`
+		ReceivedAt       string         `json:"received_at"`
 	}
 	receipts := make([]receipt, 0)
-	total := 0.0
+	total := money.Zero()
 	for rows.Next() {
 		var r receipt
-		var receivedAt sql.NullString
-		if err := rows.Scan(&r.ReceiptNumber, &r.Period, &r.LearnerCount, &r.AmountPerLearner,
-			&r.TotalAmount, &r.Status, &receivedAt); err != nil {
+		var receivedAt, amountPerLearnerStr, totalAmountStr sql.NullString
+		if err := rows.Scan(&r.ReceiptNumber, &r.Period, &r.LearnerCount, &amountPerLearnerStr,
+			&totalAmountStr, &r.Status, &receivedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		r.AmountPerLearner = money.New(amountPerLearnerStr.String)
+		r.TotalAmount = money.New(totalAmountStr.String)
 		r.ReceivedAt = receivedAt.String
-		total += r.TotalAmount
+		total = total.Add(r.TotalAmount)
 		receipts = append(receipts, r)
 	}
-	c.JSON(http.StatusOK, gin.H{"receipts": receipts, "total_received": total})
+	c.JSON(http.StatusOK, gin.H{"receipts": receipts, "total_received": total.StringFixed(2)})
 }
 
 // CreateCapitationReceipt records a capitation grant received.
@@ -831,12 +875,12 @@ func (h *Handler) CreateCapitationReceipt(c *gin.Context) {
 		return
 	}
 	var req struct {
-		ReceiptNumber    string  `json:"receipt_number" binding:"required"`
-		CapitationPeriod string  `json:"capitation_period" binding:"required"`
-		LearnerCount     int     `json:"learner_count"`
-		AmountPerLearner float64 `json:"amount_per_learner"`
-		ReceivedAt       string  `json:"received_at"`
-		Reference        string  `json:"reference"`
+		ReceiptNumber    string         `json:"receipt_number" binding:"required"`
+		CapitationPeriod string         `json:"capitation_period" binding:"required"`
+		LearnerCount     int            `json:"learner_count"`
+		AmountPerLearner money.Decimal  `json:"amount_per_learner"`
+		ReceivedAt       string         `json:"received_at"`
+		Reference        string         `json:"reference"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -845,20 +889,20 @@ func (h *Handler) CreateCapitationReceipt(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
-	total := float64(req.LearnerCount) * req.AmountPerLearner
+	total := money.New(req.LearnerCount).Mul(req.AmountPerLearner)
 	var receiptID string
 	err := tx.QueryRow(
 		`INSERT INTO capitation_receipts
 		 (tenant_id, receipt_number, capitation_period, learner_count, amount_per_learner, total_amount, received_at, reference, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING receipt_id`,
+		 VALUES ($1, $2, $3, $4, $5::numeric, $6::numeric, $7, $8, $9) RETURNING receipt_id`,
 		tenantID, req.ReceiptNumber, req.CapitationPeriod, req.LearnerCount,
-		req.AmountPerLearner, total, nullableString(req.ReceivedAt), nullableString(req.Reference),
+		req.AmountPerLearner.StringFixed(2), total.StringFixed(2), nullableString(req.ReceivedAt), nullableString(req.Reference),
 		nullableString(userID)).Scan(&receiptID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"receipt_id": receiptID, "total_amount": total})
+	c.JSON(http.StatusCreated, gin.H{"receipt_id": receiptID, "total_amount": total.StringFixed(2)})
 }
 
 // STKStatus reports the state of an STK push.
@@ -897,11 +941,11 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 	var req struct {
-		PaymentReference string  `json:"payment_reference"`
-		LearnerID        string  `json:"learner_id" binding:"required"`
-		Source           string  `json:"source" binding:"required"`
-		Amount           float64 `json:"amount" binding:"required"`
-		InvoiceID        string  `json:"invoice_id"`
+		PaymentReference string         `json:"payment_reference"`
+		LearnerID        string         `json:"learner_id" binding:"required"`
+		Source           string         `json:"source" binding:"required"`
+		Amount           money.Decimal  `json:"amount" binding:"required"`
+		InvoiceID        string         `json:"invoice_id"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
@@ -920,21 +964,14 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	if reference == "" {
 		reference = fmt.Sprintf("PAY-%s-%s", time.Now().Format("20060102"), strings.ToUpper(uuid.NewString()[:8]))
 	}
-	if req.Amount <= 0 {
-		validation.BadRequest(c, "Invalid request", []validation.FieldError{
-			{Field: "amount", Code: "OUT_OF_RANGE", Message: "'amount' must be greater than zero"},
-		})
-		return
-	}
-	// The JSON transport is float64; snap to the 2dp currency value once and
-	// use that exact decimal for the payment, allocation and receipt.
-	paymentAmount := money.New(fmt.Sprintf("%.2f", req.Amount))
-	if !paymentAmount.IsPositive() {
+	if !req.Amount.IsPositive() {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
 			{Field: "amount", Code: "OUT_OF_RANGE", Message: "'amount' must be at least 0.01"},
 		})
 		return
 	}
+
+	paymentAmount := req.Amount
 
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
@@ -959,13 +996,20 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	var paymentID string
 	err = tx.QueryRow(
 		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, recorded_by, idempotency_key)
-		 VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6, $7) RETURNING payment_id`,
+		 VALUES ($1, $2, $3, $4, $5::numeric, 'COMPLETED', $6, $7) RETURNING payment_id`,
 		tenantID, reference, req.LearnerID, source, paymentAmount.StringFixed(2),
 		nullableString(userID), idempotencyKey).Scan(&paymentID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
+
+	// Consume a receipt number from the tenant's receipt sequence so every
+	// payment carries a receipt number.
+	var receiptNumber string
+	_ = tx.QueryRow(
+		`SELECT nextval(pg_get_serial_sequence('receipt_sequences', 'receipt_number'))`,
+	).Scan(&receiptNumber)
 
 	// Allocate to the selected invoice, or the oldest unpaid invoice.
 	allocationInvoice := req.InvoiceID
@@ -977,32 +1021,44 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 			  LIMIT 1 FOR UPDATE SKIP LOCKED`,
 			tenantID, req.LearnerID).Scan(&allocationInvoice)
 	}
-	allocatedAmount := 0.0
+	allocatedAmount := money.Zero()
+	overpayment := money.Zero()
 	if allocationInvoice != "" {
-		var outstandingStr string
+		var outstandingStr, paidStr string
 		err := tx.QueryRow(
-			`SELECT amount_outstanding::text FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
-			allocationInvoice, tenantID).Scan(&outstandingStr)
+			`SELECT amount_outstanding::text, amount_paid::text FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
+			allocationInvoice, tenantID).Scan(&outstandingStr, &paidStr)
 		outstanding := money.New(outstandingStr)
+		paid := money.New(paidStr)
 		if err == nil && outstanding.IsPositive() {
 			alloc := paymentAmount
 			if alloc.GreaterThan(outstanding) {
 				alloc = outstanding
+				overpayment = paymentAmount.Sub(outstanding)
 			}
 			if _, err := tx.Exec(
 				`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 				 VALUES ($1, $2, $3, $4, $5)`,
 				tenantID, paymentID, allocationInvoice, alloc.StringFixed(2), nullableString(userID)); err == nil {
 				_, _ = tx.Exec(
-					`UPDATE invoices SET amount_paid = amount_paid + $1,
-					   amount_outstanding = amount_outstanding - $1,
-					   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-					   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
+					`UPDATE invoices SET amount_paid = $1::numeric,
+					   amount_outstanding = $2::numeric,
+					   status = CASE WHEN $2 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
+					   paid_at = CASE WHEN $2 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
 					   updated_at = now()
-					 WHERE invoice_id = $2 AND tenant_id = $3`, alloc.StringFixed(2), allocationInvoice, tenantID)
-				allocatedAmount = alloc.InexactFloat64()
+					   WHERE invoice_id = $3 AND tenant_id = $4`,
+					paid.Add(alloc).StringFixed(2), outstanding.Sub(alloc).StringFixed(2), allocationInvoice, tenantID)
+				allocatedAmount = alloc
 			}
 		}
+	}
+
+	// Write a credit row for any overpayment so excess funds are not lost.
+	if overpayment.IsPositive() {
+		_, _ = tx.Exec(
+			`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
+			 VALUES ($1, $2, NULL, $3, $4)`,
+			tenantID, paymentID, overpayment.StringFixed(2), nullableString(userID))
 	}
 
 	// Best-effort receipt notification to primary payer guardian (idempotent).
@@ -1023,16 +1079,18 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		      WHERE om.tenant_id = $1 AND om.channel = 'SMS'
 		        AND (om.idempotency_key = $4::varchar OR (om.body_text = $2 AND om.recipient_address = COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,''))))
 		   )
-		 ORDER BY lg.is_primary_payer DESC NULLS LAST, lg.created_at
-		 LIMIT 1
+		  ORDER BY lg.is_primary_payer DESC NULLS LAST, lg.created_at
+		  LIMIT 1
 		ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
 		tenantID, msg, req.LearnerID, idem,
 	)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"payment_id":       paymentID,
+		"receipt_number":   receiptNumber,
 		"invoice_id":       allocationInvoice,
-		"allocated_amount": allocatedAmount,
+		"allocated_amount": allocatedAmount.StringFixed(2),
+		"overpayment":      overpayment.StringFixed(2),
 	})
 }
 
