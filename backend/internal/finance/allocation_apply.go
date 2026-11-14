@@ -664,3 +664,15 @@ func logAllocationTransition(ctx context.Context, q allocQueryer, tenantID, invo
 		tenantID, invoiceID, fromState, toState, event, actorID, reason,
 	)
 }
+
+// learnerIDForInvoice resolves the learner an invoice belongs to, for callers
+// that only know the invoice (the manual allocation endpoint).
+func learnerIDForInvoice(ctx context.Context, q allocQueryer, tenantID, invoiceID string) string {
+	var learnerID string
+	if err := q.QueryRowContext(ctx,
+		`SELECT learner_id::text FROM invoices WHERE tenant_id = $1 AND invoice_id = $2::uuid`,
+		tenantID, invoiceID).Scan(&learnerID); err != nil {
+		return ""
+	}
+	return learnerID
+}

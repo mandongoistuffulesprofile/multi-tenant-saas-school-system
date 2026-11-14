@@ -4,18 +4,23 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 )
 
 type queryer interface {
 	Query(string, ...interface{}) (*sql.Rows, error)
 	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
 	QueryRow(string, ...interface{}) *sql.Row
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
 	Exec(string, ...interface{}) (sql.Result, error)
+	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
 }
 
 type Service struct {
@@ -124,48 +129,19 @@ func (s *Service) Resolve(ctx context.Context, tenantID, userID, entryID, studen
 		return err
 	}
 
-	// Auto-allocate to the learner's oldest outstanding invoice(s).
-	for {
-		var invoiceID string
-		var outstanding float64
-		row := q.QueryRow(
-			`SELECT invoice_id, amount_outstanding FROM invoices
-			 WHERE tenant_id=$1 AND learner_id=$2 AND amount_outstanding > 0 AND status <> 'VOID'
-			 ORDER BY due_date NULLS LAST, created_at ASC LIMIT 1`,
-			tenantID, studentID,
-		)
-		if err := row.Err(); err != nil {
-			break
-		}
-		if err := row.Scan(&invoiceID, &outstanding); err != nil {
-			break // no more outstanding invoices
-		}
-		applied := amount
-		if applied <= 0 {
-			break
-		}
-		if _, err := q.Exec(
-			`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount)
-			 VALUES ($1, $2, $3, $4)`,
-			tenantID, paymentID, invoiceID, applied,
-		); err != nil {
-			return err
-		}
-		if _, err := q.Exec(
-			`UPDATE invoices SET
-				amount_paid = amount_paid + $1,
-				amount_outstanding = amount_outstanding - $1,
-				status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-				updated_at = CURRENT_TIMESTAMP
-			 WHERE invoice_id = $2 AND tenant_id = $3`,
-			applied, invoiceID, tenantID,
-		); err != nil {
-			return err
-		}
-		amount -= applied
-		if amount <= 0 {
-			break
-		}
+	// One planner for every receipt path: settle the oldest term first across as
+	// many lines as the deposit covers, and park any excess as a credit instead
+	// of losing it.
+	if _, err := finance.ApplyReceipt(ctx, q, finance.ReceiptApplication{
+		TenantID:  tenantID,
+		UserID:    userID,
+		PaymentID: paymentID,
+		LearnerID: studentID,
+		Amount:    money.New(fmt.Sprintf("%.2f", amount)),
+		Rule:      finance.AllocationPriority,
+		Reference: paymentRef,
+	}); err != nil {
+		return err
 	}
 
 	return nil

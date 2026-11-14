@@ -1,7 +1,9 @@
 package finance
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
@@ -46,73 +49,92 @@ func (h *Handler) CreditStudentInvoiceForInKind(
 	amount money.Decimal,
 	sourceRef string,
 ) (*InKindCreditResult, error) {
-	// Find an open invoice for the student on the requested votehead.
-	var invoiceID, invoiceNumber, status string
-	var totalAmount, amountPaid, amountOutstanding float64
-	err := h.db.QueryRow(
-		`SELECT invoice_id, invoice_number, status,
-			 total_amount::text, amount_paid::text, amount_outstanding::text
-		 FROM invoices
-		 WHERE tenant_id = $1 AND learner_id = $2
-		   AND status <> 'VOID'
-		 ORDER BY (total_amount - amount_paid) DESC, issued_date DESC
-		 LIMIT 1`,
-		tenantID, studentID,
-	).Scan(&invoiceID, &invoiceNumber, &status, &totalAmount, &amountPaid, &amountOutstanding)
+	ctx := context.Background()
+	var result *InKindCreditResult
+
+	err := h.db.WithTenant(ctx, tenantID, userID, func(tx *db.Tx) error {
+		// Resolve the votehead so the credit lands on the produce the school
+		// actually received, not just the largest bill on the account.
+		var voteheadID string
+		_ = tx.QueryRowContext(ctx,
+			`SELECT id::text FROM voteheads WHERE tenant_id = $1 AND UPPER(code) = UPPER($2)`,
+			tenantID, voteheadCode).Scan(&voteheadID)
+
+		query := `
+			SELECT i.invoice_id::text, i.invoice_number, i.amount_outstanding::text
+			  FROM invoices i
+			 WHERE i.tenant_id = $1 AND i.learner_id = $2
+			   AND i.amount_outstanding > 0
+			   AND i.status IN ('ISSUED', 'PARTIALLY_PAID', 'OVERDUE')`
+		args := []interface{}{tenantID, studentID}
+		if voteheadID != "" {
+			query += `
+			   AND EXISTS (
+			       SELECT 1 FROM invoice_lines l
+			         JOIN fee_categories fc ON fc.category_id = l.category_id
+			        WHERE l.invoice_id = i.invoice_id AND l.tenant_id = i.tenant_id
+			          AND fc.votehead_id = $3::uuid)`
+			args = append(args, voteheadID)
+		}
+		query += ` ORDER BY i.amount_outstanding DESC, i.issue_date LIMIT 1`
+
+		var invoiceID, invoiceNumber, outstandingStr string
+		if err := tx.QueryRowContext(ctx, query, args...).Scan(&invoiceID, &invoiceNumber, &outstandingStr); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("no open invoice for student %s: %w", studentID, err)
+			}
+			return err
+		}
+
+		// In-kind produce never becomes cash credit: cap at what the invoice
+		// still owes, exactly as before.
+		credit := amount
+		if outstanding := money.New(outstandingStr); credit.GreaterThan(outstanding) {
+			credit = outstanding
+		}
+		if !credit.IsPositive() {
+			return nil // invoice already fully cleared
+		}
+
+		var paymentID string
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, recorded_by)
+			VALUES ($1, $2, $3, 'IN_KIND_PRODUCE', $4::numeric, 'COMPLETED', NULLIF($5, '')::uuid)
+			RETURNING payment_id`,
+			tenantID, shortPaymentRef(sourceRef), studentID, credit.StringFixed(2), userID).Scan(&paymentID); err != nil {
+			return fmt.Errorf("create payment row: %w", err)
+		}
+
+		outcome, err := ApplyReceipt(ctx, tx, ReceiptApplication{
+			TenantID:      tenantID,
+			UserID:        userID,
+			PaymentID:     paymentID,
+			LearnerID:     studentID,
+			Amount:        credit,
+			HintVotehead:  voteheadID,
+			OnlyInvoiceID: invoiceID,
+			Rule:          AllocationPriority,
+			Reference:     shortPaymentRef(sourceRef),
+		})
+		if err != nil {
+			return err
+		}
+
+		previous := money.New(outstandingStr)
+		result = &InKindCreditResult{
+			PaymentID:           paymentID,
+			InvoiceID:           invoiceID,
+			InvoiceNumber:       invoiceNumber,
+			PreviousOutstanding: previous.InexactFloat64(),
+			NewOutstanding:      previous.Sub(outcome.Allocated).InexactFloat64(),
+			VoteheadCode:        voteheadCode,
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("no open invoice for student %s: %w", studentID, err)
+		return nil, err
 	}
-
-	centsToCredit := money.ToCents(amount)
-	if centsToCredit > int64(amountOutstanding*100) {
-		centsToCredit = int64(amountOutstanding * 100)
-	}
-	if centsToCredit <= 0 {
-		return nil, nil // invoice already fully cleared
-	}
-
-	previousOutstanding := amountOutstanding
-
-	// Create a tagged payment row so the ledger has an auditable source.
-	var paymentID string
-	err = h.db.QueryRow(
-		`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status, recorded_by)
-		 VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6)
-		 RETURNING payment_id`,
-		tenantID,
-		shortPaymentRef(sourceRef),
-		studentID,
-		"IN_KIND_PRODUCE",
-		money.FloatString(amount, 2),
-		nullableString(userID),
-	).Scan(&paymentID)
-	if err != nil {
-		return nil, fmt.Errorf("create payment row: %w", err)
-	}
-
-	// Allocate against the invoice.
-	_, _ = h.db.Exec(
-		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		tenantID, paymentID, invoiceID, money.FloatString(amount, 2), nullableString(userID))
-
-	_, _ = h.db.Exec(
-		`UPDATE invoices SET amount_paid = amount_paid + $1,
-		   amount_outstanding = amount_outstanding - $1,
-		   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-		   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
-		   updated_at = now()
-		 WHERE invoice_id = $2 AND tenant_id = $3`, money.FloatString(amount, 2), invoiceID, tenantID)
-
-	newOutstanding := amountOutstanding - float64(centsToCredit)/100.0
-	return &InKindCreditResult{
-		PaymentID:           paymentID,
-		InvoiceID:           invoiceID,
-		InvoiceNumber:       invoiceNumber,
-		PreviousOutstanding: previousOutstanding,
-		NewOutstanding:      newOutstanding,
-		VoteheadCode:        voteheadCode,
-	}, nil
+	return result, nil
 }
 
 func shortPaymentRef(sourceRef string) string {
@@ -587,18 +609,22 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		return
 	}
 
-	_, _ = tx.Exec(
-		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		tenantID, paymentID, req.InvoiceID, amount, nullableString(userID))
-
-	_, _ = tx.Exec(
-		`UPDATE invoices SET amount_paid = amount_paid + $1,
-		   amount_outstanding = amount_outstanding - $1,
-		   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-		   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
-		   updated_at = now()
-		 WHERE invoice_id = $2 AND tenant_id = $3`, amount, req.InvoiceID, tenantID)
+	// Settle the invoice's lines rather than its opaque total, and park any
+	// excess the clamp could not place as a credit.
+	receiptAmount := money.New(fmt.Sprintf("%.2f", amount))
+	if _, err := ApplyReceipt(c.Request.Context(), tx, ReceiptApplication{
+		TenantID:      tenantID,
+		UserID:        userID,
+		PaymentID:     paymentID,
+		LearnerID:     learnerID,
+		Amount:        receiptAmount,
+		OnlyInvoiceID: req.InvoiceID,
+		Rule:          AllocationPriority,
+		Reference:     "MPESA-" + shortID(transactionID),
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	_, _ = tx.Exec(
 		`UPDATE mpesa_transactions SET status = 'MATCHED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,

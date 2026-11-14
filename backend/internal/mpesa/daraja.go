@@ -21,7 +21,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/finance"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 )
 
 // C2BCallbackPayload is the Safaricom C2B confirmation body.
@@ -357,67 +359,18 @@ func (s *Service) allocate(ctx context.Context, tx *sqlx.Tx, tenantID, transID, 
 		return "", err
 	}
 
-	rows, err := tx.QueryContext(ctx, `
-		SELECT invoice_id
-		FROM invoices
-		WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
-		  AND status IN ('ISSUED','PARTIALLY_PAID','OVERDUE')
-		ORDER BY due_date NULLS LAST, created_at
-		FOR UPDATE`, tenantID, learnerID)
-	if err != nil {
+	// One planner for every receipt path: oldest term first, across as many lines
+	// as the money covers, with any excess parked as an unapplied credit.
+	if _, err := finance.ApplyReceipt(ctx, tx, finance.ReceiptApplication{
+		TenantID:  tenantID,
+		UserID:    "MPESA_CALLBACK",
+		PaymentID: paymentID,
+		LearnerID: learnerID,
+		Amount:    money.New(amount),
+		Rule:      finance.AllocationPriority,
+		Reference: transID,
+	}); err != nil {
 		return "", err
-	}
-	var invoiceIDs []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return "", err
-		}
-		invoiceIDs = append(invoiceIDs, id)
-	}
-	rows.Close()
-
-	for _, invoiceID := range invoiceIDs {
-		var rem string
-		if err := tx.QueryRowContext(ctx, `
-			SELECT GREATEST($1::numeric - COALESCE(SUM(pa.allocated_amount),0), 0)::text
-			FROM payment_allocations pa WHERE pa.tenant_id = $2 AND pa.payment_id = $3`,
-			amount, tenantID, paymentID).Scan(&rem); err != nil {
-			return "", err
-		}
-		if rem == "0" || rem == "0.00" || rem == "0.0" {
-			break
-		}
-		var alloc string
-		err := tx.QueryRowContext(ctx, `
-			SELECT LEAST($1::numeric, amount_outstanding)::text
-			FROM invoices WHERE invoice_id = $2 AND tenant_id = $3 FOR UPDATE`,
-			rem, invoiceID, tenantID).Scan(&alloc)
-		if err != nil {
-			return "", err
-		}
-		if alloc == "0" || alloc == "0.00" || alloc == "0.0" {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount)
-			VALUES ($1, $2, $3, $4::numeric)
-			ON CONFLICT (payment_id, invoice_id) DO NOTHING`,
-			tenantID, paymentID, invoiceID, alloc); err != nil {
-			return "", err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE invoices
-			SET amount_paid = amount_paid + $1::numeric,
-			    amount_outstanding = amount_outstanding - $1::numeric,
-			    status = CASE WHEN amount_outstanding - $1::numeric <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
-			    paid_at = CASE WHEN amount_outstanding - $1::numeric <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
-			    updated_at = now()
-			WHERE invoice_id = $2 AND tenant_id = $3`,
-			alloc, invoiceID, tenantID); err != nil {
-			return "", err
-		}
 	}
 
 	msg := fmt.Sprintf("Payment received: KES %s (Ref %s). Thank you.", amount, transID)

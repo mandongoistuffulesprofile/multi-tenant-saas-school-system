@@ -615,77 +615,55 @@ func (s *Service) AllocatePayment(ctx context.Context, tenantID string, alloc Pa
 		return nil, errors.New("allocated amount must be positive")
 	}
 
-	// 1. Lock the invoice row to prevent concurrent allocation races.
-	// Scan monetary columns as strings to preserve exact NUMERIC(12,2) value
-	// without IEEE 754 float drift, then parse into money.Decimal.
-	var (
-		currentState string
-		totalStr     string
-		paidStr      string
-		outStr       string
-	)
-	err := tx.QueryRowContext(ctx, `
-		SELECT status, total_amount::text, amount_paid::text, amount_outstanding::text
-		  FROM invoices
-		 WHERE invoice_id = $1 AND tenant_id = $2
-		 FOR UPDATE`,
-		alloc.InvoiceID, tenantID).Scan(&currentState, &totalStr, &paidStr, &outStr)
-	if err == sql.ErrNoRows {
-		return nil, sql.ErrNoRows
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	totalAmount := money.New(totalStr)
-	paidAmount := money.New(paidStr)
-	outstanding := money.New(outStr)
-
 	// Snap the client-supplied allocation to 2dp cents to recover the intended
 	// currency value from the float64 JSON transport without drift.
 	allocAmount := money.New(fmt.Sprintf("%.2f", alloc.AllocatedAmount))
+	if !allocAmount.IsPositive() {
+		return nil, errors.New("allocated amount must be at least 0.01")
+	}
 
-	// 2. Evaluate the pure FSM transition (APPLY_CREDIT) using exact decimal.
-	newPaid := paidAmount.Add(allocAmount)
-	nextState, err := TransitionInvoice(InvoiceState(currentState), EventApplyCredit, InvoiceContext{
-		TotalAmount:       totalAmount,
-		PaidAmount:        newPaid,
-		AmountOutstanding: outstanding.Sub(allocAmount),
-	})
-	if err != nil {
+	// The bursar picked this invoice, so the receipt is restricted to it, but it
+	// still settles fee lines oldest first rather than one opaque invoice total.
+	// An allocation larger than the debt is rejected here, as before, instead of
+	// silently becoming a prepayment credit.
+	var outstandingStr string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT amount_outstanding::text
+		  FROM invoices
+		 WHERE invoice_id = $1 AND tenant_id = $2
+		 FOR UPDATE`, alloc.InvoiceID, tenantID).Scan(&outstandingStr); err != nil {
+		return nil, err
+	}
+	outstanding := money.New(outstandingStr)
+	if allocAmount.GreaterThan(outstanding) {
+		return nil, fmt.Errorf("allocation rejected: %s exceeds the %s outstanding on this invoice",
+			allocAmount.StringFixed(2), outstanding.StringFixed(2))
+	}
+
+	if _, err := ApplyReceipt(ctx, tx, ReceiptApplication{
+		TenantID:      tenantID,
+		UserID:        alloc.AllocatedBy,
+		PaymentID:     alloc.PaymentID,
+		LearnerID:     learnerIDForInvoice(ctx, tx, tenantID, alloc.InvoiceID),
+		Amount:        allocAmount,
+		OnlyInvoiceID: alloc.InvoiceID,
+		Rule:          AllocationPriority,
+	}); err != nil {
 		return nil, fmt.Errorf("allocation rejected: %w", err)
 	}
 
-	newOutstanding := outstanding.Sub(allocAmount)
-
-	// 3. Persist the validated transition atomically. Write decimals back as
-	// fixed-2dp strings so Postgres casts them to NUMERIC(12,2) exactly.
-	_, err = tx.ExecContext(ctx, `
-		UPDATE invoices
-		   SET amount_paid = $1::numeric,
-		       amount_outstanding = $2::numeric,
-		       status = $3,
-		       paid_at = CASE WHEN $1::numeric >= $4::numeric THEN COALESCE(paid_at, CURRENT_TIMESTAMP) ELSE paid_at END,
-		       updated_at = CURRENT_TIMESTAMP
-		 WHERE invoice_id = $5 AND tenant_id = $6`,
-		newPaid.StringFixed(2), newOutstanding.StringFixed(2), nextState, totalAmount.StringFixed(2), alloc.InvoiceID, tenantID)
-	if err != nil {
+	if err := tx.QueryRowContext(ctx, `
+		SELECT allocation_id::text, allocated_at::text
+		  FROM payment_allocations
+		 WHERE tenant_id = $1 AND payment_id = $2::uuid AND invoice_id = $3::uuid
+		   AND source = 'RECEIPT' AND reverses_allocation_id IS NULL
+		 ORDER BY allocated_at
+		 LIMIT 1`,
+		tenantID, alloc.PaymentID, alloc.InvoiceID).Scan(&alloc.AllocationID, &alloc.AllocatedAt); err != nil {
 		return nil, err
 	}
 
-	logInvoiceTransition(tx, tenantID, alloc.InvoiceID, string(currentState), string(nextState),
-		string(EventApplyCredit), alloc.AllocatedBy, "payment allocation")
-
-	err = tx.QueryRow(
-		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING allocation_id, allocated_at`,
-		tenantID, alloc.PaymentID, alloc.InvoiceID, allocAmount.StringFixed(2), alloc.AllocatedBy,
-	).Scan(&alloc.AllocationID, &alloc.AllocatedAt)
-	if err != nil {
-		return nil, err
-	}
-
+	alloc.AllocatedAmount = allocAmount.InexactFloat64()
 	alloc.TenantID = tenantID
 	return &alloc, nil
 }
