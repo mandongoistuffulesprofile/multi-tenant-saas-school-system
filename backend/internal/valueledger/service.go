@@ -66,6 +66,11 @@ type TrendPoint struct {
 	Revenue  float64 `json:"revenue"`
 	Expenses float64 `json:"expenses"`
 	Net      float64 `json:"net"`
+	// Usage counters come from the monthly tenant_usage snapshot. They are
+	// zero for months the snapshot has not covered yet.
+	ActiveLearners    int `json:"active_learners"`
+	SmsSent           int `json:"sms_sent"`
+	PaymentsProcessed int `json:"payments_processed"`
 }
 
 // Trend returns revenue, expenses and surplus per month for the last `months`
@@ -106,6 +111,34 @@ func (s *Service) Trend(ctx context.Context, q queryer, tenantID string, months 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("value ledger trend rows: %w", err)
+	}
+
+	// Usage counters for the same months, where the snapshot has them.
+	usageRows, err := q.QueryContext(ctx, `
+		SELECT to_char(period_month, 'YYYY-MM'), active_learners, sms_sent, payments_processed
+		FROM tenant_usage
+		WHERE tenant_id = $1
+		  AND period_month >= (date_trunc('month', CURRENT_DATE) - make_interval(months => $2::int - 1))::date`,
+		tenantID, months)
+	if err != nil {
+		return nil, fmt.Errorf("value ledger usage: %w", err)
+	}
+	defer usageRows.Close()
+	for usageRows.Next() {
+		var period string
+		var learners, sms, payments int
+		if err := usageRows.Scan(&period, &learners, &sms, &payments); err != nil {
+			return nil, fmt.Errorf("value ledger usage scan: %w", err)
+		}
+		point := byPeriod[period]
+		point.Period = period
+		point.ActiveLearners = learners
+		point.SmsSent = sms
+		point.PaymentsProcessed = payments
+		byPeriod[period] = point
+	}
+	if err := usageRows.Err(); err != nil {
+		return nil, fmt.Errorf("value ledger usage rows: %w", err)
 	}
 
 	// Fill the months with no activity: a chart that skips empty months lies

@@ -189,6 +189,12 @@ func Run() error {
 	reconcileWorker := finance.NewReconcileWorker(database.DB.DB, slog.Default())
 	go reconcileWorker.Start(allocCtx, 24*time.Hour)
 
+	// Monthly usage snapshots: counts of changes (SMS, payments, reports,
+	// assessments, gate taps) and of the roll, so trend charts can show volume
+	// beside money.
+	usageWorker := platform.NewUsageWorker(database.DB, slog.Default())
+	go usageWorker.Start(allocCtx, 24*time.Hour)
+
 	// Outbox worker: deliver SMS/receipt/alert events idempotently with retries.
 	// Uses the new robust worker with lease timeouts and exponential backoff.
 	smsSvc := sms.NewSMSService()
