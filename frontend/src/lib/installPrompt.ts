@@ -1,69 +1,62 @@
 const INSTALL_EVENT = "shule:beforeinstallprompt-ready";
 const INSTALL_REQUEST_EVENT = "shule:install-requested";
 
-export type InstallPromptState =
-  | { ready: true; prompt: BeforeInstallPromptEvent }
-  | { ready: false; reason: "no-support" | "already-installed" | "not-yet-available" };
-
-export type BeforeInstallPromptEvent = Pick<
-  BeforeInstallPromptEventInit,
-  "prompt" | "userChoice" | "platforms"
-> & {
-  type: "beforeinstallprompt";
-  preventedDefault: () => void;
-};
-
-let storedPrompt: InstallPromptEvent | null = null;
-
-export function onInstallPromptReady(listener: (event: BeforeInstallPromptEvent) => void): () => void {
-  const handler = (event: BeforeInstallPromptEvent) => listener(event);
-  window.addEventListener(INSTALL_EVENT, handler);
-  return () => window.removeEventListener(INSTALL_EVENT, handler);
+/**
+ * The BeforeInstallPromptEvent is non-standard and not in lib.dom, so the
+ * subset of the API this module relies on is declared here.
+ */
+export interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+  platforms: string[];
 }
+
+const emptyPromptDetail = () => ({
+  type: "beforeinstallprompt",
+  preventedDefault: () => {},
+  prompt: () => Promise.resolve(),
+  userChoice: Promise.resolve({ outcome: "dismissed" as const, platform: "" }),
+  platforms: [] as string[],
+});
+
+let seenPrompt: BeforeInstallPromptEvent | null = null;
 
 export async function watchInstallPrompt(): Promise<void> {
   if (!("serviceWorker" in navigator) || !("beforeinstallprompt" in window)) {
-    window.dispatchEvent(new CustomEvent(INSTALL_EVENT, {
-      detail: { type: "beforeinstallprompt", preventedDefault: () => {}, prompt: null as unknown as BeforeInstallPromptEvent, platforms: [] },
-    }));
     return;
   }
 
   window.addEventListener("beforeinstallprompt", (event) => {
-    event.preventDefault();
-    storedPrompt = event as BeforeInstallPromptEvent;
-    window.dispatchEvent(new CustomEvent(INSTALL_EVENT, { detail: event as BeforeInstallPromptEvent }));
-  }, { once: false });
+    const installEvent = event as BeforeInstallPromptEvent;
+    installEvent.preventDefault();
+    seenPrompt = installEvent;
+    window.dispatchEvent(new CustomEvent(INSTALL_EVENT, { detail: installEvent }));
+  });
 
   window.addEventListener("appinstalled", () => {
-    storedPrompt = null;
-    window.dispatchEvent(new CustomEvent(INSTALL_EVENT, {
-      detail: { type: "beforeinstallprompt", preventedDefault: () => {}, prompt: null as unknown as BeforeInstallPromptEvent, platforms: [] },
-    }));
-  }, { once: false });
+    seenPrompt = null;
+    window.dispatchEvent(new CustomEvent(INSTALL_EVENT, { detail: emptyPromptDetail() }));
+  });
+}
 
-  if (storedPrompt) {
-    window.dispatchEvent(new CustomEvent(INSTALL_EVENT, { detail: storedPrompt }));
-  }
+export function onInstallPromptReady(
+  listener: (event: BeforeInstallPromptEvent) => void,
+): () => void {
+  const handler = (event: Event) => listener(event as BeforeInstallPromptEvent);
+  window.addEventListener(INSTALL_EVENT, handler);
+  return () => window.removeEventListener(INSTALL_EVENT, handler);
 }
 
 export async function requestInstall(): Promise<boolean> {
-  if (!("serviceWorker" in navigator) || !("beforeinstallprompt" in window)) {
-    return false;
-  }
-
-  window.dispatchEvent(new CustomEvent(INSTALL_REQUEST_EVENT));
-  if (!storedPrompt) {
+  if (!seenPrompt) {
+    window.dispatchEvent(new CustomEvent(INSTALL_REQUEST_EVENT));
     return false;
   }
   try {
-    storedPrompt.prompt();
-    const choice = await storedPrompt.userChoice;
+    await seenPrompt.prompt();
+    const choice = await seenPrompt.userChoice;
     if (choice.outcome === "accepted") {
-      storedPrompt = null;
-      window.dispatchEvent(new CustomEvent(INSTALL_EVENT, {
-        detail: { type: "beforeinstallprompt", preventedDefault: () => {}, prompt: null as unknown as BeforeInstallPromptEvent, platforms: [] },
-      }));
+      seenPrompt = null;
       return true;
     }
     return false;

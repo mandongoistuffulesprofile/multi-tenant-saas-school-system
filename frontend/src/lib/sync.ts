@@ -135,8 +135,7 @@ export async function syncNow(): Promise<{ synced: number; failed: number; confl
       // The next connectivity event will replay them; the backend is expected to
       // treat repeated pushes with the same idempotency_key as no-ops rather
       // than as fresh mutations.
-    }
-  } else {
+    } else {
     // If the queue is empty or all items are exhausted, still emit so the UI
     // can reflect the current pending count without forcing another attempt.
     emit();

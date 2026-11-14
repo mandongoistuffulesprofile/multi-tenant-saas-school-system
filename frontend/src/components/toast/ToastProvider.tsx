@@ -3,8 +3,15 @@ import { useTranslation } from "react-i18next";
 import { toast, subscribe } from "../../lib/toast";
 import type { Toast } from "../../lib/toast";
 
+type ToastContextOptions = {
+  title?: string;
+  type?: "success" | "error" | "info" | "warning";
+  duration?: number;
+  action?: { label: string; onClick: () => void };
+};
+
 type ToastContextValue = {
-  toast: (message: string, options?: { title?: string; type?: "success" | "error" | "info" | "warning"; duration?: number }) => string;
+  toast: (message: string, options?: ToastContextOptions) => string;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -13,11 +20,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const { t } = useTranslation();
 
-  const addToast = (message: string, options: { title?: string; type?: "success" | "error" | "info" | "warning"; duration?: number } = {}) => {
+  const addToast = (message: string, options: ToastContextOptions = {}) => {
     const id = toast(message, {
       title: options.title,
       type: options.type,
       duration: options.duration,
+      action: options.action,
     });
     return id;
   };
@@ -108,7 +116,7 @@ function Toast({ toast: t, onDismiss }: ToastProps & { onDismiss: () => void }) 
           type="button"
           className="ml-auto flex-shrink-0 rounded p-1 hover:bg-black/5 transition"
           onClick={() => {
-            t.action.onClick();
+            t.action?.onClick();
             onDismiss();
           }}
           aria-label={tr("common.undo") ?? "Undo"}

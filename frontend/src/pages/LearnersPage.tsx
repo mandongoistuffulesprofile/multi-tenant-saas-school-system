@@ -384,7 +384,7 @@ export default function LearnersPage() {
           <button
             type="button"
             className="rounded-lg border border-slate-200 px-3 py-1 text-sm text-slate-600 hover:border-slate-300"
-            onClick={() => setActiveStatusFilter("")
+            onClick={() => setActiveStatusFilter("")}
           >
             All
           </button>

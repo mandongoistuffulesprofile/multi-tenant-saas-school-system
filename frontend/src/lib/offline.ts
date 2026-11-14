@@ -204,6 +204,24 @@ export async function recordOfflineAttendance(tenantId: string, mark: any, opts?
 
 /* ============ Legacy record access (tenant-aware) ============ */
 
+/** Persist one assessment result for the attached tenant (offline-first). */
+export async function saveAssessmentResult(
+  tenantId: string,
+  result: any,
+  opts?: { enqueue?: boolean },
+): Promise<void> {
+  await recordOfflineAssessment(tenantId, result, opts);
+}
+
+/** Persist one attendance mark for the attached tenant (offline-first). */
+export async function saveAttendanceMark(
+  tenantId: string,
+  mark: any,
+  opts?: { enqueue?: boolean },
+): Promise<void> {
+  await recordOfflineAttendance(tenantId, mark, opts);
+}
+
 export async function getAssessmentResults(tenantId: string): Promise<StoredRecord<any>[]> {
   return getAll(tenantId, "assessment_results");
 }

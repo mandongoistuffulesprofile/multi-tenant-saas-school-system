@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
-import { onInstallPromptReady, requestInstall } from "./lib/installPrompt";
+import { onInstallPromptReady, requestInstall, watchInstallPrompt } from "./lib/installPrompt";
 
 function useInstallPrompt() {
   const [ready, setReady] = useState<boolean | null>(null);
@@ -11,10 +11,11 @@ function useInstallPrompt() {
       if (!mounted) return;
       setReady(true);
     };
-    onInstallPromptReady(handleReady);
-    watchInstallPrompt();
+    const unsubscribe = onInstallPromptReady(handleReady);
+    void watchInstallPrompt();
     return () => {
       mounted = false;
+      unsubscribe();
     };
   }, []);
 

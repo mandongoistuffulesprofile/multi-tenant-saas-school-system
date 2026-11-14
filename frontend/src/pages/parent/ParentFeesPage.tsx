@@ -337,7 +337,7 @@ export default function ParentFeesPage() {
                     toast("Enter a slip reference", { type: "error" });
                     return;
                   }
-                  toast(\`Bank slip \${bankReference} queued for verification\`, { type: "success" });
+                  toast(`Bank slip ${bankReference} queued for verification`, { type: "success" });
                   setBankReference("");
                 }}
                 disabled={!bankReference}
@@ -373,7 +373,7 @@ export default function ParentFeesPage() {
                     toast("Enter a voucher reference", { type: "error" });
                     return;
                   }
-                  toast(\`Bursary voucher \${cdfReference} queued for allocation\`, { type: "success" });
+                  toast(`Bursary voucher ${cdfReference} queued for allocation`, { type: "success" });
                   setCdfReference("");
                 }}
                 disabled={!cdfReference}

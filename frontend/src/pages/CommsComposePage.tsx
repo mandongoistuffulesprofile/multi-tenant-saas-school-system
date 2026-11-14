@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import { useApiDeduper } from "../lib/mutationDeduper";
@@ -74,7 +74,7 @@ export default function CommsComposePage() {
         bodyRef.current?.focus();
       }
       // Keep this effect cheap and visual; never block render.
-      if (process.env.NODE_ENV !== "production") {
+      if (import.meta.env.DEV) {
         console.debug("CommsCompose: autofocused body", performance.now() - t0);
       }
     });

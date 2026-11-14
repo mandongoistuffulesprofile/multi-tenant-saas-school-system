@@ -44,16 +44,22 @@ if (assets.length === 0) {
 const revision = createHash("sha256").update(assets.join("\n")).digest("hex").slice(0, 10);
 
 let worker = fs.readFileSync(swPath, "utf8");
-for (const token of ["__BUILD_REVISION__", "__PRECACHE_ASSETS__"]) {
-  const occurrences = worker.split(token).length - 1;
-  if (occurrences !== 1) {
-    throw new Error(
-      `[precache] dist/sw.js must contain exactly one ${token} (found ${occurrences}); the worker template changed`,
-    );
-  }
+
+// The worker uses the revision in its declaration and in the dev-launch
+// fallback comparison, so every occurrence is rewritten with the build hash.
+const revisionOccurrences = worker.split("__BUILD_REVISION__").length - 1;
+if (revisionOccurrences === 0) {
+  throw new Error("[precache] dist/sw.js has no __BUILD_REVISION__ placeholder; the worker template changed");
+}
+const assetsOccurrences = worker.split("__PRECACHE_ASSETS__").length - 1;
+if (assetsOccurrences !== 1) {
+  throw new Error(
+    `[precache] dist/sw.js must contain exactly one __PRECACHE_ASSETS__ (found ${assetsOccurrences}); the worker template changed`,
+  );
 }
 worker = worker
-  .replace("__BUILD_REVISION__", revision)
+  .split("__BUILD_REVISION__")
+  .join(revision)
   .replace("__PRECACHE_ASSETS__", JSON.stringify(assets, null, 2));
 
 fs.writeFileSync(swPath, worker);

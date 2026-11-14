@@ -7,14 +7,14 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   fullWidth?: boolean;
 }
 
-export default function Input({
+const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input({
   label,
   error,
   helper,
   fullWidth = false,
   className = "",
   ...props
-}: InputProps) {
+}, ref) {
   const generatedId = useId();
   const inputId = props.id || generatedId;
   return (
@@ -23,6 +23,7 @@ export default function Input({
         {label}
       </label>}
       <input
+        ref={ref}
         id={inputId}
         {...props}
         className={`input-field ${error ? "border-red-500 focus:ring-red-500 focus:border-red-500" : ""} ${className}`}
@@ -38,3 +39,6 @@ export default function Input({
     </div>
   );
 }
+);
+
+export default Input;
