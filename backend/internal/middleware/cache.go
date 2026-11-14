@@ -4,9 +4,16 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+// privateNoStore is the default for this API. Every authenticated response is
+// tenant-scoped, so a shared proxy that replays one school's payload to another
+// would be a cross-tenant data leak; nothing here is safe to store publicly.
+const privateNoStore = "private, no-store"
 
 // bodyBufferWriter buffers a GET response body so an ETag can be computed and
 // If-None-Match honoured with a 304 (no body) before anything is committed.
@@ -57,16 +64,29 @@ func (w *bodyBufferWriter) commit(status int, body []byte) {
 	}
 }
 
-// CacheControlMiddleware sets short-lived cache headers on safe GET responses
-// and honours If-None-Match with a 304 when the ETag matches. This reduces
-// repeat fetch payloads on slow/metered mobile connections.
+// CacheControlMiddleware marks GET responses as private to the caller and
+// honours If-None-Match with a 304 when the ETag matches. This keeps repeat
+// fetches cheap for the client without letting a shared cache store one
+// tenant's data for the next caller. Handlers serving content that is truly
+// identical for every caller opt in with AllowSharedCache.
 func CacheControlMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		isGet := c.Request.Method == http.MethodGet
 		if isGet {
-			c.Header("Cache-Control", "public, max-age=60, must-revalidate")
+			c.Header("Cache-Control", privateNoStore)
+			// Responses depend on the session cookie, so any cache that keeps
+			// them must key on it rather than treat them as shared objects.
+			addVaryCookie(c.Writer.Header())
 		}
 		c.Next()
+
+		// Re-assert Vary once the handler has run: a handler that sets its own
+		// Vary values (for example Origin) replaces whatever was there, and the
+		// response still depends on the session cookie. Public opt-ins remove it
+		// themselves, so they are left alone.
+		if isGet && !strings.HasPrefix(c.Writer.Header().Get("Cache-Control"), "public") {
+			addVaryCookie(c.Writer.Header())
+		}
 
 		proxy, ok := c.Writer.(*bodyBufferWriter)
 		if !ok {
@@ -97,6 +117,52 @@ func CacheControlMiddleware() gin.HandlerFunc {
 		}
 
 		proxy.commit(proxy.statusCode, body)
+	}
+}
+
+// AllowSharedCache marks the response as cacheable by shared caches. It is only
+// for endpoints whose body is identical for every caller and free of tenant or
+// session data, such as a public asset catalogue. It must be called before the
+// handler writes a body; the default everywhere else is private, no-store.
+func AllowSharedCache(c *gin.Context, maxAge time.Duration) {
+	seconds := int(maxAge.Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	c.Header("Cache-Control", fmt.Sprintf("public, max-age=%d", seconds))
+	// A public response must not vary on the caller's cookie.
+	removeVaryCookie(c.Writer.Header())
+}
+
+func addVaryCookie(h http.Header) {
+	for _, value := range h.Values("Vary") {
+		for _, part := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), "Cookie") {
+				return
+			}
+		}
+	}
+	h.Add("Vary", "Cookie")
+}
+
+func removeVaryCookie(h http.Header) {
+	values := h.Values("Vary")
+	if len(values) == 0 {
+		return
+	}
+	h.Del("Vary")
+	for _, value := range values {
+		kept := make([]string, 0, len(values))
+		for _, part := range strings.Split(value, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" || strings.EqualFold(trimmed, "Cookie") {
+				continue
+			}
+			kept = append(kept, trimmed)
+		}
+		if len(kept) > 0 {
+			h.Add("Vary", strings.Join(kept, ", "))
+		}
 	}
 }
 
