@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,12 +101,7 @@ func TestApplyReceiptReconciles(t *testing.T) {
 		_ = database.WithTenant(ctx, tenant, "", func(tx *db.Tx) error {
 			for _, stmt := range []string{
 				`DELETE FROM payment_allocations WHERE tenant_id = $1`,
-				`DELETE FROM payment_ledger WHERE tenant_id = $1`,
 				`DELETE FROM credits WHERE tenant_id = $1`,
-				`DELETE FROM invoice_lines WHERE tenant_id = $1`,
-				`DELETE FROM invoices WHERE tenant_id = $1`,
-				`DELETE FROM payments WHERE tenant_id = $1`,
-				`DELETE FROM learners WHERE tenant_id = $1`,
 				`DELETE FROM terms WHERE tenant_id = $1`,
 				`DELETE FROM academic_years WHERE tenant_id = $1`,
 				`DELETE FROM fee_categories WHERE tenant_id = $1`,
@@ -125,46 +121,38 @@ func TestApplyReceiptReconciles(t *testing.T) {
 			TenantID:  tenant,
 			PaymentID: paymentID,
 			LearnerID: learnerID,
-			Amount:    money.FromCents(900000),
+			Amount:    money.FromCents(950000),
 			Rule:      AllocationPriority,
 			Reference: "RCPT-" + suffix[:6],
 		})
 		if err != nil {
 			return err
 		}
-		if len(outcome.Allocations) != 2 {
-			t.Fatalf("expected both lines of the oldest invoice to settle, got %d allocations", len(outcome.Allocations))
+		if len(outcome.Allocations) != 3 {
+			t.Fatalf("expected all three lines to settle, got %d allocations", len(outcome.Allocations))
 		}
-		if money.ToCents(outcome.Prepayment) != 400000 {
-			t.Fatalf("expected 4000 prepayment, got %s", outcome.Prepayment.StringFixed(2))
+		if money.ToCents(outcome.Prepayment) != 50000 {
+			t.Fatalf("expected 500 prepayment, got %s", outcome.Prepayment.StringFixed(2))
 		}
 		return nil
 	}); err != nil {
 		t.Fatalf("apply receipt: %v", err)
 	}
 
-	// The oldest invoice is paid, the newer one untouched, and the credit holds
-	// exactly the excess.
+	// Both invoices are settled and the 500 excess is an unapplied credit.
 	if err := database.WithTenant(ctx, tenant, "", func(tx *db.Tx) error {
-		var status string
-		var outstanding string
-		if err := tx.QueryRow(`SELECT status, amount_outstanding::text FROM invoices WHERE invoice_id = $1`, invoiceOne).
-			Scan(&status, &outstanding); err != nil {
-			return err
-		}
-		if status != string(InvoiceFullyPaid) {
-			t.Fatalf("oldest invoice status %s, want %s", status, InvoiceFullyPaid)
-		}
-		if money.New(outstanding).IsPositive() {
-			t.Fatalf("oldest invoice still owes %s", outstanding)
-		}
-
-		var second string
-		if err := tx.QueryRow(`SELECT amount_outstanding::text FROM invoices WHERE invoice_id = $1`, invoiceTwo).Scan(&second); err != nil {
-			return err
-		}
-		if money.New(second).StringFixed(2) != "4000.00" {
-			t.Fatalf("newer invoice should be untouched, outstanding %s", second)
+		for _, invoice := range []string{invoiceOne, invoiceTwo} {
+			var status, outstanding string
+			if err := tx.QueryRow(`SELECT status, amount_outstanding::text FROM invoices WHERE invoice_id = $1`, invoice).
+				Scan(&status, &outstanding); err != nil {
+				return err
+			}
+			if status != string(InvoiceFullyPaid) {
+				t.Fatalf("invoice %s status %s, want %s", invoice, status, InvoiceFullyPaid)
+			}
+			if money.New(outstanding).IsPositive() {
+				t.Fatalf("invoice %s still owes %s", invoice, outstanding)
+			}
 		}
 
 		var creditAmount, applied string
@@ -172,67 +160,127 @@ func TestApplyReceiptReconciles(t *testing.T) {
 			tenant, paymentID).Scan(&creditAmount, &applied); err != nil {
 			return err
 		}
-		if money.New(creditAmount).StringFixed(2) != "4000.00" || money.New(applied).IsPositive() {
-			t.Fatalf("credit should be 4000.00 unapplied, got amount %s applied %s", creditAmount, applied)
+		if money.New(creditAmount).StringFixed(2) != "500.00" || money.New(applied).IsPositive() {
+			t.Fatalf("credit should be 500.00 unapplied, got amount %s applied %s", creditAmount, applied)
 		}
 		return nil
 	}); err != nil {
 		t.Fatalf("verify first receipt: %v", err)
 	}
 
-	// Spending the credit settles the newer invoice.
+	// Billing a third term lets the prepayment be spent, which is what makes
+	// reversing the original receipt refuse rather than silently unwind money
+	// the learner no longer holds.
+	var invoiceThree, secondPaymentID string
 	if err := database.WithTenant(ctx, tenant, "", func(tx *db.Tx) error {
+		var yearID, termID, categoryID string
+		if err := tx.QueryRow(`SELECT year_id FROM academic_years WHERE tenant_id = $1`, tenant).Scan(&yearID); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(`SELECT term_id FROM terms WHERE tenant_id = $1`, tenant).Scan(&termID); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(`SELECT category_id FROM fee_categories WHERE tenant_id = $1 AND code = 'TUITION'`, tenant).Scan(&categoryID); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(`INSERT INTO invoices
+			(tenant_id, invoice_number, learner_id, academic_year_id, term_id, status,
+			 total_amount, amount_paid, amount_outstanding, issue_date)
+			VALUES ($1,$2,$3,$4,$5,'ISSUED',1000,0,1000,'2026-09-06') RETURNING invoice_id`,
+			tenant, "INV-3-"+suffix[:6], learnerID, yearID, termID).Scan(&invoiceThree); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO invoice_lines
+			(tenant_id, invoice_id, category_id, description, quantity, unit_amount, line_amount, academic_year_id, term_id)
+			VALUES ($1,$2,$3,'Term 3',1,1000,1000,$4,$5)`,
+			tenant, invoiceThree, categoryID, yearID, termID); err != nil {
+			return err
+		}
+
 		applied, err := ApplyOpenCredits(ctx, tx, tenant, "", learnerID)
 		if err != nil {
 			return err
 		}
-		if money.ToCents(applied) != 400000 {
-			t.Fatalf("expected to apply 4000, applied %s", applied.StringFixed(2))
+		if money.ToCents(applied) != 50000 {
+			t.Fatalf("expected to apply 500, applied %s", applied.StringFixed(2))
 		}
-		var status string
-		if err := tx.QueryRow(`SELECT status FROM invoices WHERE invoice_id = $1`, invoiceTwo).Scan(&status); err != nil {
+		var status, outstanding string
+		if err := tx.QueryRow(`SELECT status, amount_outstanding::text FROM invoices WHERE invoice_id = $1`, invoiceThree).
+			Scan(&status, &outstanding); err != nil {
 			return err
 		}
-		if status != string(InvoiceFullyPaid) {
-			t.Fatalf("second invoice status %s after credit, want %s", status, InvoiceFullyPaid)
+		if status != string(InvoicePartiallyPaid) || money.New(outstanding).StringFixed(2) != "500.00" {
+			t.Fatalf("third invoice after credit: status %s outstanding %s, want %s/500.00", status, outstanding, InvoicePartiallyPaid)
+		}
+
+		return tx.QueryRow(`INSERT INTO payments (tenant_id, payment_reference, learner_id, source, amount, status)
+			VALUES ($1,$2,$3,'CASH',500,'COMPLETED') RETURNING payment_id`,
+			tenant, "RCPT-B-"+suffix[:6], learnerID).Scan(&secondPaymentID)
+	}); err != nil {
+		t.Fatalf("spend prepayment: %v", err)
+	}
+
+	// The original receipt's prepayment is now spent, so reversing it must be
+	// refused with an explanation rather than unwinding another invoice's money.
+	if err := database.WithTenant(ctx, tenant, "", func(tx *db.Tx) error {
+		err := ReverseReceipt(ctx, tx, tenant, "", paymentID, "duplicate receipt")
+		if err == nil {
+			t.Fatal("reversing a receipt whose prepayment was spent should be refused")
+		}
+		if !strings.Contains(err.Error(), "already been applied") {
+			t.Fatalf("refusal message %q does not explain the spent prepayment", err.Error())
 		}
 		return nil
 	}); err != nil {
-		t.Fatalf("apply credits: %v", err)
+		t.Fatalf("refusal check: %v", err)
 	}
 
-	// Reversing the receipt walks the first invoice back and leaves the credit
-	// voided, with negative rows pointing at the originals.
+	// A receipt with no prepayment reverses cleanly: the invoice walks back to
+	// partially paid and a negative row points at the allocation it reverses.
 	if err := database.WithTenant(ctx, tenant, "", func(tx *db.Tx) error {
-		return ReverseReceipt(ctx, tx, tenant, "", paymentID, "duplicate receipt")
-	}); err != nil {
-		t.Fatalf("reverse receipt: %v", err)
-	}
-
-	if err := database.WithTenant(ctx, tenant, "", func(tx *db.Tx) error {
-		var status string
-		if err := tx.QueryRow(`SELECT status FROM invoices WHERE invoice_id = $1`, invoiceOne).Scan(&status); err != nil {
+		if _, err := ApplyReceipt(ctx, tx, ReceiptApplication{
+			TenantID:  tenant,
+			PaymentID: secondPaymentID,
+			LearnerID: learnerID,
+			Amount:    money.FromCents(50000),
+			Rule:      AllocationPriority,
+			Reference: "RCPT-B-" + suffix[:6],
+		}); err != nil {
 			return err
 		}
-		if status != string(InvoiceIssued) {
-			t.Fatalf("invoice status %s after reversal, want %s", status, InvoiceIssued)
+		return ReverseReceipt(ctx, tx, tenant, "", secondPaymentID, "cheque returned")
+	}); err != nil {
+		t.Fatalf("reverse second receipt: %v", err)
+	}
+
+	if err := database.WithTenant(ctx, tenant, "", func(tx *db.Tx) error {
+		var status, outstanding string
+		if err := tx.QueryRow(`SELECT status, amount_outstanding::text FROM invoices WHERE invoice_id = $1`, invoiceThree).
+			Scan(&status, &outstanding); err != nil {
+			return err
+		}
+		if status != string(InvoicePartiallyPaid) {
+			t.Fatalf("third invoice status %s after reversal, want %s", status, InvoicePartiallyPaid)
+		}
+		if money.New(outstanding).StringFixed(2) != "500.00" {
+			t.Fatalf("third invoice outstanding %s after reversal, want 500.00 (the applied credit)", outstanding)
 		}
 		var negatives int
 		if err := tx.QueryRow(`SELECT count(*) FROM payment_allocations
 			WHERE tenant_id = $1 AND payment_id = $2 AND source = 'REVERSAL' AND allocated_amount < 0`,
-			tenant, paymentID).Scan(&negatives); err != nil {
+			tenant, secondPaymentID).Scan(&negatives); err != nil {
 			return err
 		}
-		if negatives != 2 {
-			t.Fatalf("expected 2 reversal rows, got %d", negatives)
+		if negatives != 1 {
+			t.Fatalf("expected 1 reversal row, got %d", negatives)
 		}
 		var creditStatus string
 		if err := tx.QueryRow(`SELECT status FROM credits WHERE tenant_id = $1 AND source_payment_id = $2`,
 			tenant, paymentID).Scan(&creditStatus); err != nil {
 			return err
 		}
-		if creditStatus != "VOID" {
-			t.Fatalf("credit status %s after reversal, want VOID", creditStatus)
+		if creditStatus != "APPLIED" {
+			t.Fatalf("credit status %s, want APPLIED (it was spent, not voided)", creditStatus)
 		}
 		return nil
 	}); err != nil {
