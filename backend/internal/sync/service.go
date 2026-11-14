@@ -166,11 +166,12 @@ func (h *Handler) applyAssessmentResult(tx *sqlx.Tx, tenantID, userID string, it
 	}
 	subStrand, _ := item.Payload["sub_strand_id"].(string)
 	levelCode, _ := item.Payload["level_code"].(string)
-	if levelCode != "" {
-		levelCode = grading.NormalizeCode(levelCode)
-		if !grading.IsKnownLevel(levelCode) {
-			return gin.H{}, "FAILED", &syncError{"level_code must be EE/ME/AE/BE or EE1-BE2"}
-		}
+	if levelCode == "" {
+		return gin.H{}, "FAILED", &syncError{"level_code is required"}
+	}
+	levelCode = grading.NormalizeCode(levelCode)
+	if !grading.IsKnownLevel(levelCode) {
+		return gin.H{}, "FAILED", &syncError{"level_code must be EE/ME/AE/BE or EE1-BE2"}
 	}
 	remarks, _ := item.Payload["remarks"].(string)
 	deviceID, _ := item.Payload["device_id"].(string)

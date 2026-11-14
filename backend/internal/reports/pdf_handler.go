@@ -82,7 +82,7 @@ func (h *Handler) GetReportCardPDF(c *gin.Context) {
 				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load linked learners"})
 				return
 			}
-			if !linked[card.LearnerID] {
+			if !linked[card.LearnerID] || !strings.EqualFold(card.Status, "PUBLISHED") {
 				c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
 				return
 			}
