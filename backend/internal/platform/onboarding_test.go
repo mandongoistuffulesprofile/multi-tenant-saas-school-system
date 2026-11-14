@@ -3,8 +3,13 @@ package platform
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"github.com/gin-gonic/gin"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -321,5 +326,70 @@ func TestSetupSaveUniquenessIndexes(t *testing.T) {
 	}
 	if nullable != "YES" {
 		t.Errorf("class_groups.stream_id is_nullable = %q, want YES", nullable)
+	}
+}
+
+// TestCreateTenantProvisionsFinanceSettings is the regression guard for school
+// onboarding. Provisioning inserts the finance settings row inside the same
+// transaction as the school, into a table that never existed, so every attempt
+// to create a school rolled back. The test drives the real handler and then
+// reads the row back as the new tenant.
+func TestCreateTenantProvisionsFinanceSettings(t *testing.T) {
+	h, _ := setupTestHandler(t)
+	database := h.service.database
+	ctx := context.Background()
+
+	stamp := time.Now().UnixNano()
+	subdomain := fmt.Sprintf("onboard-%d", stamp)
+	body, _ := json.Marshal(gin.H{
+		"school_name":     "Onboarded Primary",
+		"subdomain":       subdomain,
+		"school_type":     "PRIVATE",
+		"funding_mode":    "CUSTOM",
+		"admin_full_name": "Mary Wanjiku",
+		"admin_email":     subdomain + "@example.test",
+		"admin_phone":     fmt.Sprintf("+2547%08d", stamp%100000000),
+		"admin_password":  "Secret123!",
+	})
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/platform/tenants", h.CreateTenant)
+	req := httptest.NewRequest(http.MethodPost, "/platform/tenants", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create tenant returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var (
+		settings   int
+		invoicing  bool
+		reminders  bool
+		membership int
+	)
+	if err := database.WithTenant(ctx, subdomain, "", func(tx *db.Tx) error {
+		if err := tx.QueryRow(`SELECT count(*) FROM school_finance_settings WHERE tenant_id = $1`, subdomain).Scan(&settings); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(`SELECT tuition_invoicing, arrears_reminders FROM school_finance_settings WHERE tenant_id = $1`, subdomain).Scan(&invoicing, &reminders); err != nil {
+			return err
+		}
+		return tx.QueryRow(`SELECT count(*) FROM tenant_memberships WHERE tenant_id = $1`, subdomain).Scan(&membership)
+	}); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if settings != 1 {
+		t.Fatalf("finance settings rows = %d, want 1", settings)
+	}
+	if !invoicing {
+		t.Fatalf("tuition_invoicing = false for a private, custom-funded school")
+	}
+	if !reminders {
+		t.Fatalf("arrears_reminders = false, want the documented default true")
+	}
+	if membership != 1 {
+		t.Fatalf("admin memberships = %d, want 1", membership)
 	}
 }

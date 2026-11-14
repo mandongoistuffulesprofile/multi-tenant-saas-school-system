@@ -217,10 +217,17 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		}
 	}
 
-	_, _ = tx.Exec(
+	// The casts are required: the parameter arrives as text and both columns are
+	// uuid. Without them this insert aborts the provisioning transaction, and
+	// because the error used to be discarded it surfaced only as a generic
+	// "could not complete operation in a failed transaction" on commit.
+	if _, err := tx.Exec(
 		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, created_by, updated_by)
-		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,''), NULLIF($2,''))
-		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID, adminUserID)
+		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,'')::uuid, NULLIF($2,'')::uuid)
+		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID, adminUserID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
