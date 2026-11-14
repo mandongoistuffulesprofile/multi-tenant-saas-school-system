@@ -8,7 +8,10 @@ import { Compass, LayoutDashboard, LifeBuoy } from "lucide-react";
  */
 export default function NotFoundPage() {
   return (
-    <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 text-center">
+    <div
+      data-page="not-found"
+      className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 text-center"
+    >
       <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700">
         <Compass className="h-6 w-6" />
       </div>

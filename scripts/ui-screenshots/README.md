@@ -46,8 +46,12 @@ preflight, since it does not touch the network or the browser.
 ## What a run checks per route
 
 - document response is not 4xx/5xx, and no API call on the page returned 5xx
-- the page is not the not-found route ("404" + "Page not found"), which
-  catches a route that exists in `App.tsx` but was dropped from the build
+- the page is not the not-found route, which catches a route that exists in
+  `App.tsx` but was dropped from the build. The harness looks for
+  `NotFoundPage`'s `data-page="not-found"` element first, so the copy can be
+  translated or reworded without breaking the check; only when that element is
+  absent (a build older than the marker) does it fall back to matching "404"
+  and "Page not found"
 - the visible text is at least `minText` characters (default 120), so a blank
   shell cannot pass
 - optional `expectText` / `waitForText` from the manifest

@@ -225,12 +225,14 @@ async function login(email, password) {
   return { cookies, header };
 }
 
-/**
- * The not-found route renders a "404" eyebrow above "Page not found".
- * Requiring both keeps an empty state that merely says "not found" from
- * masquerading as a missing route.
- */
-function isNotFoundScreen(text) {
+// NotFoundPage renders data-page="not-found" on its root element. The marker
+// is deliberately independent of the copy, so translating or rewording the
+// screen cannot make a dev-only route look like a real regression. The text
+// check remains for older builds that predate the marker.
+const NOT_FOUND_SELECTOR = '[data-page="not-found"]';
+
+function isNotFoundScreen({ marked, text }) {
+  if (marked) return true;
   return /\b404\b/.test(text) && /page not found/i.test(text);
 }
 
@@ -313,6 +315,7 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
       const serverErrors = [];
       const pageErrors = [];
       let text = "";
+      let markedNotFound = false;
       let status = "ok";
 
       const onResponse = (response) => {
@@ -340,9 +343,15 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
         }
         await sleep(route.settleMs ?? SETTLE_MS);
 
-        text = await page.evaluate(() => document.body.innerText || "");
+        const probe = await page.evaluate((selector) => ({
+          text: document.body.innerText || "",
+          marked: Boolean(document.querySelector(selector)),
+        }), NOT_FOUND_SELECTOR);
+        text = probe.text;
+        markedNotFound = probe.marked;
+        const notFound = isNotFoundScreen({ marked: markedNotFound, text });
 
-        if (route.devOnly && isNotFoundScreen(text)) {
+        if (route.devOnly && notFound) {
           // /cbc-assessment and /bom-oversight are behind import.meta.env.DEV,
           // so a production build drops the route and the * fallback answers.
           // That is the build's shape, not a regression: skip instead of
@@ -356,7 +365,7 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
             reason: "dev-only route: this build serves the not-found page — start the frontend with `npm run dev` to capture it",
           });
         } else {
-          if (isNotFoundScreen(text)) {
+          if (notFound) {
             failures.push("page rendered the not-found route (is this route in the build?)");
           }
           if (/something went wrong/i.test(text)) failures.push("page shows \"Something went wrong\"");
@@ -382,6 +391,7 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
             serverErrors,
             pageErrors,
             failures,
+            notFoundMarker: markedNotFound,
             sample: text.replace(/\s+/g, " ").trim().slice(0, 140),
           };
           if (failures.length) {
