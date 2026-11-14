@@ -41,7 +41,17 @@ export default function GradingGridPage() {
       const sep = key.lastIndexOf("|");
       const learnerId = key.slice(0, sep);
       const subStrandId = key.slice(sep + 1);
-      return { learner_id: learnerId, sub_strand_id: subStrandId || undefined, level_code: level };
+      const clientUuid = `${selectedEvent}:${learnerId}:${subStrandId}`;
+      return {
+        event_id: selectedEvent,
+        learner_id: learnerId,
+        sub_strand_id: subStrandId || undefined,
+        level_code: level,
+        state: "SUBMITTED",
+        client_uuid: clientUuid,
+        device_id: getDeviceId(),
+        client_ts: new Date().toISOString(),
+      };
     });
     if (!entries.length || entries.some((e) => !e.sub_strand_id)) {
       toast("Select a sub-strand and grade at least one learner first.", { type: "error" });
@@ -53,8 +63,14 @@ export default function GradingGridPage() {
         assessment_event_id: selectedEvent,
         results: entries,
       });
-      const synced = r.data?.synced ?? entries.length;
-      toast(`Synced ${synced}/${entries.length} results to the server.`, { type: "success" });
+      const synced = r.data?.saved ?? 0;
+      const failed = r.data?.failed ?? 0;
+      toast(
+        failed > 0
+          ? `Synced ${synced}/${entries.length} results; ${failed} failed and remain on this device.`
+          : `Synced ${synced}/${entries.length} results to the server.`,
+        { type: failed > 0 ? "error" : "success" }
+      );
       // Cache locally as already-synced; do not enqueue duplicate offline ops.
       await Promise.all(
         entries.map((e) => {
