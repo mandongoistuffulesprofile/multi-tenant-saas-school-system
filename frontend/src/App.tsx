@@ -32,6 +32,7 @@ import Layout from "./components/organisms/Layout";
 import ParentLayout from "./components/organisms/ParentLayout";
 import TeacherLayout from "./components/organisms/TeacherLayout";
 import SaaSLayout from "./components/organisms/SaaSLayout";
+import GateAdminPage from "./pages/GateAdminPage";
 import RequireRole from "./components/RequireRole";
 import { PWAOfflineSyncBanner } from "./components/PWAOfflineSyncBanner";
 import PWAUpdateBanner from "./components/PWAUpdateBanner";
@@ -160,6 +161,7 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/school" element={guard(SCHOOL_ADMIN_ROLES, <SchoolProfilePage />)} />
+            <Route path="/gate/admin" element={guard(SCHOOL_ADMIN_ROLES, <GateAdminPage />)} />
             <Route path="/integrations" element={guard(SCHOOL_ADMIN_ROLES, <IntegrationsPage />)} />
             <Route path="/calendar" element={guard(ADMIN_ROLES, <AcademicCalendarPage />)} />
             <Route path="/staff" element={guard(ADMIN_ROLES, <StaffPage />)} />

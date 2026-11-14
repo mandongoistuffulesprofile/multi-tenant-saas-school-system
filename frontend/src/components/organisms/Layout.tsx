@@ -110,6 +110,7 @@ const SECTION_GROUPS: { id: string; label: string; items: SideItem[] }[] = [
     items: [
       { path: "/school", label: "school" },
       { path: "/integrations", label: "integrations" },
+      { path: "/gate/admin", label: "gate_admin" },
       { path: "/platform", label: "platform" },
     ],
   },
@@ -146,6 +147,7 @@ const ALL_ITEM_ROLES: Record<string, readonly string[]> = {
   "/knec": SCHOOL_ADMIN_ROLES,
   "/school": SCHOOL_ADMIN_ROLES,
   "/integrations": SCHOOL_ADMIN_ROLES,
+  "/gate/admin": SCHOOL_ADMIN_ROLES,
   "/platform": SCHOOL_ADMIN_ROLES,
 };
 
@@ -158,7 +160,7 @@ const LABEL_KEYS = new Set([
   "fee_categories", "fee_structures", "mpesa_ledger", "reconciliation",
   "calendar", "curriculum", "assessment", "reports", "attendance", "comms", "compliance",
   "breach_register", "consent_notices", "dsr_requests", "retention_policies", "dpia",
-  "knec", "school", "integrations", "platform", "dashboard", "profile",
+  "knec", "school", "integrations", "platform", "gate_admin", "dashboard", "profile",
 ]);
 
 function isKey(label: string) {
@@ -209,6 +211,7 @@ const NAV_PAGES: { keys: string; path: string }[] = [
   { keys: "retention policies data lifecycle", path: "/compliance/retention-policies" },
   { keys: "dpia impact assessment privacy", path: "/compliance/dpia" },
   { keys: "knec ministry submissions", path: "/knec" },
+  { keys: "gate admin devices tags policy pairing rfid", path: "/gate/admin" },
   { keys: "school profile settings", path: "/school" },
   { keys: "integrations daraja webhooks api", path: "/integrations" },
 ];
