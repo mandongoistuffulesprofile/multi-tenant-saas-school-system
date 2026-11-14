@@ -353,15 +353,24 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 		}
 
 		for _, l := range d.lines {
-			_, _ = tx.Exec(
+			// A discarded error here used to leave an invoice whose total_amount
+			// was larger than the sum of its lines, with nothing itemised for the
+			// allocator to settle against.
+			if _, err := tx.Exec(
 				`INSERT INTO invoice_lines (tenant_id, invoice_id, category_id, description, quantity, unit_amount, line_amount, academic_year_id, term_id)
 				 VALUES ($1, $2, $3, $4, 1, $5, $5, $6, $7)`,
-				tenantID, invoiceID, l.categoryID, l.description, l.amount, req.AcademicYearID, req.TermID)
+				tenantID, invoiceID, l.categoryID, l.description, l.amount, req.AcademicYearID, req.TermID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "could not create invoice lines: " + err.Error()})
+				return
+			}
 		}
 
 		// Any unapplied prepayment this learner already holds is spent on the
 		// lines just billed, using the same planner as a receipt.
-		_, _ = ApplyOpenCredits(c.Request.Context(), tx, tenantID, userID, d.learnerID)
+		if _, err := ApplyOpenCredits(c.Request.Context(), tx, tenantID, userID, d.learnerID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "could not apply prepayments: " + err.Error()})
+			return
+		}
 		created++
 	}
 
@@ -646,9 +655,12 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		return
 	}
 
-	_, _ = tx.Exec(
+	if _, err := tx.Exec(
 		`UPDATE mpesa_transactions SET status = 'MATCHED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,
-		transactionID, tenantID)
+		transactionID, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"payment_id": paymentID, "transaction_id": transactionID, "status": "MATCHED"})
 }
@@ -728,9 +740,12 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 		return
 	}
 
-	_, _ = tx.Exec(
+	if _, err := tx.Exec(
 		`UPDATE mpesa_transactions SET status = 'REFUND_FLAGGED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,
-		transactionID, tenantID)
+		transactionID, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"refund_id": refundID, "transaction_id": transactionID})
 }

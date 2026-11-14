@@ -561,11 +561,21 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		return nil, err
 	}
 
-	// Create notification_outbox (SMS receipt)
+	// Queue the SMS receipt on outbound_messages, the table the comms worker
+	// actually drains (notification_outbox never existed, so the parent was
+	// never told their produce had been received).
 	_, err = tx.Exec(
-		`INSERT INTO notification_outbox (tenant_id, channel, recipient, template_key, payload, status)
-		 VALUES ($1, 'SMS', (SELECT phone_number FROM users WHERE user_id = (SELECT user_id FROM learners WHERE learner_id = $2)), 'IN_KIND_RECEIPT', $3, 'PENDING')`,
-		tenantID, req.StudentID, `{"intake_number": "`+req.IntakeNumber+`", "total_value": `+totalValue.StringFixed(2)+`}`,
+		`INSERT INTO outbound_messages (tenant_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, idempotency_key)
+		 SELECT $1, 'GUARDIAN', g.guardian_id, 'SMS', g.phone_number,
+		        'Shule Yetu: in-kind intake '||$3||' received, valued at KES '||$4||'. Thank you.',
+		        'QUEUED', 'IN_KIND:'||$3
+		 FROM learner_guardians lg
+		 JOIN guardians g ON g.guardian_id = lg.guardian_id AND g.tenant_id = $1
+		 WHERE lg.learner_id = $2 AND g.phone_number IS NOT NULL
+		 ORDER BY lg.is_primary_payer DESC NULLS LAST
+		 LIMIT 1
+		 ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+		tenantID, req.StudentID, req.IntakeNumber, totalValue.StringFixed(2),
 	)
 	if err != nil {
 		// Non-fatal: log but don't fail the transaction
