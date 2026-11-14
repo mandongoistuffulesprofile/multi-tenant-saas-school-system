@@ -16,6 +16,16 @@ type Txn = {
   transaction_date?: string;
   created_at?: string;
 };
+type AllocationFinding = {
+  kind: string;
+  subject_id?: string;
+  learner_id?: string;
+  expected?: number;
+  actual?: number;
+  delta?: number;
+  detail?: string;
+  detected_at?: string;
+};
 type Invoice = {
   invoice_id: string;
   invoice_number?: string;
@@ -29,6 +39,12 @@ export default function FinanceReconciliationPage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [txns, setTxns] = useState<Txn[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  // The nightly invariant check's findings: proofs that money and lines
+  // disagree, not heuristics.
+  const [allocation, setAllocation] = useState<{ findings: AllocationFinding[]; counts: Record<string, number> }>({
+    findings: [],
+    counts: {},
+  });
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [matchInvoice, setMatchInvoice] = useState<Record<string, string>>({});
@@ -37,11 +53,15 @@ export default function FinanceReconciliationPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [rRes, tRes, iRes] = await Promise.all([
+      const [rRes, tRes, iRes, aRes] = await Promise.all([
         api.get("/finance/reconciliation/runs").catch(() => ({ data: [] })),
         api.get("/finance/mpesa/transactions", { params: { limit: 100, offset: 0 } }).catch(() => ({ data: [] })),
         api.get("/finance/invoices", { params: { limit: 200, offset: 0 } }).catch(() => ({ data: [] })),
+        api.get("/finance/reconciliation/allocation-findings").catch(() => ({ data: null })),
       ]);
+      if (aRes.data && Array.isArray(aRes.data.findings)) {
+        setAllocation({ findings: aRes.data.findings, counts: aRes.data.counts || {} });
+      }
       setRuns(Array.isArray(rRes.data) ? rRes.data : []);
       const allTxns: Txn[] = Array.isArray(tRes.data) ? tRes.data : [];
       setTxns(allTxns.filter((t) => String(t.status || "").toUpperCase() !== "MATCHED"));
@@ -132,6 +152,45 @@ export default function FinanceReconciliationPage() {
                         </Button>
                       </div>
                     ),
+                  },
+                ]}
+              />
+            )}
+          </section>
+
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900">Allocation Integrity</h3>
+              <span className="text-xs text-gray-500">
+                Checked nightly. A finding here means receipts, credits or line balances do not agree.
+              </span>
+            </div>
+            {loading ? <Skeleton rows={3} columns={5} /> : (
+              <DataTable
+                data={allocation.findings}
+                emptyMessage="Every receipt, credit and line balance reconciles"
+                columns={[
+                  { key: "kind", header: "Problem" },
+                  { key: "subject_id", header: "Invoice / Receipt", render: (f) => f.subject_id || "—" },
+                  { key: "expected", header: "Expected", render: (f) => f.expected != null ? `KES ${Number(f.expected).toFixed(2)}` : "—" },
+                  { key: "actual", header: "Actual", render: (f) => f.actual != null ? `KES ${Number(f.actual).toFixed(2)}` : "—" },
+                  {
+                    key: "delta",
+                    header: "Difference",
+                    render: (f) => {
+                      const delta = Number(f.delta || 0);
+                      return (
+                        <span className={Math.abs(delta) > 0 ? "font-medium text-kenyan-red" : "text-gray-500"}>
+                          {delta.toFixed(2)}
+                        </span>
+                      );
+                    },
+                  },
+                  { key: "detail", header: "Detail", render: (f) => f.detail || "—" },
+                  {
+                    key: "detected_at",
+                    header: "Detected",
+                    render: (f) => (f.detected_at ? new Date(f.detected_at).toLocaleString() : "—"),
                   },
                 ]}
               />

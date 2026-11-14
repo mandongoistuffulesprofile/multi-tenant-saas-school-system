@@ -39,7 +39,8 @@ export default function FinanceInvoicesPage() {
         total_amount: amount,
         amount_outstanding: amount,
         amount_paid: 0,
-        status: "OUTSTANDING",
+        // Status is the server's decision: it issues the invoice so receipts
+        // can settle it. Sending "OUTSTANDING" made invoices unpayable.
         due_date: invoiceForm.due_date || undefined,
       });
       const createdInvoiceId = created.data?.id ?? created.data?.invoice_number ?? "";
@@ -55,6 +56,40 @@ export default function FinanceInvoicesPage() {
     } finally {
       setCreating(false);
       createInvoice.reset();
+    }
+  };
+
+  const [linesFor, setLinesFor] = useState<any | null>(null);
+  const [lines, setLines] = useState<any[]>([]);
+  const [linesLoading, setLinesLoading] = useState(false);
+
+  const openLines = async (invoice: any) => {
+    setLinesFor(invoice);
+    setLines([]);
+    setLinesLoading(true);
+    try {
+      const res = await api.get(`/finance/invoices/${invoice.invoice_id}/lines`);
+      setLines(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setLines([]);
+    } finally {
+      setLinesLoading(false);
+    }
+  };
+
+  // The lifecycle speaks in states; the bursar reads sentences.
+  const statusLabel = (status: string) => {
+    switch (String(status || "").toUpperCase()) {
+      case "PAID": return "Paid";
+      case "PARTIALLY_PAID": return "Partially paid";
+      case "ISSUED": return "Issued";
+      case "OVERDUE": return "Overdue";
+      case "DRAFT": return "Draft";
+      case "CANCELLED":
+      case "VOID": return "Cancelled";
+      case "WAIVED": return "Waived";
+      case "SUSPENDED": return "Suspended";
+      default: return status || "—";
     }
   };
 
@@ -93,10 +128,19 @@ export default function FinanceInvoicesPage() {
               columns={[
                 { key: "invoice_number", header: "Invoice No." },
                 { key: "learner_id", header: "Learner", render: (r) => learnerName(r.learner_id) },
-                { key: "status", header: "Status" },
+                { key: "status", header: "Status", render: (r) => statusLabel(r.status) },
                 { key: "total_amount", header: "Total", render: (r) => r.total_amount != null ? `KES ${r.total_amount}` : "—" },
                 { key: "amount_paid", header: "Paid", render: (r) => r.amount_paid != null ? `KES ${r.amount_paid}` : "—" },
                 { key: "amount_outstanding", header: "Outstanding", render: (r) => r.amount_outstanding != null ? `KES ${r.amount_outstanding}` : "—" },
+                {
+                  key: "actions",
+                  header: "",
+                  render: (r) => (
+                    <button type="button" className="text-sm font-medium text-kenyan-green hover:underline" onClick={() => openLines(r)}>
+                      Lines
+                    </button>
+                  ),
+                },
               ]}
             />
           )}
@@ -159,6 +203,43 @@ export default function FinanceInvoicesPage() {
                     </button>
                   </div>
                 </form>
+          </Dialog>
+
+          <Dialog
+            open={linesFor !== null}
+            onClose={() => setLinesFor(null)}
+            title={linesFor ? `Fee lines · ${linesFor.invoice_number || linesFor.invoice_id}` : "Fee lines"}
+            className="max-w-2xl"
+          >
+            <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "0.75rem" }}>
+              Receipts settle these lines oldest first, so each line's outstanding is the exact
+              amount still owed on that fee.
+            </p>
+            {linesLoading ? (
+              <Skeleton rows={3} columns={4} />
+            ) : (
+              <DataTable
+                data={lines}
+                emptyMessage="This invoice has no fee lines"
+                columns={[
+                  { key: "description", header: "Fee", render: (l) => l.description || l.category_code || "—" },
+                  { key: "line_amount", header: "Billed", render: (l) => `KES ${Number(l.line_amount || 0).toFixed(2)}` },
+                  {
+                    key: "outstanding",
+                    header: "Outstanding",
+                    render: (l) => {
+                      const remaining = Number(l.outstanding ?? l.line_amount ?? 0);
+                      return (
+                        <span className={remaining > 0 ? "font-medium" : "text-gray-500"}>
+                          KES {remaining.toFixed(2)}
+                        </span>
+                      );
+                    },
+                  },
+                  { key: "status", header: "Status", render: (l) => l.status || "BILLED" },
+                ]}
+              />
+            )}
           </Dialog>
         </div>
       </div>

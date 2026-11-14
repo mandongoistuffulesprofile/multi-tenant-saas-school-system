@@ -592,6 +592,10 @@ export interface InvoiceLine {
   term_id?: ID | null;
   created_at: Timestamp;
   updated_at: Timestamp;
+  /** BILLED or CANCELLED. */
+  status: string;
+  /** What this line still owes after every receipt and credit posted to it. */
+  outstanding: number;
 }
 
 export interface Payment {
