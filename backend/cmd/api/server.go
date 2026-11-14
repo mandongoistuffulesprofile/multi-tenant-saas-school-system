@@ -648,6 +648,8 @@ func Run() error {
 		knecGroup.GET("/tools", middleware.RequireRole(middleware.RoleSchoolAdministrators...), knecHandler.ListKNECRules)
 		knecGroup.GET("/submissions", middleware.RequireRole(middleware.RoleSchoolAdministrators...), knecHandler.ListKNECRSubmissionStatus)
 		knecGroup.GET("/exports", middleware.RequireRole(middleware.RoleSchoolAdministrators...), knecHandler.ListKNECRExportBatches)
+		knecGroup.GET("/results", middleware.RequireRole(middleware.RoleAcademicStaff...), knecHandler.ListNationalResults)
+		knecGroup.POST("/results/import", middleware.RequireRole(middleware.RoleSchoolAdministrators...), knecHandler.ImportNationalResults)
 	}
 
 	// Finance routes (M10 Money Core)

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/grading"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
@@ -257,37 +258,19 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 
 	generated := 0
 	for _, lr := range learners {
-		// Aggregate the learner's results for the run's term (or all terms).
-		var total, max float64
-		var overall string
-		err := tx.QueryRow(
-			`SELECT COALESCE(SUM(COALESCE(ar.raw_score, ar.points, 0)), 0),
-				COALESCE(SUM(COALESCE(ar.max_score, 0)), 0),
-				COALESCE(MODE() WITHIN GROUP (ORDER BY ar.level_code), '')
-			 FROM assessment_results ar
-			 JOIN assessment_events ae ON ae.event_id = ar.event_id
-			 WHERE ar.tenant_id = $1 AND ar.learner_id = $2
-			 AND ($3::uuid IS NULL OR ae.term_id = $3::uuid)`,
-			tenantID, lr.learnerID, termID).Scan(&total, &max, &overall)
-		if err != nil && err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-			return
-		}
-
-		percentage := 0.0
-		if max > 0 {
-			percentage = total / max * 100
-		}
+		// Draft cards deliberately carry no total, percentage, mean grade or
+		// position. A mean grade is not part of the CBC report card; an
+		// aggregate summary is only produced at publish time, and only when a
+		// school has explicitly enabled it in the grading settings.
 		cardNumber := lr.gradeID + "-" + strings.ToUpper(lr.learnerID[:8]) + "-" + runID[:8]
 
 		_, err = tx.Exec(
 			`INSERT INTO report_cards
-		 (tenant_id, run_id, learner_id, card_number, academic_year_id, term_id, grade_id,
-		  overall_grade, total_score, max_score, percentage, status, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'DRAFT', $12)
+		 (tenant_id, run_id, learner_id, card_number, academic_year_id, term_id, grade_id, status, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'DRAFT', $8)
 		 ON CONFLICT (tenant_id, run_id, learner_id) DO NOTHING`,
 			tenantID, runID, lr.learnerID, cardNumber, academicYearID, termID, lr.gradeID,
-			nullableString(overall), total, max, percentage, nullableString(userID))
+			nullableString(userID))
 		if err != nil {
 			continue
 		}
@@ -345,7 +328,10 @@ func (h *Handler) GetReportRun(c *gin.Context) {
 	})
 }
 
-// PublishReportRun publishes every draft card in a run.
+// PublishReportRun freezes every card in a run. Each card is rebuilt from the
+// school's grading configuration, snapshotted, and stored as an immutable
+// revision. Aggregate totals and class positions are only included when the
+// school has explicitly enabled them.
 func (h *Handler) PublishReportRun(c *gin.Context) {
 	runID := c.Param("run_id")
 	tx := middleware.TxFromGin(c)
@@ -356,20 +342,121 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
-	result, err := tx.Exec(
-		`UPDATE report_cards SET status = 'PUBLISHED', published_at = now(), published_by = $1, updated_at = now()
-		 WHERE tenant_id = $2 AND run_id = $3 AND status <> 'PUBLISHED'`,
-		nullableString(userID), tenantID, runID)
+	cfg, err := grading.LoadConfig(tx, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
-	published, _ := result.RowsAffected()
+
+	type cardRow struct {
+		cardID   string
+		revision int
+		status   string
+	}
+	rows, err := tx.Query(
+		`SELECT card_id::text, revision, status
+		 FROM report_cards WHERE tenant_id = $1 AND run_id = $2
+		 ORDER BY learner_id`, tenantID, runID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	cards := make([]cardRow, 0)
+	for rows.Next() {
+		var cr cardRow
+		if err := rows.Scan(&cr.cardID, &cr.revision, &cr.status); err != nil {
+			rows.Close()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		cards = append(cards, cr)
+	}
+	rows.Close()
+	if len(cards) == 0 {
+		validation.NotFound(c, "Report run has no cards")
+		return
+	}
+
+	snapshots := make([]CardSnapshot, 0, len(cards))
+	for _, cr := range cards {
+		revision := cr.revision
+		if revision < 1 {
+			revision = 1
+		}
+		// Re-publishing a card is a correction: it creates the next revision
+		// instead of mutating the existing frozen snapshot.
+		if strings.EqualFold(cr.status, "PUBLISHED") {
+			revision++
+		}
+		snapshot, err := BuildSnapshot(tx, tenantID, cr.cardID, cfg, revision)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+
+	if cfg.ShowPosition {
+		refs := make([]*CardSnapshot, len(snapshots))
+		for i := range snapshots {
+			refs[i] = &snapshots[i]
+		}
+		AssignPositions(refs)
+	}
+
+	published := 0
+	for i, cr := range cards {
+		snapshot := snapshots[i]
+		raw, err := json.Marshal(snapshot)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO report_card_revisions (tenant_id, card_id, revision, snapshot, created_by)
+			 VALUES ($1, $2, $3, $4::jsonb, NULLIF($5, '')::uuid)
+			 ON CONFLICT (tenant_id, card_id, revision) DO NOTHING`,
+			tenantID, cr.cardID, snapshot.Revision, string(raw), userID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		var position, overall, total, max, percentage interface{}
+		if snapshot.Aggregate != nil {
+			overall = nullableString(snapshot.Aggregate.Grade)
+			total = snapshot.Aggregate.Points
+			max = snapshot.Aggregate.MaxPoints
+			percentage = snapshot.Aggregate.Percentage
+		}
+		if cfg.ShowPosition && snapshot.Position > 0 {
+			position = snapshot.Position
+		}
+
+		if _, err := tx.Exec(
+			`UPDATE report_cards
+			 SET snapshot = $1::jsonb, snapshot_at = now(), revision = $2, frozen = true,
+			     position = $3, overall_grade = $4, total_score = $5, max_score = $6,
+			     percentage = $7, status = 'PUBLISHED', published_at = now(),
+			     published_by = NULLIF($8, '')::uuid, updated_at = now()
+			 WHERE tenant_id = $9 AND card_id = $10`,
+			string(raw), snapshot.Revision, position, overall, total, max, percentage,
+			userID, tenantID, cr.cardID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		published++
+	}
 
 	_, _ = tx.Exec(
 		`UPDATE report_runs SET status = 'PUBLISHED' WHERE run_id = $1 AND tenant_id = $2`, runID, tenantID)
 
-	c.JSON(http.StatusOK, gin.H{"run_id": runID, "published": published})
+	c.JSON(http.StatusOK, gin.H{
+		"run_id":            runID,
+		"published":         published,
+		"show_aggregate":    cfg.ShowAggregate,
+		"show_position":     cfg.ShowPosition,
+		"frozen_revisions":  published,
+	})
 }
 
 // UpsertReportCardComment attaches a teacher's comment to a report card for a
@@ -391,6 +478,26 @@ func (h *Handler) UpsertReportCardComment(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
+
+	var status string
+	var frozen bool
+	if err := tx.QueryRow(
+		`SELECT status, frozen FROM report_cards WHERE tenant_id = $1 AND card_id = $2`,
+		tenantID, cardID).Scan(&status, &frozen); err != nil {
+		if err == sql.ErrNoRows {
+			validation.NotFound(c, "Report card not found")
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if frozen || strings.EqualFold(status, "PUBLISHED") {
+		c.JSON(http.StatusConflict, gin.H{
+			"code":    "CARD_LOCKED",
+			"message": "Published report cards are frozen. Create a correction revision instead of editing comments.",
+		})
+		return
+	}
 
 	var commentID string
 	err := tx.QueryRow(
@@ -428,6 +535,25 @@ func (h *Handler) UpdateReportCardHeadComment(c *gin.Context) {
 		return
 	}
 	tenantID := c.GetString("tenant_id")
+	var status string
+	var frozen bool
+	if err := tx.QueryRow(
+		`SELECT status, frozen FROM report_cards WHERE tenant_id = $1 AND card_id = $2`,
+		tenantID, cardID).Scan(&status, &frozen); err != nil {
+		if err == sql.ErrNoRows {
+			validation.NotFound(c, "Report card not found")
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if frozen || strings.EqualFold(status, "PUBLISHED") {
+		c.JSON(http.StatusConflict, gin.H{
+			"code":    "CARD_LOCKED",
+			"message": "Published report cards are frozen and cannot be edited.",
+		})
+		return
+	}
 	result, err := tx.Exec(
 		`UPDATE report_cards SET head_teacher_comment = $1, comment = COALESCE(comment, $1), updated_at = now()
 		 WHERE card_id = $2 AND tenant_id = $3`, text, cardID, tenantID)

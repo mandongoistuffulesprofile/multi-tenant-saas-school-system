@@ -1,6 +1,7 @@
 package reports
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -28,7 +29,7 @@ func (h *Handler) GetReportCardPDF(c *gin.Context) {
 	}
 
 	var card ReportCard
-	var admission, gradeLabel, schoolName, termLabel, yearLabel string
+	var admission, gradeLabel, schoolName, termLabel, yearLabel, snapshotText string
 	err := tx.QueryRow(
 		`SELECT rc.card_id, rc.tenant_id, rc.run_id, rc.learner_id,
 			TRIM(COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'')) AS learner_name,
@@ -36,6 +37,7 @@ func (h *Handler) GetReportCardPDF(c *gin.Context) {
 			rc.overall_grade, rc.total_score, rc.max_score, rc.percentage, rc.position,
 			rc.comment, rc.head_teacher_comment, rc.status, rc.pdf_ref, rc.published_at,
 			rc.published_by, rc.created_by, rc.created_at, rc.updated_at,
+			COALESCE(rc.snapshot::text, ''),
 			COALESCE(l.admission_number,''),
 			COALESCE(g.grade_label, rc.grade_id),
 			COALESCE(s.school_name,''),
@@ -54,10 +56,17 @@ func (h *Handler) GetReportCardPDF(c *gin.Context) {
 		&card.OverallGrade, &card.TotalScore, &card.MaxScore, &card.Percentage,
 		&card.Position, &card.Comment, &card.HeadTeacherComment, &card.Status,
 		&card.PDFRef, &card.PublishedAt, &card.PublishedBy, &card.CreatedBy,
-		&card.CreatedAt, &card.UpdatedAt,
+		&card.CreatedAt, &card.UpdatedAt, &snapshotText,
 		&admission, &gradeLabel, &schoolName, &termLabel, &yearLabel)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
+		return
+	}
+	if snapshotText != "" {
+		card.Snapshot = json.RawMessage(snapshotText)
+	}
+	if err := h.loadCardResults(tx, &card); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
 
@@ -99,6 +108,28 @@ func (h *Handler) GetReportCardPDF(c *gin.Context) {
 		HeadComment:  card.HeadTeacherComment,
 		Status:       card.Status,
 		GeneratedAt:  time.Now(),
+		Results:      card.Results,
+	}
+
+	// A published card renders its frozen snapshot. Aggregate and position are
+	// opt-in and are never inferred from the presence of stored totals.
+	if len(card.Snapshot) > 0 {
+		var snapshot CardSnapshot
+		if err := json.Unmarshal(card.Snapshot, &snapshot); err == nil {
+			document.ShowAggregate = snapshot.ShowAggregate
+			document.ShowPosition = snapshot.ShowPosition
+			document.National = snapshot.National
+			document.ScaleLabel = string(snapshot.Scale)
+			if snapshot.Aggregate != nil {
+				document.OverallGrade = snapshot.Aggregate.Grade
+				document.TotalScore = float64(snapshot.Aggregate.Points)
+				document.MaxScore = float64(snapshot.Aggregate.MaxPoints)
+				document.Percentage = snapshot.Aggregate.Percentage
+			}
+			if snapshot.ShowPosition {
+				document.Position = snapshot.Position
+			}
+		}
 	}
 
 	name := strings.TrimSpace(card.CardNumber)

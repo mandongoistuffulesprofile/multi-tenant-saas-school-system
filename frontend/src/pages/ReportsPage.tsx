@@ -37,6 +37,8 @@ export default function ReportsPage() {
     is_default: false,
   });
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [grading, setGrading] = useState({ scale: "AUTO", show_aggregate: false, show_position: false });
+  const [savingGrading, setSavingGrading] = useState(false);
   const { t } = useTranslation();
   const { toast } = useToast();
 
@@ -82,7 +84,37 @@ export default function ReportsPage() {
       setCards(Array.isArray(cRes.data) ? cRes.data : []);
     }).catch(() => {})
       .finally(() => setLoading(false));
+    api.get("/grading/settings")
+      .then((res) => {
+        const cfg = res.data?.config;
+        if (cfg) {
+          setGrading({
+            scale: cfg.scale || "AUTO",
+            show_aggregate: cfg.show_aggregate === true,
+            show_position: cfg.show_position === true,
+          });
+        }
+      })
+      .catch(() => { /* settings remain at compliant defaults */ });
   }, []);
+
+  const saveGrading = async () => {
+    setSavingGrading(true);
+    try {
+      const res = await api.patch("/grading/settings", grading);
+      const cfg = res.data?.config || grading;
+      setGrading({
+        scale: cfg.scale || "AUTO",
+        show_aggregate: cfg.show_aggregate === true,
+        show_position: cfg.show_position === true,
+      });
+      toast("Report card grading rules saved", { type: "success" });
+    } catch (err: any) {
+      toast(err.response?.data?.message || "Failed to save grading rules", { type: "error" });
+    } finally {
+      setSavingGrading(false);
+    }
+  };
 
   const openCreateTemplate = () => {
     setEditingTemplate(null);
@@ -214,6 +246,60 @@ export default function ReportsPage() {
                 <div className="card p-6">
                   <h3 className="text-caption uppercase tracking-wide mb-2">Report Cards</h3>
                   <p className="text-3xl font-bold text-gray-900">{cards.length}</p>
+                </div>
+              </div>
+
+              {/* Grading and report-card policy. Aggregates and ranking are
+                  opt-in because the CBC card reports achievement levels. */}
+              <div className="card p-6 mb-6">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-caption uppercase tracking-wide">Grading &amp; Report Card Rules</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Applied when a run is published. Published cards are frozen, so changes only affect future publications.
+                    </p>
+                  </div>
+                  <button className="btn-primary" onClick={saveGrading} disabled={savingGrading}>
+                    {savingGrading ? "Saving…" : "Save Rules"}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <label className="text-sm">
+                    <span className="block font-medium mb-1">Performance scale</span>
+                    <select
+                      className="w-full border border-gray-300 rounded-lg p-2"
+                      value={grading.scale}
+                      onChange={(e) => setGrading({ ...grading, scale: e.target.value })}
+                    >
+                      <option value="AUTO">Automatic (4-band PP1–G3, 8-point G4–G9)</option>
+                      <option value="FOUR_BAND">4-band for all grades (EE–BE)</option>
+                      <option value="EIGHT_POINT">8-point for all grades (EE1–BE2)</option>
+                    </select>
+                  </label>
+                  <label className="text-sm flex items-start gap-2 mt-6">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={grading.show_aggregate}
+                      onChange={(e) => setGrading({ ...grading, show_aggregate: e.target.checked })}
+                    />
+                    <span>
+                      <span className="block font-medium">Show aggregate summary</span>
+                      <span className="block text-xs text-gray-500">Adds total, percentage and overall grade to the card. Off by default.</span>
+                    </span>
+                  </label>
+                  <label className="text-sm flex items-start gap-2 mt-6">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={grading.show_position}
+                      onChange={(e) => setGrading({ ...grading, show_position: e.target.checked })}
+                    />
+                    <span>
+                      <span className="block font-medium">Show class position</span>
+                      <span className="block text-xs text-gray-500">Ranks learners within the run. Off by default and never applied to KNEC bands.</span>
+                    </span>
+                  </label>
                 </div>
               </div>
 

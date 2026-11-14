@@ -33,7 +33,10 @@ type AssessmentEvent struct {
 	TenantID           string  `json:"tenant_id"`
 	TermID             string  `json:"term_id"`
 	GradeID            string  `json:"grade_id"`
+	GradeLabel         string  `json:"grade_label,omitempty"`
+	LevelBand          string  `json:"level_band,omitempty"`
 	LearningAreaID     string  `json:"learning_area_id"`
+	LearningAreaName   string  `json:"learning_area_name,omitempty"`
 	AssessmentType     string  `json:"assessment_type"`
 	ScoringMode        string  `json:"scoring_mode"`
 	AssessmentWindow   string  `json:"assessment_window"`
@@ -69,10 +72,15 @@ func (h *Handler) ListAssessmentEvents(c *gin.Context) {
 
 	args := []interface{}{tenantID}
 	query := `
-		SELECT event_id, tenant_id, term_id, grade_id, learning_area_id,
-			assessment_type, scoring_mode, assessment_window, weighting_profile_id,
-			status, max_score, created_by, created_at, updated_at
-		 FROM assessment_events WHERE tenant_id = $1 ORDER BY created_at DESC
+		SELECT ae.event_id, ae.tenant_id, ae.term_id, ae.grade_id, ae.learning_area_id,
+			ae.assessment_type, ae.scoring_mode, ae.assessment_window, ae.weighting_profile_id,
+			ae.status, ae.max_score, ae.created_by, ae.created_at, ae.updated_at,
+			COALESCE(g.grade_label, ''), COALESCE(g.level_band, ''),
+			COALESCE(la.name, '')
+		 FROM assessment_events ae
+		 LEFT JOIN grades g ON g.grade_id = ae.grade_id
+		 LEFT JOIN learning_areas la ON la.area_id = ae.learning_area_id
+		 WHERE ae.tenant_id = $1 ORDER BY ae.created_at DESC
 		 LIMIT $%d OFFSET $%d`
 	query = fmt.Sprintf(query, len(args)+1, len(args)+2)
 	args = append(args, limit, offset)
@@ -88,7 +96,8 @@ func (h *Handler) ListAssessmentEvents(c *gin.Context) {
 		var e AssessmentEvent
 		if err := rows.Scan(&e.EventID, &e.TenantID, &e.TermID, &e.GradeID, &e.LearningAreaID,
 			&e.AssessmentType, &e.ScoringMode, &e.AssessmentWindow, &e.WeightingProfileID,
-			&e.Status, &e.MaxScore, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			&e.Status, &e.MaxScore, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt,
+			&e.GradeLabel, &e.LevelBand, &e.LearningAreaName); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
@@ -108,14 +117,20 @@ func (h *Handler) GetAssessmentEvent(c *gin.Context) {
 	eventID := c.Param("event_id")
 	var e AssessmentEvent
 	err := tx.QueryRow(
-		`SELECT event_id, tenant_id, term_id, grade_id, learning_area_id,
-			assessment_type, scoring_mode, assessment_window, weighting_profile_id,
-			status, max_score, created_by, created_at, updated_at
-		 FROM assessment_events WHERE tenant_id = $1 AND event_id = $2`,
+		`SELECT ae.event_id, ae.tenant_id, ae.term_id, ae.grade_id, ae.learning_area_id,
+			ae.assessment_type, ae.scoring_mode, ae.assessment_window, ae.weighting_profile_id,
+			ae.status, ae.max_score, ae.created_by, ae.created_at, ae.updated_at,
+			COALESCE(g.grade_label, ''), COALESCE(g.level_band, ''),
+			COALESCE(la.name, '')
+		 FROM assessment_events ae
+		 LEFT JOIN grades g ON g.grade_id = ae.grade_id
+		 LEFT JOIN learning_areas la ON la.area_id = ae.learning_area_id
+		 WHERE ae.tenant_id = $1 AND ae.event_id = $2`,
 		tenantID, eventID,
 	).Scan(&e.EventID, &e.TenantID, &e.TermID, &e.GradeID, &e.LearningAreaID,
 		&e.AssessmentType, &e.ScoringMode, &e.AssessmentWindow, &e.WeightingProfileID,
-		&e.Status, &e.MaxScore, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
+		&e.Status, &e.MaxScore, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt,
+		&e.GradeLabel, &e.LevelBand, &e.LearningAreaName)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Assessment event not found"})
