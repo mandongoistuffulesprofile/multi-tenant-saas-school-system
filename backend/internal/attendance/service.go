@@ -326,9 +326,12 @@ func (h *Handler) ListGateDevices(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 	rows, err := tx.Query(
-		`SELECT device_id, tenant_id, device_name, device_type, location,
-			pairing_code, is_paired, paired_at, paired_by, last_seen_at,
-			status, created_at, updated_at
+		// Every optional column is nullable in the table, so it is coalesced or
+		// cast here: scanning a NULL into a Go string fails the whole list.
+		`SELECT device_id, tenant_id, device_name, device_type, COALESCE(location, ''),
+			COALESCE(pairing_code, ''), is_paired, COALESCE(paired_at::text, ''),
+			COALESCE(paired_by::text, ''), COALESCE(last_seen_at::text, ''),
+			COALESCE(status, ''), created_at::text, updated_at::text
 		 FROM gate_devices WHERE tenant_id = $1 ORDER BY device_name`,
 		tenantID,
 	)
@@ -373,8 +376,8 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 	rows, err := tx.Query(
-		`SELECT tag_id, tenant_id, tag_uid, holder_type, holder_id,
-			is_active, issued_at, created_at, updated_at
+		`SELECT tag_id, tenant_id, tag_uid, holder_type, holder_id::text,
+			is_active, COALESCE(issued_at::text, ''), created_at::text, updated_at::text
 		 FROM rfid_tags WHERE tenant_id = $1 ORDER BY tag_uid`,
 		tenantID,
 	)
@@ -421,8 +424,9 @@ func (h *Handler) ListGateEvents(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 	rows, err := tx.Query(
-		`SELECT event_id, tenant_id, device_id, tag_id, holder_type, holder_id,
-			event_type, event_ts, verified, verified_by, verified_at, created_at
+		`SELECT event_id, tenant_id, device_id, COALESCE(tag_id::text, ''), COALESCE(holder_type, ''),
+			COALESCE(holder_id::text, ''), event_type, event_ts::text, verified,
+			COALESCE(verified_by::text, ''), COALESCE(verified_at::text, ''), created_at::text
 		 FROM gate_events WHERE tenant_id = $1 ORDER BY event_ts DESC LIMIT 100`,
 		tenantID,
 	)
