@@ -318,8 +318,8 @@ func (h *Handler) AttendanceSummary(c *gin.Context) {
 
 // ---------- Gate configuration ----------
 
-// GatePolicy is stored in school_settings so it is tenant-scoped and
-// versioned like every other school setting.
+// GatePolicy is stored in tenant_settings so it is tenant-scoped like every
+// other school setting.
 type GatePolicy struct {
 	ArrearsDenialEnabled bool `json:"arrears_denial_enabled"`
 	RequirePhotoConsent  bool `json:"require_photo_consent"`
@@ -339,7 +339,7 @@ func (h *Handler) GetGatePolicy(c *gin.Context) {
 
 	var raw []byte
 	err := q.QueryRow(
-		`SELECT setting_value FROM school_settings WHERE tenant_id = $1 AND setting_key = 'gate_policy'`,
+		`SELECT value FROM tenant_settings WHERE tenant_id = $1 AND key = 'gate_policy'`,
 		tenantID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusOK, policy)
@@ -377,10 +377,10 @@ func (h *Handler) UpdateGatePolicy(c *gin.Context) {
 		return
 	}
 	_, err = q.Exec(
-		`INSERT INTO school_settings (tenant_id, setting_key, setting_value, updated_by)
+		`INSERT INTO tenant_settings (tenant_id, key, value, updated_by)
 		 VALUES ($1, 'gate_policy', $2::jsonb, $3)
-		 ON CONFLICT (tenant_id, setting_key)
-		 DO UPDATE SET setting_value = EXCLUDED.setting_value, version = school_settings.version + 1, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+		 ON CONFLICT (tenant_id, key)
+		 DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
 		tenantID, string(raw), nullableString(userID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
