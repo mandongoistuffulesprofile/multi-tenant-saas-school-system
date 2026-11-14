@@ -39,3 +39,7 @@ stats.html
 # Local UI-audit screenshots (generated, not product assets). Anchored to the
 # repository root so it does not hide backend/internal/audit.
 /audit/
+
+# Screenshot capture scratch space (promoted PNGs live in docs/ui-design/screenshots)
+docs/ui-design/screenshots.new/
+docs/ui-design/screenshots.previous/
