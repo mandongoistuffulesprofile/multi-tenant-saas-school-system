@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,6 +37,16 @@ func testRouter() *gin.Engine {
 	r.GET("/cors", func(c *gin.Context) {
 		c.Header("Vary", "Origin")
 		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	r.GET("/pdf", func(c *gin.Context) {
+		c.Data(http.StatusOK, "application/pdf", bytes.Repeat([]byte("p"), 512<<10))
+	})
+	r.GET("/csv", func(c *gin.Context) {
+		c.Header("Content-Type", "text/csv")
+		c.String(http.StatusOK, "a,b\n1,2\n")
+	})
+	r.GET("/big-json", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"blob": strings.Repeat("x", maxBufferedBody+1024)})
 	})
 	return r
 }
@@ -73,6 +84,59 @@ func TestWriteResponseBodiesArePreserved(t *testing.T) {
 	}
 	if w.Body.Len() == 0 {
 		t.Fatal("201 response body was dropped")
+	}
+}
+
+// A PDF is a large one-shot response. Buffering it just to hash an ETag costs a
+// second full copy in RAM, and the client never revalidates a download.
+func TestPDFResponseIsNotBufferedOrHashed(t *testing.T) {
+	r := testRouter()
+
+	w := do(r, http.MethodGet, "/pdf", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got, want := w.Body.Len(), 512<<10; got != want {
+		t.Fatalf("body length = %d, want %d", got, want)
+	}
+	if got := w.Header().Get("ETag"); got != "" {
+		t.Fatalf("PDF response must not get an ETag, got %q", got)
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/pdf" {
+		t.Fatalf("Content-Type = %q, want application/pdf", got)
+	}
+}
+
+// Any non-JSON content type is passed through, however small.
+func TestNonJSONResponseIsNotHashed(t *testing.T) {
+	r := testRouter()
+
+	w := do(r, http.MethodGet, "/csv", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if w.Body.String() != "a,b\n1,2\n" {
+		t.Fatalf("body = %q, want it preserved", w.Body.String())
+	}
+	if got := w.Header().Get("ETag"); got != "" {
+		t.Fatalf("CSV response must not get an ETag, got %q", got)
+	}
+}
+
+// JSON above the buffer ceiling stops being buffered; the body still arrives
+// intact and no ETag is advertised for a response that was streamed.
+func TestLargeJSONBodyIsStreamedWithoutETag(t *testing.T) {
+	r := testRouter()
+
+	w := do(r, http.MethodGet, "/big-json", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if w.Body.Len() < maxBufferedBody {
+		t.Fatalf("body length = %d, want at least %d", w.Body.Len(), maxBufferedBody)
+	}
+	if got := w.Header().Get("ETag"); got != "" {
+		t.Fatalf("streamed response must not get an ETag, got %q", got)
 	}
 }
 
