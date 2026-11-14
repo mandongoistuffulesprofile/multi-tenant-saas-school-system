@@ -587,6 +587,154 @@ func (h *Handler) RolloverClassGroups(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"copied": copied})
 }
 
+// ---------- Teaching weekly load ----------
+
+// TeachingWeeklyLoadRow is one teaching assignment as it appears in the load
+// view, with the resolved teacher, class and learning area names.
+type TeachingWeeklyLoadRow struct {
+	AssignmentID      string `json:"assignment_id"`
+	StaffMembershipID string `json:"staff_membership_id"`
+	StaffEmail        string `json:"staff_email"`
+	StaffName         string `json:"staff_name"`
+	ClassGroupID      string `json:"class_group_id"`
+	ClassGroupName    string `json:"class_group_name"`
+	GradeLabel        string `json:"grade_label"`
+	StreamName        string `json:"stream_name"`
+	LearningAreaID    string `json:"learning_area_id"`
+	LearningAreaName  string `json:"learning_area_name"`
+	SubjectID         string `json:"subject_id"`
+}
+
+// TeachingWeeklyLoadByStaff groups the year's assignments under each teacher.
+type TeachingWeeklyLoadByStaff struct {
+	StaffMembershipID string                  `json:"staff_membership_id"`
+	StaffEmail        string                  `json:"staff_email"`
+	StaffName         string                  `json:"staff_name"`
+	AssignmentCount   int                     `json:"assignment_count"`
+	Assignments       []TeachingWeeklyLoadRow `json:"assignments"`
+}
+
+// TeachingWeeklyLoadByClassGroup groups the year's assignments under each class.
+type TeachingWeeklyLoadByClassGroup struct {
+	ClassGroupID   string                  `json:"class_group_id"`
+	ClassGroupName string                  `json:"class_group_name"`
+	GradeLabel     string                  `json:"grade_label"`
+	StreamName     string                  `json:"stream_name"`
+	CoverageCount  int                     `json:"coverage_count"`
+	Assignments    []TeachingWeeklyLoadRow `json:"assignments"`
+}
+
+// TeachingWeeklyLoad is the same year's teaching load seen from both sides.
+type TeachingWeeklyLoad struct {
+	AcademicYearID    string                           `json:"academic_year_id"`
+	AcademicYearLabel string                           `json:"academic_year_label"`
+	ByStaff           []TeachingWeeklyLoadByStaff      `json:"by_staff"`
+	ByClassGroup      []TeachingWeeklyLoadByClassGroup `json:"by_class_group"`
+}
+
+// ListTeachingWeeklyLoad returns one academic year's teaching assignments
+// grouped by teacher and by class group, so a school admin can see each
+// teacher's load and which classes still lack subject coverage.
+func (h *Handler) ListTeachingWeeklyLoad(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	yearID := c.Query("academic_year_id")
+	if yearID == "" {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "academic_year_id", Code: "REQUIRED", Message: "academic_year_id is required"},
+		})
+		return
+	}
+
+	yearLabel := yearID
+	if err := tx.QueryRow(
+		`SELECT year_label FROM academic_years WHERE tenant_id = $1 AND year_id = $2`,
+		tenantID, yearID).Scan(&yearLabel); err != nil && err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+
+	rows, err := tx.Query(`
+		SELECT ta.assignment_id, ta.staff_membership_id,
+			COALESCE(u.email, ''),
+			COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), ''),
+			ta.class_group_id,
+			COALESCE(NULLIF(cg.class_group_name, ''), g.grade_label || ' ' || s.stream_name, ''),
+			COALESCE(g.grade_label, ''),
+			COALESCE(s.stream_name, ''),
+			COALESCE(la.area_id, ta.subject_id),
+			COALESCE(la.name, ta.subject_id),
+			ta.subject_id
+		FROM teaching_assignments ta
+		LEFT JOIN tenant_memberships tm ON tm.membership_id = ta.staff_membership_id
+		LEFT JOIN users u ON u.user_id = tm.user_id
+		LEFT JOIN class_groups cg ON cg.class_group_id = ta.class_group_id
+		LEFT JOIN grades g ON g.grade_id = cg.grade_id
+		LEFT JOIN streams s ON s.stream_id = cg.stream_id
+		LEFT JOIN learning_areas la ON la.code = ta.subject_id OR la.area_id::text = ta.subject_id
+		WHERE ta.tenant_id = $1 AND ta.academic_year_id = $2
+		ORDER BY u.email, g.grade_label, s.stream_name, ta.subject_id`, tenantID, yearID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	byStaff := make([]TeachingWeeklyLoadByStaff, 0)
+	byClassGroup := make([]TeachingWeeklyLoadByClassGroup, 0)
+	staffIndex := map[string]int{}
+	classIndex := map[string]int{}
+
+	for rows.Next() {
+		var r TeachingWeeklyLoadRow
+		if err := rows.Scan(&r.AssignmentID, &r.StaffMembershipID, &r.StaffEmail, &r.StaffName,
+			&r.ClassGroupID, &r.ClassGroupName, &r.GradeLabel, &r.StreamName,
+			&r.LearningAreaID, &r.LearningAreaName, &r.SubjectID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		i, ok := staffIndex[r.StaffMembershipID]
+		if !ok {
+			byStaff = append(byStaff, TeachingWeeklyLoadByStaff{
+				StaffMembershipID: r.StaffMembershipID,
+				StaffEmail:        r.StaffEmail,
+				StaffName:         r.StaffName,
+				Assignments:       make([]TeachingWeeklyLoadRow, 0),
+			})
+			i = len(byStaff) - 1
+			staffIndex[r.StaffMembershipID] = i
+		}
+		byStaff[i].Assignments = append(byStaff[i].Assignments, r)
+		byStaff[i].AssignmentCount = len(byStaff[i].Assignments)
+
+		j, ok := classIndex[r.ClassGroupID]
+		if !ok {
+			byClassGroup = append(byClassGroup, TeachingWeeklyLoadByClassGroup{
+				ClassGroupID:   r.ClassGroupID,
+				ClassGroupName: r.ClassGroupName,
+				GradeLabel:     r.GradeLabel,
+				StreamName:     r.StreamName,
+				Assignments:    make([]TeachingWeeklyLoadRow, 0),
+			})
+			j = len(byClassGroup) - 1
+			classIndex[r.ClassGroupID] = j
+		}
+		byClassGroup[j].Assignments = append(byClassGroup[j].Assignments, r)
+		byClassGroup[j].CoverageCount = len(byClassGroup[j].Assignments)
+	}
+
+	c.JSON(http.StatusOK, TeachingWeeklyLoad{
+		AcademicYearID:    yearID,
+		AcademicYearLabel: yearLabel,
+		ByStaff:           byStaff,
+		ByClassGroup:      byClassGroup,
+	})
+}
+
 // ---------- helpers ----------
 
 func isUniqueViolation(err error) bool {

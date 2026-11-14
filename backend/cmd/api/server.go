@@ -915,6 +915,7 @@ inkindHandler := inkind.NewHandler(inkindService, financeHandler)
 		structureGroup.GET("/teaching-assignments", middleware.RequireRole(middleware.RoleAcademicStaff...), structureHandler.ListTeachingAssignments)
 		structureGroup.POST("/teaching-assignments", middleware.RequireRole(middleware.RoleSchoolAdministrators...), structureHandler.CreateTeachingAssignment)
 		structureGroup.DELETE("/teaching-assignments/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), structureHandler.DeleteTeachingAssignment)
+		structureGroup.GET("/teaching-weekly-load", middleware.RequireRole(middleware.RoleSchoolAdministrators...), structureHandler.ListTeachingWeeklyLoad)
 	}
 
 	// Academic year-end workflow — preview and apply learner promotion.

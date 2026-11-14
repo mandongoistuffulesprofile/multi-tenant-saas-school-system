@@ -7,6 +7,7 @@ import Button from "../components/atoms/Button";
 import ViewState from "../components/organisms/ViewState";
 import { LearningArea } from "../lib/types";
 import { useToast } from "../components/toast/ToastProvider";
+import type { TeachingWeeklyLoad } from "../lib/types";
 
 interface ClassGroupRow {
   class_group_id: string;
@@ -44,6 +45,8 @@ export default function TeachingAllocationPage() {
   const [assignments, setAssignments] = useState<TeachingAssignmentRow[]>([]);
   const [allocation, setAllocation] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [weeklyLoad, setWeeklyLoad] = useState<TeachingWeeklyLoad | null>(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -91,14 +94,46 @@ export default function TeachingAllocationPage() {
     }
   }, []);
 
+  const loadWeeklyLoad = useCallback(async (year: string) => {
+    if (!year) {
+      setWeeklyLoad(null);
+      return;
+    }
+    setWeeklyLoading(true);
+    try {
+      const res = await api.get<TeachingWeeklyLoad>("/structure/teaching-weekly-load", {
+        params: { academic_year_id: year },
+      });
+      setWeeklyLoad(res?.data ?? null);
+    } catch {
+      setWeeklyLoad(null);
+    } finally {
+      setWeeklyLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadAssignments(classGroupId);
   }, [classGroupId, loadAssignments]);
+
+  useEffect(() => {
+    void loadWeeklyLoad(yearId);
+  }, [yearId, loadWeeklyLoad]);
 
   const years = Array.from(
     new Map(classGroups.map((g) => [g.year_id, g.year_label || g.year_id])).entries(),
   );
   const groupsForYear = classGroups.filter((g) => !yearId || g.year_id === yearId);
+
+  const handleYearChange = (nextYearId: string) => {
+    setYearId(nextYearId);
+    const first = classGroups.find((g) => g.year_id === nextYearId);
+    setClassGroupId(first?.class_group_id || "");
+  };
+
+  const handleClassGroupChange = (nextGroupId: string) => {
+    setClassGroupId(nextGroupId);
+  };
 
   const teacherName = (membershipId: string) => {
     const teacher = teachers.find((item) => item.membership_id === membershipId);
@@ -131,6 +166,7 @@ export default function TeachingAllocationPage() {
       }
       toast("Teaching allocations saved!", { type: "success" });
       await loadAssignments(classGroupId);
+      await loadWeeklyLoad(yearId);
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to save allocation", { type: "error" });
     } finally {
@@ -150,103 +186,212 @@ export default function TeachingAllocationPage() {
         </div>
       </div>
 
-      <Card>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="label">{t("academic_year")}</label>
-            <select
-              className="input-field"
-              value={yearId}
-              onChange={(e) => {
-                setYearId(e.target.value);
-                const first = classGroups.find((g) => g.year_id === e.target.value);
-                setClassGroupId(first?.class_group_id || "");
-              }}
-            >
-              <option value="">{t("select", { defaultValue: "Select" })}</option>
-              {years.map(([id, label]) => (
-                <option key={id} value={id}>{label}</option>
-              ))}
-            </select>
+        <Card>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="label">{t("academic_year")}</label>
+              <select
+                className="input-field"
+                value={yearId}
+                onChange={(e) => handleYearChange(e.target.value)}
+              >
+                <option value="">{t("select", { defaultValue: "Select" })}</option>
+                {years.map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">{t("class_group", { defaultValue: "Class" })}</label>
+              <select
+                className="input-field"
+                value={classGroupId}
+                onChange={(e) => handleClassGroupChange(e.target.value)}
+              >
+                <option value="">{t("select", { defaultValue: "Select" })}</option>
+                {groupsForYear.map((g) => (
+                  <option key={g.class_group_id} value={g.class_group_id}>
+                    {g.grade_label}{g.stream_name ? ` ${g.stream_name}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="label">{t("class_group", { defaultValue: "Class" })}</label>
-            <select className="input-field" value={classGroupId} onChange={(e) => setClassGroupId(e.target.value)}>
-              <option value="">{t("select", { defaultValue: "Select" })}</option>
-              {groupsForYear.map((g) => (
-                <option key={g.class_group_id} value={g.class_group_id}>
-                  {g.grade_label} {g.stream_name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[700px]">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">{t("learning_area")}</th>
-                <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">{t("teacher_label")}</th>
-                <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">{t("status")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {areas.map((area) => {
-                const assigned = allocation[area.area_id];
-                return (
-                  <tr key={area.area_id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <div className="font-medium">{area.name}</div>
-                      <div className="text-caption text-gray-500">{area.code}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <select
-                        className="input-field w-full max-w-xs"
-                        value={assigned || ""}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setAllocation((prev) => {
-                            const next = { ...prev };
-                            if (value) next[area.area_id] = value;
-                            else delete next[area.area_id];
-                            return next;
-                          });
-                        }}
-                      >
-                        <option value="">{t("unassigned")}</option>
-                        {teachers.map((teacher) => (
-                          <option key={teacher.membership_id} value={teacher.membership_id}>
-                            {teacher.email || teacher.phone_number || teacher.membership_id}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      {!assigned ? (
-                        <Badge variant="danger">{t("unassigned")}</Badge>
-                      ) : (
-                        <Badge variant="success">{teacherName(assigned)}</Badge>
-                      )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left min-w-[700px]">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">
+                    {t("learning_area")}
+                  </th>
+                  <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">
+                    {t("teacher_label")}
+                  </th>
+                  <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase">
+                    {t("status")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {areas.map((area) => {
+                  const assigned = allocation[area.area_id];
+                  return (
+                    <tr key={area.area_id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        <div className="font-medium">{area.name}</div>
+                        <div className="text-caption text-gray-500">{area.code}</div>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <select
+                          className="input-field w-full max-w-xs"
+                          value={assigned || ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAllocation((prev) => {
+                              const next = { ...prev };
+                              if (value) next[area.area_id] = value;
+                              else delete next[area.area_id];
+                              return next;
+                            });
+                          }}
+                        >
+                          <option value="">{t("unassigned")}</option>
+                          {teachers.map((teacher) => (
+                            <option key={teacher.membership_id} value={teacher.membership_id}>
+                              {teacher.email || teacher.phone_number || teacher.membership_id}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        {!assigned ? (
+                          <Badge variant="danger">{t("unassigned")}</Badge>
+                        ) : (
+                          <Badge variant="success">{teacherName(assigned)}</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {areas.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-6 py-12 text-center text-gray-500">
+                      {t("no_learning_areas")}
                     </td>
                   </tr>
-                );
-              })}
-              {areas.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-6 py-12 text-center text-gray-500">{t("no_learning_areas")}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-caption text-muted">{t("unassigned_warning")}</p>
-          <Button variant="primary" onClick={handleSave} disabled={saving || !classGroupId}>
-            {saving ? "Saving…" : t("save", { defaultValue: "Save allocations" })}
-          </Button>
-        </div>
-      </Card>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between mt-4">
+            <p className="text-caption text-muted">{t("unassigned_warning")}</p>
+            <Button variant="primary" onClick={handleSave} disabled={saving || !classGroupId}>
+              {saving ? "Saving…" : t("save", { defaultValue: "Save allocations" })}
+            </Button>
+          </div>
+        </Card>
+
+      {weeklyLoad && (
+        <Card className="max-w-4xl">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-heading">
+                {t("weekly_teaching_load", { defaultValue: "Weekly teaching load" })}
+              </h2>
+              <p className="text-body">
+                {weeklyLoad.academic_year_label || weeklyLoad.academic_year_id} · assignments by teacher
+                and by class group
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setWeeklyLoad(null)}>
+              {t("hide", { defaultValue: "Hide" })}
+            </Button>
+          </div>
+
+          {weeklyLoading && (
+            <p className="text-caption text-muted">{t("loading", { defaultValue: "Loading…" })}</p>
+          )}
+
+          <div className="space-y-6">
+            <div className="rounded-xl border border-slate-200">
+              <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-[13px] font-medium text-slate-700">
+                {t("by_teacher", { defaultValue: "By teacher" })}
+              </div>
+              <div className="divide-y divide-slate-100">
+                {weeklyLoad.by_staff.length === 0 ? (
+                  <div className="px-3 py-4 text-sm text-slate-500">
+                    {t("no_assignments_yet", { defaultValue: "No teaching assignments yet for this academic year." })}
+                  </div>
+                ) : (
+                  weeklyLoad.by_staff.map((staff) => (
+                    <div key={staff.staff_membership_id} className="px-3 py-3">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="font-medium text-slate-900">
+                          {staff.staff_name || staff.staff_email || staff.staff_membership_id}
+                        </span>
+                        <Badge variant="default">
+                          {staff.assignment_count} assignment{staff.assignment_count === 1 ? "" : "s"}
+                        </Badge>
+                      </div>
+                      {staff.assignments.length > 0 && (
+                        <div className="ml-4 text-sm text-slate-600 space-y-1">
+                          {staff.assignments.map((row) => (
+                            <div key={row.assignment_id} className="flex flex-wrap gap-2">
+                              <span className="text-slate-700">{row.class_group_name || `${row.grade_label} ${row.stream_name}`}</span>
+                              <span className="text-slate-400">→</span>
+                              <span className="text-slate-700">{row.learning_area_name || row.subject_id}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200">
+              <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-[13px] font-medium text-slate-700">
+                {t("by_class_group", { defaultValue: "By class group" })}
+              </div>
+              <div className="divide-y divide-slate-100">
+                {weeklyLoad.by_class_group.length === 0 ? (
+                  <div className="px-3 py-4 text-sm text-slate-500">
+                    {t("no_class_groups", { defaultValue: "No class groups for this academic year." })}
+                  </div>
+                ) : (
+                  weeklyLoad.by_class_group.map((cg) => (
+                    <div key={cg.class_group_id} className="px-3 py-3">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="font-medium text-slate-900">
+                          {cg.class_group_name || `${cg.grade_label ? cg.grade_label + " " : ""}${cg.stream_name}`.trim() || cg.class_group_id}
+                        </span>
+                        <Badge variant="default">
+                          {cg.coverage_count} subject{cg.coverage_count === 1 ? "" : "s"}
+                        </Badge>
+                      </div>
+                      {cg.assignments.length > 0 && (
+                        <div className="ml-4 text-sm text-slate-600 space-y-1">
+                          {cg.assignments.map((row) => (
+                            <div key={row.assignment_id} className="flex flex-wrap gap-2">
+                              <span className="text-slate-700">{row.learning_area_name || row.subject_id}</span>
+                              <span className="text-slate-400">→</span>
+                              <span className="text-slate-700">{row.staff_name || row.staff_email || row.staff_membership_id}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

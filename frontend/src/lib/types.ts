@@ -303,6 +303,44 @@ export interface CurriculumVersion {
   updated_at: Timestamp;
 }
 
+export interface TeachingWeeklyLoadByStaff {
+  staff_membership_id: string;
+  staff_email: string;
+  staff_name: string;
+  assignment_count: number;
+  assignments: TeachingWeeklyLoadRow[];
+}
+
+export interface TeachingWeeklyLoadByClassGroup {
+  class_group_id: string;
+  class_group_name: string;
+  grade_label: string;
+  stream_name: string;
+  coverage_count: number;
+  assignments: TeachingWeeklyLoadRow[];
+}
+
+export interface TeachingWeeklyLoadRow {
+  assignment_id: string;
+  staff_membership_id: string;
+  staff_email: string;
+  staff_name: string;
+  class_group_id: string;
+  class_group_name: string;
+  grade_label: string;
+  stream_name: string;
+  learning_area_id: string;
+  learning_area_name: string;
+  subject_id: string;
+}
+
+export interface TeachingWeeklyLoad {
+  academic_year_id: string;
+  academic_year_label: string;
+  by_staff: TeachingWeeklyLoadByStaff[];
+  by_class_group: TeachingWeeklyLoadByClassGroup[];
+}
+
 export interface LearningArea {
   area_id: ID;
   version_id: ID;
