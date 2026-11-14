@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { api } from "../lib/api";
 import Skeleton from "../components/atoms/Skeleton";
 import Button from "../components/atoms/Button";
@@ -21,20 +31,39 @@ type Metrics = {
   student_count: number;
 };
 
+type TrendPoint = {
+  period: string; // YYYY-MM
+  revenue: number;
+  expenses: number;
+  net: number;
+};
+
+const monthLabel = (period: string) => {
+  const [year, month] = period.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  return date.toLocaleDateString("en-KE", { month: "short", year: "2-digit" });
+};
+
+const compact = (value: number) =>
+  value >= 1000 ? `${Math.round(value / 1000)}k` : String(Math.round(value));
+
 const money = (value: number | undefined) =>
   `KES ${Number(value || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function ValueLedgerPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    api
-      .get("/value-ledger/metrics")
-      .then((res) => setMetrics(res.data))
+    Promise.all([api.get("/value-ledger/metrics"), api.get("/value-ledger/trend", { params: { months: 12 } })])
+      .then(([metricsRes, trendRes]) => {
+        setMetrics(metricsRes.data);
+        setTrend(Array.isArray(trendRes.data?.points) ? trendRes.data.points : []);
+      })
       .catch((err) => {
         // The endpoint used to answer with zeros when it could not read the
         // ledger. A visible failure is better than a confident 0.
@@ -48,6 +77,9 @@ export default function ValueLedgerPage() {
   }, [load]);
 
   const surplus = Number(metrics?.net_position || 0) >= 0;
+  // A chart drawn from twelve empty months says nothing; only offer it once the
+  // ledger actually has history to show.
+  const hasHistory = trend.some((p) => Number(p.revenue) !== 0 || Number(p.expenses) !== 0);
 
   const cards: { label: string; value: string; hint: string; tone?: string }[] = [
     {
@@ -127,6 +159,37 @@ export default function ValueLedgerPage() {
                   </div>
                 ))}
               </div>
+              <section className="mt-8 bg-white rounded-lg border border-gray-200 p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-900">Monthly trend</h3>
+                  <span className="text-xs text-gray-500">Last 12 months of posted entries</span>
+                </div>
+                {hasHistory ? (
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="period" tickFormatter={monthLabel} tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                        <YAxis tickFormatter={compact} tick={{ fontSize: 11 }} stroke="#94a3b8" width={48} />
+                        <Tooltip
+                          formatter={(value: number, name: string) => [money(value), name]}
+                          labelFormatter={(label: string) => monthLabel(label)}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#2563eb" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#d97706" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="net" name="Net" stroke="#15803d" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 py-8 text-center">
+                    No ledger history yet. The trend appears once entries are posted for a month — a
+                    chart drawn from empty months would say nothing.
+                  </p>
+                )}
+              </section>
+
               <p className="mt-6 text-xs text-gray-500">
                 Outstanding fees count issued, part-paid and overdue invoices. Paid and void
                 invoices are excluded, and prepayments held on account are not netted off here —
