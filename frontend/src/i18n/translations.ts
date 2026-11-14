@@ -100,6 +100,7 @@ export const translations = {
       // Sidebar labels that bypass t() in Layout.tsx
       mpesa_ledger: "M-Pesa Ledger",
       board_pack: "Board Pack",
+      value_ledger: "Value Ledger",
       reconciliation: "Reconciliation",
       // Audit trail — human-readable column headers (no raw snake_case)
       audit_what_happened: "What happened",
@@ -587,6 +588,7 @@ export const translations = {
       // Sidebar labels that bypass t() in Layout.tsx
       mpesa_ledger: "M-Pesa Ledger",
       board_pack: "Board Pack",
+      value_ledger: "Value Ledger",
       reconciliation: "Sawarisha",
       // Audit trail — human-readable column headers
       audit_what_happened: "Kitu kilichotokea",
