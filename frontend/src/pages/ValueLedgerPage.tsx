@@ -36,6 +36,10 @@ type TrendPoint = {
   revenue: number;
   expenses: number;
   net: number;
+  // Filled from the monthly usage snapshot; zero for months it has not covered.
+  active_learners: number;
+  sms_sent: number;
+  payments_processed: number;
 };
 
 const monthLabel = (period: string) => {
@@ -100,6 +104,12 @@ export default function ValueLedgerPage() {
   // A chart drawn from twelve empty months says nothing; only offer it once the
   // ledger actually has history to show.
   const hasHistory = trend.some((p) => Number(p.revenue) !== 0 || Number(p.expenses) !== 0);
+  // Volume is a separate question from money, so it gets its own chart; a school
+  // can be busy without being profitable, and vice versa.
+  const hasUsage = trend.some(
+    (p) => Number(p.sms_sent) !== 0 || Number(p.payments_processed) !== 0 || Number(p.active_learners) !== 0,
+  );
+  const currentLearners = [...trend].reverse().find((p) => Number(p.active_learners) !== 0)?.active_learners ?? 0;
 
   const cards: { label: string; value: string; hint: string; tone?: string }[] = [
     {
@@ -225,6 +235,51 @@ export default function ValueLedgerPage() {
                   <p className="text-sm text-gray-500 py-8 text-center">
                     No ledger history yet. The trend appears once entries are posted for a month — a
                     chart drawn from empty months would say nothing.
+                  </p>
+                )}
+              </section>
+
+              <section className="mt-6 bg-white rounded-lg border border-gray-200 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Monthly activity</h3>
+                    <span className="text-xs text-gray-500">
+                      SMS sent and payments received, last {months} months
+                    </span>
+                  </div>
+                  {currentLearners > 0 && (
+                    <span className="text-xs text-gray-600">
+                      Learners on the roll: <strong>{currentLearners.toLocaleString("en-KE")}</strong>
+                    </span>
+                  )}
+                </div>
+                {hasUsage ? (
+                  <div className="h-56">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="period" tickFormatter={monthLabel} tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} stroke="#94a3b8" width={36} />
+                        <Tooltip
+                          formatter={(value: number, name: string) => [Number(value).toLocaleString("en-KE"), name]}
+                          labelFormatter={(label: string) => monthLabel(label)}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Line type="monotone" dataKey="sms_sent" name="SMS sent" stroke="#7c3aed" strokeWidth={2} dot={false} />
+                        <Line
+                          type="monotone"
+                          dataKey="payments_processed"
+                          name="Payments"
+                          stroke="#0891b2"
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 py-8 text-center">
+                    No activity recorded yet. Usage counters appear after the monthly snapshot runs.
                   </p>
                 )}
               </section>
