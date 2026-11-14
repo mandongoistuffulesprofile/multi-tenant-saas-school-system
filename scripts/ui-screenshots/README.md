@@ -46,7 +46,8 @@ preflight, since it does not touch the network or the browser.
 ## What a run checks per route
 
 - document response is not 4xx/5xx, and no API call on the page returned 5xx
-- the page never says "Something went wrong" (the ErrorBoundary text)
+- the page is not the not-found route ("404" + "Page not found"), which
+  catches a route that exists in `App.tsx` but was dropped from the build
 - the visible text is at least `minText` characters (default 120), so a blank
   shell cannot pass
 - optional `expectText` / `waitForText` from the manifest
@@ -86,10 +87,15 @@ is skipped (and reported) rather than photographed blank.
 
 ## Notes and gotchas
 
-- Only non-production routes (`/cbc-assessment`, `/bom-oversight`) exist in a
-  dev build; they are marked `devOnly` in the manifest. Against `vite preview`
-  they render the not-found screen and the `minText` check will flag them —
-  capture against `npm run dev`, or delete those two entries.
+- `/cbc-assessment` and `/bom-oversight` sit behind `import.meta.env.DEV`, so
+  a production build (`vite preview`, or a deployed bundle) has no such route
+  and the `*` fallback answers with the not-found screen. Those entries are
+  marked `devOnly`: when the not-found screen appears the route is **skipped**
+  with `dev-only route: this build serves the not-found page — start the
+  frontend with npm run dev to capture it`, not failed on `minText`. The run
+  still succeeds, and `--replace` keeps any existing PNG for a skipped route
+  instead of deleting it as stale. Capture against `npm run dev` to refresh
+  those two images.
 - Redirect aliases (`/fees`, `/invoices`, `/record-payment`, …) and `*` are in
   the manifest as `skip` entries, purely so `check-routes.mjs` can prove every
   declared route has been considered.

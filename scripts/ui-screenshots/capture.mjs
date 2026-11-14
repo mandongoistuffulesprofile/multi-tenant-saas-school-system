@@ -225,6 +225,15 @@ async function login(email, password) {
   return { cookies, header };
 }
 
+/**
+ * The not-found route renders a "404" eyebrow above "Page not found".
+ * Requiring both keeps an empty state that merely says "not found" from
+ * masquerading as a missing route.
+ */
+function isNotFoundScreen(text) {
+  return /\b404\b/.test(text) && /page not found/i.test(text);
+}
+
 /** Reads a list from an API response that may be a bare array or wrapped. */
 function asList(payload) {
   if (Array.isArray(payload)) return payload;
@@ -332,36 +341,55 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
         await sleep(route.settleMs ?? SETTLE_MS);
 
         text = await page.evaluate(() => document.body.innerText || "");
-        if (/something went wrong/i.test(text)) failures.push("page shows \"Something went wrong\"");
-        if (serverErrors.length) failures.push(`${serverErrors.length} API 5xx response(s)`);
-        const minText = route.minText ?? MIN_TEXT_DEFAULT;
-        if (text.trim().length < minText) failures.push(`only ${text.trim().length} chars of text (min ${minText})`);
-        if (route.expectText && !text.includes(route.expectText)) {
-          failures.push(`missing expected text "${route.expectText}"`);
-        }
 
-        await page.screenshot({ path: outFile, fullPage: true });
-        const bytes = fs.statSync(outFile).size;
-        if (bytes < MIN_PNG_BYTES) {
-          failures.push(`screenshot is only ${bytes} bytes`);
-        }
-
-        const entry = {
-          file: route.file,
-          path: targetPath,
-          persona,
-          bytes,
-          textLength: text.trim().length,
-          serverErrors,
-          pageErrors,
-          failures,
-          sample: text.replace(/\s+/g, " ").trim().slice(0, 140),
-        };
-        if (failures.length) {
-          status = "failed";
-          results.failed.push(entry);
+        if (route.devOnly && isNotFoundScreen(text)) {
+          // /cbc-assessment and /bom-oversight are behind import.meta.env.DEV,
+          // so a production build drops the route and the * fallback answers.
+          // That is the build's shape, not a regression: skip instead of
+          // failing minText, and keep any existing PNG for the route.
+          status = "skipped";
+          if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
+          results.skipped.push({
+            file: route.file,
+            path: targetPath,
+            persona,
+            reason: "dev-only route: this build serves the not-found page — start the frontend with `npm run dev` to capture it",
+          });
         } else {
-          results.passed.push(entry);
+          if (isNotFoundScreen(text)) {
+            failures.push("page rendered the not-found route (is this route in the build?)");
+          }
+          if (/something went wrong/i.test(text)) failures.push("page shows \"Something went wrong\"");
+          if (serverErrors.length) failures.push(`${serverErrors.length} API 5xx response(s)`);
+          const minText = route.minText ?? MIN_TEXT_DEFAULT;
+          if (text.trim().length < minText) failures.push(`only ${text.trim().length} chars of text (min ${minText})`);
+          if (route.expectText && !text.includes(route.expectText)) {
+            failures.push(`missing expected text "${route.expectText}"`);
+          }
+
+          await page.screenshot({ path: outFile, fullPage: true });
+          const bytes = fs.statSync(outFile).size;
+          if (bytes < MIN_PNG_BYTES) {
+            failures.push(`screenshot is only ${bytes} bytes`);
+          }
+
+          const entry = {
+            file: route.file,
+            path: targetPath,
+            persona,
+            bytes,
+            textLength: text.trim().length,
+            serverErrors,
+            pageErrors,
+            failures,
+            sample: text.replace(/\s+/g, " ").trim().slice(0, 140),
+          };
+          if (failures.length) {
+            status = "failed";
+            results.failed.push(entry);
+          } else {
+            results.passed.push(entry);
+          }
         }
       } catch (error) {
         status = "failed";
@@ -377,7 +405,8 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
         page.off("response", onResponse);
         page.off("pageerror", onPageError);
       }
-      console.log(`  ${status === "ok" ? "ok  " : "FAIL"} ${route.file}  <- ${targetPath}`);
+      const label = status === "ok" ? "ok  " : status === "skipped" ? "skip" : "FAIL";
+      console.log(`  ${label} ${route.file}  <- ${targetPath}${status === "skipped" ? " (dev-only route, not-found page served)" : ""}`);
     }
   } finally {
     await context.close();
@@ -402,11 +431,18 @@ function promote(results) {
     fs.copyFileSync(path.join(OUT_DIR, name), path.join(TARGET_DIR, name));
   }
 
-  const stale = listPngs(TARGET_DIR).filter((name) => !fresh.has(name));
+  // A dev-only route skipped on a production build has no new PNG; do not
+  // treat the existing one as stale, or the capture set would silently lose it.
+  const preserved = new Set(results.skipped.map((entry) => entry.file).filter(Boolean));
+  const stale = listPngs(TARGET_DIR).filter((name) => !fresh.has(name) && !preserved.has(name));
   for (const name of stale) {
     fs.unlinkSync(path.join(TARGET_DIR, name));
   }
   console.log(`copied ${fresh.size} screenshot(s); removed ${stale.length} stale PNG(s)`);
+  if (preserved.size) {
+    const kept = listPngs(TARGET_DIR).filter((name) => preserved.has(name));
+    if (kept.length) console.log(`kept ${kept.length} skipped dev-only PNG(s): ${kept.join(", ")}`);
+  }
   if (stale.length) console.log(`removed: ${stale.join(", ")}`);
 }
 
@@ -429,7 +465,8 @@ async function main() {
       console.log(`\n${persona}:`);
       for (const route of plan) {
         const unresolved = route.resolve ? `  (${route.resolve})` : "";
-        console.log(`  ${route.file.padEnd(38)} ${route.path}${unresolved}`);
+        const devOnly = route.devOnly ? "  [dev-only: skipped on non-dev builds]" : "";
+        console.log(`  ${route.file.padEnd(38)} ${route.path}${unresolved}${devOnly}`);
       }
     }
     console.log(`\nchrome: ${CHROME}`);
@@ -504,6 +541,11 @@ async function main() {
     for (const entry of results.passed) {
       console.log(`  ${entry.file}  ${entry.textLength}c  "${entry.sample.slice(0, 70)}"`);
     }
+  }
+
+  if (results.skipped.length) {
+    console.log("\nSKIPPED:");
+    for (const entry of results.skipped) console.log(`  ${entry.file ?? entry.path}: ${entry.reason}`);
   }
 
   if (results.failed.length) {
