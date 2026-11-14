@@ -318,6 +318,9 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 			args = append(args, pq.Array(ids))
 			argIndex++
 		}
+		// Guardians never see an unpublished draft, even if the learner is
+		// linked to them. Only the frozen, published card leaves the school.
+		query += " AND rc.status = 'PUBLISHED'"
 	}
 
 	if runID != "" {
@@ -572,7 +575,7 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 			ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to load linked learners"})
 			return
 		}
-		if !linked[card.LearnerID] {
+		if !linked[card.LearnerID] || !strings.EqualFold(card.Status, "PUBLISHED") {
 			ginCtx.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
 			return
 		}

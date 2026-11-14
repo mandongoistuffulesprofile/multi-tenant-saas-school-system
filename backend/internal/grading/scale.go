@@ -5,7 +5,9 @@
 package grading
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -317,7 +319,7 @@ func LoadConfig(tx *sqlx.Tx, tenantID string) (Config, error) {
 		`SELECT setting_value FROM school_settings WHERE tenant_id = $1 AND setting_key = 'grading_config'`,
 		tenantID).Scan(&raw)
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows") {
+		if errors.Is(err, sql.ErrNoRows) {
 			return cfg, nil
 		}
 		return cfg, err
