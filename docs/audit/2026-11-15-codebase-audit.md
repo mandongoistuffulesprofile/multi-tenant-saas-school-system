@@ -261,3 +261,14 @@ node .kilo/tmp/xcheck.mjs   # throwaway script, prints unmatched in both directi
 # the pages themselves
 node scripts/ui-screenshots/capture.mjs --out docs/ui-design/training --expand
 ```
+
+## Decision — the five UI-less domains (2026-11-15)
+
+`kitchen`, `inkind`, `value-ledger`, `opening-balances` and `delegated-tokens`
+stay on the server but are **not** advertised in the SPA this cycle. None of them
+appears in nav, so nothing promises a screen that does not exist; the routes remain
+for the clients that already use them and for the next slice to build against.
+Revisit when a school asks for feeding, donations, opening balances or delegated
+access — building five screens speculatively is the larger risk. `kitchen`,
+`inkind` and `valueledger` still have no tests, which matters more than the missing
+UI: they are reachable over HTTP today.

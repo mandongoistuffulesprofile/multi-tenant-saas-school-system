@@ -22,9 +22,21 @@ vi.mock("../components/toast/ToastProvider", () => ({
   useToast: () => ({ toast: harness.toast }),
 }));
 
+// The desk runs in Kiswahili by default, so the mock resolves the keys this page
+// renders the way the real locale file does; a key it does not know falls back to
+// the English defaultValue, which is what the assertion would then trip on.
+const SWAHILI: Record<string, string> = {
+  "finance.payments.invoice_busy":
+    "Malipo mengine yanawekwa kwenye ankara hii kwa sasa. Jaribu tena baada ya muda mfupi.",
+  "finance.payments.retry": "Jaribu tena",
+  "finance.payments.dismiss": "Ondoa",
+  "finance.payments.recorded": "Malipo yamerekodiwa",
+  "finance.payments.record": "Rekodi Malipo",
+};
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key,
+    t: (key: string, opts?: { defaultValue?: string }) => SWAHILI[key] ?? opts?.defaultValue ?? key,
   }),
 }));
 
@@ -86,7 +98,7 @@ function setValue(el: HTMLInputElement | HTMLSelectElement, value: string) {
 
 async function fillAndSubmit(amount: string) {
   await act(async () => {
-    buttonByText("Record Payment").click();
+    buttonByText("Rekodi Malipo").click();
   });
   const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
   expect(dialog).not.toBeNull();
@@ -143,7 +155,7 @@ describe("payment recording under contention", () => {
       amount: 2500,
       source: "CASH",
     });
-    expect(harness.toast).toHaveBeenCalledWith("Payment recorded", { type: "success" });
+    expect(harness.toast).toHaveBeenCalledWith("Malipo yamerekodiwa", { type: "success" });
     await act(async () => {
       await Promise.resolve();
     });

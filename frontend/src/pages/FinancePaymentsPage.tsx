@@ -11,9 +11,6 @@ import { useToast } from "../components/toast/ToastProvider";
 
 // Shown when another clerk is mid-settlement on the same invoice. Kept next to
 // the form rather than taken from the 409 body, which is English.
-const INVOICE_BUSY_MESSAGE =
-  "Malipo mengine yanawekwa kwenye ankara hii kwa sasa. Jaribu tena baada ya muda mfupi.";
-
 export default function FinancePaymentsPage() {
   const [payModal, setPayModal] = useState(false);
   const [learners, setLearners] = useState<{ id: string; label: string }[]>([]);
@@ -33,7 +30,7 @@ export default function FinancePaymentsPage() {
   const recordPayment = async () => {
     const amount = parseFloat(payForm.amount);
     if (!payForm.learner_id || !Number.isFinite(amount) || amount <= 0) {
-      toast("Select a learner and enter an amount greater than zero", { type: "error" });
+      toast(t("finance.payments.pick_amount", { defaultValue: "Select a learner and enter an amount greater than zero" }), { type: "error" });
       return;
     }
     setRecording(true);
@@ -47,7 +44,7 @@ export default function FinancePaymentsPage() {
         source: payForm.payment_method,
         payment_reference: payForm.reference || undefined,
       });
-      toast("Payment recorded", { type: "success" });
+      toast(t("finance.payments.recorded", { defaultValue: "Payment recorded" }), { type: "success" });
       setPayModal(false);
       setPayForm({ learner_id: "", amount: "", payment_method: "CASH", reference: "" });
       api.get("/finance/payments").then((r) => setPayments(Array.isArray(r.data) ? r.data : []));
@@ -59,11 +56,21 @@ export default function FinancePaymentsPage() {
         // the same form cannot double-count. Say so and keep the dialog open.
         // The backend's message is English; the desk speaks Swahili, so the text
         // the clerk reads is ours. The code is what we react to.
-        setInvoiceBusy(INVOICE_BUSY_MESSAGE);
+        setInvoiceBusy(
+          t("finance.payments.invoice_busy", {
+            defaultValue:
+              "Another payment is being applied to this invoice right now. Try again in a moment.",
+          }),
+        );
         return;
       }
       const fe = err.response?.data?.field_errors;
-      toast(fe?.[0]?.message || err.response?.data?.message || "Failed to record payment", { type: "error" });
+      toast(
+        fe?.[0]?.message ||
+          err.response?.data?.message ||
+          t("finance.payments.failed", { defaultValue: "Failed to record payment" }),
+        { type: "error" },
+      );
     } finally {
       setRecording(false);
     }
@@ -104,9 +111,9 @@ export default function FinancePaymentsPage() {
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-heading">Payments</h2>
+            <h2 className="text-heading">{t("finance.payments.title", { defaultValue: "Payments" })}</h2>
             <button className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition" onClick={() => setPayModal(true)}>
-              Record Payment
+              {t("finance.payments.record", { defaultValue: "Record Payment" })}
             </button>
           </div>
           {loading ? (
@@ -114,7 +121,7 @@ export default function FinancePaymentsPage() {
           ) : (
             <DataTable
               data={payments}
-              emptyMessage="No payments found"
+              emptyMessage={t("finance.payments.none", { defaultValue: "No payments found" })}
               columns={[
                 { key: "payment_reference", header: "Reference" },
                 { key: "learner_id", header: "Learner", render: (r) => r.learner_label || learnerName(r.learner_id) || r.learner_id || "—" },
@@ -124,24 +131,41 @@ export default function FinancePaymentsPage() {
               ]}
             />
           )}
-          <Dialog open={payModal} onClose={() => setPayModal(false)} title="Record Payment" className="max-w-md">
+          <Dialog
+            open={payModal}
+            onClose={() => setPayModal(false)}
+            title={t("finance.payments.record", { defaultValue: "Record Payment" })}
+            className="max-w-md"
+          >
                 <form onSubmit={handleRecordPayment}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Learner<HelpTip text="Only active learners in this school are listed. The receipt is posted against this learner's account." /></span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>      {t("finance.payments.learner", { defaultValue: "Learner" })}
+      <HelpTip
+        text={t("finance.payments.learner_help", {
+          defaultValue:
+            "Only active learners in this school are listed. The receipt is posted against this learner's account.",
+        })}
+      /></span>
                     <select
                       required
                       value={payForm.learner_id}
                       onChange={(e) => setPayForm({ ...payForm, learner_id: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     >
-                      <option value="">Select learner…</option>
+                      <option value="">{t("finance.payments.select_learner", { defaultValue: "Select learner…" })}</option>
                       {learners.map((l) => (
                         <option key={l.id} value={l.id}>{l.label}</option>
                       ))}
                     </select>
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Amount (KES)<HelpTip text="The payment is allocated to this learner's oldest unpaid invoice. Any remainder stays as an unallocated payment on account." /></span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>      {t("finance.payments.amount", { defaultValue: "Amount (KES)" })}
+      <HelpTip
+        text={t("finance.payments.amount_help", {
+          defaultValue:
+            "The payment is allocated to this learner's oldest unpaid invoice. Any remainder stays as an unallocated payment on account.",
+        })}
+      /></span>
                     <input
                       type="number"
                       min="1"
@@ -153,25 +177,31 @@ export default function FinancePaymentsPage() {
                     />
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Method</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("finance.payments.method", { defaultValue: "Method" })}</span>
                     <select
                       value={payForm.payment_method}
                       onChange={(e) => setPayForm({ ...payForm, payment_method: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     >
-                      <option value="CASH">Cash</option>
-                      <option value="BANK">Bank transfer</option>
-                      <option value="CHEQUE">Cheque</option>
-                      <option value="MPESA">M-Pesa</option>
+                      <option value="CASH">{t("finance.payments.cash", { defaultValue: "Cash" })}</option>
+                      <option value="BANK">{t("finance.payments.bank", { defaultValue: "Bank transfer" })}</option>
+                      <option value="CHEQUE">{t("finance.payments.cheque", { defaultValue: "Cheque" })}</option>
+                      <option value="MPESA">{t("finance.payments.mpesa", { defaultValue: "M-Pesa" })}</option>
                     </select>
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Reference (optional)<HelpTip text="Use the M-Pesa code, bank slip or receipt number. Unique M-Pesa transaction IDs are protected against duplicate posting." /></span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>      {t("finance.payments.reference", { defaultValue: "Reference (optional)" })}
+      <HelpTip
+        text={t("finance.payments.reference_help", {
+          defaultValue:
+            "Use the M-Pesa code, bank slip or receipt number. Unique M-Pesa transaction IDs are protected against duplicate posting.",
+        })}
+      /></span>
                     <input
                       type="text"
                       value={payForm.reference}
                       onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })}
-                      placeholder="e.g. receipt no. or M-Pesa code"
+                      placeholder={t("finance.payments.reference_placeholder", { defaultValue: "e.g. receipt no. or M-Pesa code" })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     />
                   </label>
@@ -188,22 +218,28 @@ export default function FinancePaymentsPage() {
                           disabled={recording}
                           className="rounded-lg bg-slate-900 px-3 py-1.5 font-bold text-white hover:bg-slate-800 disabled:opacity-60 cursor-pointer"
                         >
-                          {recording ? "Inatuma…" : "Jaribu tena"}
+                          {recording
+                            ? t("finance.payments.sending", { defaultValue: "Sending…" })
+                            : t("finance.payments.retry", { defaultValue: "Try again" })}
                         </button>
                         <button
                           type="button"
                           onClick={() => setInvoiceBusy(null)}
                           className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-bold text-amber-900 hover:border-amber-400 cursor-pointer"
                         >
-                          Ondoa
+                          {t("finance.payments.dismiss", { defaultValue: "Dismiss" })}
                         </button>
                       </div>
                     </div>
                   )}
                   <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
-                    <button type="button" onClick={() => setPayModal(false)} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
+                    <button type="button" onClick={() => setPayModal(false)} style={{ padding: "0.5rem 1rem" }}>
+                      {t("finance.payments.cancel", { defaultValue: "Cancel" })}
+                    </button>
                     <button type="submit" className="btn-primary" disabled={recording}>
-                      {recording ? "Recording…" : "Record"}
+                      {recording
+                        ? t("finance.payments.recording", { defaultValue: "Recording…" })
+                        : t("finance.payments.submit", { defaultValue: "Record" })}
                     </button>
                   </div>
                 </form>
