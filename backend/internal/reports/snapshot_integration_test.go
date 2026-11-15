@@ -93,16 +93,40 @@ func TestBuildSnapshotRollsBack(t *testing.T) {
 		t.Fatalf("card: %v", err)
 	}
 
-	var areaID, strandID, subStrandID string
+	// The snapshot resolves its scale from grades.level_band, so the grade this
+	// card is filed under has to exist here; a database seeded without G5 would
+	// otherwise silently fall back to the four-band scale.
+	mustExec(`INSERT INTO grades (grade_id, grade_label, level_band, lessons_per_week)
+		VALUES ('G5', 'Grade 5', 'UPPER_PRIMARY', 35) ON CONFLICT (grade_id) DO NOTHING`)
+
+	// Build the curriculum row this card needs instead of relying on the seeded
+	// KICD baseline: the snapshot only cares that the foreign keys resolve, and
+	// depending on ambient seed data made this test fail on a database whose
+	// migrations seeded nothing. The whole fixture is rolled back with the tx.
+	// Codes are varchar(20); keep them short enough for the column.
+	code := fmt.Sprintf("SNP%d", time.Now().UnixNano()%1000000)
+	var versionID, areaID, strandID, subStrandID string
 	if err := tx.QueryRow(
-		`SELECT area_id::text FROM learning_areas WHERE code = 'MAT' LIMIT 1`).Scan(&areaID); err != nil {
+		`INSERT INTO curriculum_versions (version_label, description, is_published)
+		 VALUES ($1, 'snapshot test', true) RETURNING version_id::text`, "snap-"+code).Scan(&versionID); err != nil {
+		t.Fatalf("curriculum version: %v", err)
+	}
+	if err := tx.QueryRow(
+		`INSERT INTO learning_areas (version_id, code, name, grade_band, sort_order)
+		 VALUES ($1, $2, 'Snapshot Mathematics', 'UPPER_PRIMARY', 1) RETURNING area_id::text`,
+		versionID, code).Scan(&areaID); err != nil {
 		t.Fatalf("learning area: %v", err)
 	}
 	if err := tx.QueryRow(
-		`SELECT substrand.sub_strand_id::text, substrand.strand_id::text
-		 FROM sub_strands substrand
-		 JOIN strands strand ON strand.strand_id = substrand.strand_id
-		 WHERE strand.area_id = $1 LIMIT 1`, areaID).Scan(&subStrandID, &strandID); err != nil {
+		`INSERT INTO strands (area_id, code, name, sort_order)
+		 VALUES ($1, $2, 'Numbers', 1) RETURNING strand_id::text`,
+		areaID, code+"-S").Scan(&strandID); err != nil {
+		t.Fatalf("strand: %v", err)
+	}
+	if err := tx.QueryRow(
+		`INSERT INTO sub_strands (strand_id, code, name, sort_order)
+		 VALUES ($1, $2, 'Fractions', 1) RETURNING sub_strand_id::text`,
+		strandID, code+"-SS").Scan(&subStrandID); err != nil {
 		t.Fatalf("sub-strand: %v", err)
 	}
 

@@ -79,8 +79,8 @@ func TestGateEndpointsResolveHolderNames(t *testing.T) {
 		}
 		if err := tx.QueryRow(
 			`INSERT INTO gate_devices (tenant_id, device_name, device_type, pairing_code, is_paired)
-			 VALUES ($1, 'Main gate kiosk', 'KIOSK', '123456', true) RETURNING device_id`,
-			tenantID,
+			 VALUES ($1, 'Main gate kiosk', 'KIOSK', $2, true) RETURNING device_id`,
+			tenantID, fmt.Sprintf("PG%011d", suffix%100000000000),
 		).Scan(&deviceID); err != nil {
 			return err
 		}

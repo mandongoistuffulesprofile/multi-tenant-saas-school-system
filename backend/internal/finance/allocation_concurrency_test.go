@@ -69,7 +69,10 @@ func TestInvoiceAllocation_ConcurrentBounds(t *testing.T) {
 		})
 	})
 
-	type result struct{ ok bool; err error }
+	type result struct {
+		ok  bool
+		err error
+	}
 	results := make(chan result, 2)
 	var wg sync.WaitGroup
 	alloc := func(paymentID string) {
@@ -93,7 +96,7 @@ func TestInvoiceAllocation_ConcurrentBounds(t *testing.T) {
 				)
 				INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount)
 				SELECT $2,$4,$1,$3::numeric FROM upd
-				ON CONFLICT (payment_id, invoice_id) DO NOTHING`,
+				ON CONFLICT DO NOTHING`,
 				invoiceID, tenant, "700.00", paymentID)
 			if err != nil {
 				return err
@@ -113,9 +116,12 @@ func TestInvoiceAllocation_ConcurrentBounds(t *testing.T) {
 	close(results)
 
 	successes := 0
+	var failures []error
 	for r := range results {
 		if r.ok {
 			successes++
+		} else if r.err != nil {
+			failures = append(failures, r.err)
 		}
 	}
 	// At most one 700 allocation can succeed against 1000 outstanding.
@@ -123,7 +129,7 @@ func TestInvoiceAllocation_ConcurrentBounds(t *testing.T) {
 		t.Fatalf("over-allocation: %d concurrent allocations succeeded", successes)
 	}
 	if successes == 0 {
-		t.Fatal("expected at least one allocation to succeed")
+		t.Fatalf("expected at least one allocation to succeed; failures: %v", failures)
 	}
 
 	// Invariant: outstanding never negative, paid never exceeds total.
