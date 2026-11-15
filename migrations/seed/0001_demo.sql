@@ -20,16 +20,9 @@ INSERT INTO schools (tenant_id, school_name, subdomain, school_type, funding_mod
 VALUES ('demo-school', 'Demo Primary School', 'demo', 'PRIMARY', 'PRIVATE', 'ACTIVE', 'STANDARD')
 ON CONFLICT (tenant_id) DO NOTHING;
 
--- Baseline chart of accounts. Nothing can post against the ledger without it:
--- an in-kind intake debits INV_FOOD and credits FEE_RECEIVABLE, and fails with
--- "chart of accounts has no INV_FOOD account" when either is missing. The
--- codes are the ones internal/inkind looks up by name, so do not rename them.
--- Keep this list in step with the codes the backend resolves: seed_test.go
--- fails if the seed is missing one.
-INSERT INTO ledger_accounts (tenant_id, code, name, type) VALUES
-    ('demo-school', 'INV_FOOD', 'Inventory — food', 'ASSET'),
-    ('demo-school', 'FEE_RECEIVABLE', 'Fee receivable', 'ASSET')
-ON CONFLICT (tenant_id, code) DO NOTHING;
+-- The baseline chart of accounts lives in migrations/seed/0002_ledger_accounts.sql,
+-- generated from internal/ledger so the wizard and the demo seed share one
+-- definition.
 
 -- Global grade reference (Kenyan CBC 1-9 + PP1/PP2). Required by
 -- fee_structures.grade_id and class_groups.grade_id FKs; the onboarding

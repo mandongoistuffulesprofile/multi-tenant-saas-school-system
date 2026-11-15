@@ -7,24 +7,39 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/ledger"
 )
+
+const seedDir = "../../../migrations/seed"
+
+// The demo seed's chart of accounts is generated SQL, not hand-written: the
+// definition lives in internal/ledger, where the onboarding wizard also reads
+// it. This fails when the committed file is stale, so adding an account in Go
+// cannot leave the seed behind.
+func TestSeedLedgerAccountsAreGeneratedFromTheChart(t *testing.T) {
+	path := filepath.Join(seedDir, "0002_ledger_accounts.sql")
+	committed, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(committed) != ledger.SeedSQL() {
+		t.Fatalf("%s is out of date with internal/ledger.BaselineChart;\n"+
+			"regenerate it with: cd backend && go run ./cmd/genseed", path)
+	}
+}
 
 // A freshly migrated-and-seeded database must be able to post an in-kind
 // intake. That posting debits INV_FOOD and credits FEE_RECEIVABLE, and without
 // those rows the service refuses with "chart of accounts has no INV_FOOD
-// account" — which is exactly what a seed-only database did before the
-// baseline chart of accounts was added.
-//
-// The check is static so it runs without a database: it reads the seed files
-// the migrate command applies, and it derives the required codes from the
-// backend itself rather than a hand-kept list, so adding a lookup for a new
-// code fails here until the seed seeds it.
+// account". The required codes are derived from the backend and the chart, not
+// from a third hand-kept list here.
 func TestSeedSeedsEveryLedgerAccountTheBackendLooksUp(t *testing.T) {
 	seeded := seededLedgerCodes(t)
 
-	required := map[string]bool{
-		"INV_FOOD":       true,
-		"FEE_RECEIVABLE": true,
+	required := map[string]bool{}
+	for _, account := range ledger.BaselineChart {
+		required[account.Code] = true
 	}
 	for code := range lookedUpLedgerCodes(t) {
 		required[code] = true
@@ -48,7 +63,7 @@ func TestSeedSeedsEveryLedgerAccountTheBackendLooksUp(t *testing.T) {
 // seed files.
 func seededLedgerCodes(t *testing.T) map[string]bool {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join("..", "..", "..", "migrations", "seed", "*.sql"))
+	files, err := filepath.Glob(filepath.Join(seedDir, "*.sql"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no seed files found: %v", err)
 	}
@@ -58,7 +73,7 @@ func seededLedgerCodes(t *testing.T) map[string]bool {
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
-		for _, stmt := range ledgerAccountStatements(string(body)) {
+		for _, stmt := range ledgerInsert.FindAllString(string(body), -1) {
 			for _, m := range ledgerCodeValue.FindAllStringSubmatch(stmt, -1) {
 				codes[m[1]] = true
 			}
@@ -68,12 +83,11 @@ func seededLedgerCodes(t *testing.T) map[string]bool {
 }
 
 // lookedUpLedgerCodes finds the codes the backend resolves by name, e.g.
-// `AND la.code = 'INV_FOOD'`.
+// `AND la.code = 'INV_FOOD'`, in queries issued against ledger_accounts.
 func lookedUpLedgerCodes(t *testing.T) map[string]bool {
 	t.Helper()
 	codes := map[string]bool{}
-	root := filepath.Join("..", "..")
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(filepath.Join("..", ".."), func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") ||
 			strings.HasSuffix(path, "_test.go") {
 			return err
@@ -112,10 +126,6 @@ var (
 // lives.
 func goStringLiterals(body string) []string {
 	return goStringLiteral.FindAllString(body, -1)
-}
-
-func ledgerAccountStatements(sqlBody string) []string {
-	return ledgerInsert.FindAllString(sqlBody, -1)
 }
 
 func sortedKeys(set map[string]bool) []string {

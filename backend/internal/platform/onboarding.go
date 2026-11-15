@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/ledger"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
 
@@ -119,25 +120,14 @@ type ReadinessResult struct {
 	EvaluatedAt string           `json:"evaluated_at"`
 }
 
-// baselineLedgerAccounts is the smallest chart of accounts a tenant needs
-// before anything can post against the ledger: an in-kind intake debits
-// INV_FOOD and credits FEE_RECEIVABLE. Without these rows the posting is
-// refused with "chart of accounts has no INV_FOOD account", so a school
-// onboarded through the wizard could not use in-kind or the value ledger at
-// all.
-var baselineLedgerAccounts = []struct {
-	Code string
-	Name string
-	Type string
-}{
-	{"INV_FOOD", "Inventory — food", "ASSET"},
-	{"FEE_RECEIVABLE", "Fee receivable", "ASSET"},
-}
-
-// seedBaselineChartOfAccounts creates the baseline accounts for a tenant. It is
+// seedBaselineChartOfAccounts creates the baseline chart of accounts for a
+// tenant, from the one definition the demo seed is also generated from
+// (internal/ledger). Without these rows an in-kind intake is refused with
+// "chart of accounts has no INV_FOOD account", so a school onboarded through
+// the wizard could not use in-kind or the value ledger at all. It is
 // idempotent, so every setup step that can be the first one may call it.
 func seedBaselineChartOfAccounts(ctx context.Context, tx *sql.Tx, tenantID string) error {
-	for _, account := range baselineLedgerAccounts {
+	for _, account := range ledger.BaselineChart {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO ledger_accounts (tenant_id, code, name, type)
 			 VALUES ($1,$2,$3,$4)

@@ -47,6 +47,14 @@ var repairedChecksums = map[string][]string{
 	"0029_seed_plans.sql": {
 		"08e09becd1db397b858cf39126a28346116e4cf1faf0ca3d52114adfd2f97462",
 	},
+	// The demo seed's chart of accounts moved out into the generated
+	// seed/0002_ledger_accounts.sql. These are the two earlier versions of
+	// 0001_demo.sql that seeded a database: the one before the accounts were
+	// added and the one with them inline.
+	"seed/0001_demo.sql": {
+		"964785c6ba0356eb2a3b48672987df088dad9d23c19e11003ab327883118dad5",
+		"a6f04bd0cb2f053118348b8eb5eaed13c27eb37a33f0d1c27e9e60b8bb7d6bec",
+	},
 }
 
 func main() {
