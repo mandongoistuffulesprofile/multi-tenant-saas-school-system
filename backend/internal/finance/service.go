@@ -171,8 +171,10 @@ type FeeStructure struct {
 	ResidenceType    string  `json:"residence_type"`
 	CategoryCode     string  `json:"category_code,omitempty"`
 	CategoryName     string  `json:"category_name,omitempty"`
-	AmountPerTerm    float64 `json:"amount_per_term"`
-	AmountPerYear    float64 `json:"amount_per_year"`
+	// Decimals, like every other money field, so the wire value is an exact
+	// string and no amount round-trips through a float.
+	AmountPerTerm    money.Decimal `json:"amount_per_term"`
+	AmountPerYear    money.Decimal `json:"amount_per_year"`
 	Currency         string  `json:"currency"`
 	IsMandatory      bool    `json:"is_mandatory"`
 	PaymentFrequency string  `json:"payment_frequency"`

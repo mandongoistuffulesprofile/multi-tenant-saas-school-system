@@ -178,7 +178,7 @@ visible in the tenant audit log and the platform console:
 
 ## API: money and amounts
 
-**Monetary amounts in finance API responses are JSON strings holding exact decimals, not JSON numbers** (the one exception is listed at the end of this section). Parse them before doing arithmetic; do not treat them as floats.
+**Monetary amounts in finance API responses are JSON strings holding exact decimals, not JSON numbers.** Parse them before doing arithmetic; do not treat them as floats.
 
 ```json
 {
@@ -194,7 +194,7 @@ visible in the tenant audit log and the platform console:
 - This covers the finance surface: invoices and invoice lines (`unit_amount`, `line_amount`, `total_amount`, `amount_paid`, `amount_outstanding`), payments and receipts, allocations, M-Pesa events and reconciliation, and the value ledger.
 - **Client guidance:** parse with a decimal type (`decimal.js`, `big.js`, Python `Decimal`, Java `BigDecimal`) and format only for display. `Number(x)`/`parseFloat` is fine for rendering a single label, not for summing, comparing or writing back.
 - **Requests may send either form:** the decoders accept `"1250.00"` and `1250.00`. Sending the string is recommended, since it survives the round trip unchanged.
-- **Known exception:** fee structures (`GET /finance/fee-structures`) still carry `amount_per_term` and `amount_per_year` as JSON numbers (`float64`), pending conversion to `money.Decimal`. Read those two fields as numbers today; everything else above is a string.
+- **No exceptions left:** fee structures (`GET /finance/fee-structures`) send `amount_per_term` and `amount_per_year` the same way — as decimal strings.
 
 ## Architecture notes
 
