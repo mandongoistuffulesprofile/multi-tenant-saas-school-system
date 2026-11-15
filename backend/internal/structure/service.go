@@ -246,7 +246,7 @@ func (h *Handler) ListClassGroups(c *gin.Context) {
 
 	query := `
 		SELECT cg.class_group_id, cg.tenant_id, cg.year_id, ay.year_label,
-			cg.grade_id, g.grade_label, cg.stream_id, s.stream_name,
+			cg.grade_id, g.grade_label, cg.stream_id, COALESCE(s.stream_name, ''),
 			COALESCE(cg.class_teacher_id::text, ''),
 			COALESCE(NULLIF(u.email, ''), NULLIF(u.phone_number, ''), tm.role, ''),
 			(SELECT COUNT(*) FROM enrolments e
