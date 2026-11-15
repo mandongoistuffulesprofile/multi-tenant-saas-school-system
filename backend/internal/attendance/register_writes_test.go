@@ -152,6 +152,36 @@ func TestRegisterWrites(t *testing.T) {
 		return body
 	}
 
+	t.Run("listing tolerates a register nobody has marked", func(t *testing.T) {
+		tx := freshTx(t)
+		registerID := newRegister(t, tx, "MORNING")
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/attendance/registers", nil)
+		c.Set("tenant_id", tenantID)
+		c.Set("tx", tx)
+		handler.ListAttendanceRegisters(c)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+		}
+		var rows []map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &rows); err != nil {
+			t.Fatalf("decode body %q: %v", w.Body.String(), err)
+		}
+		for _, row := range rows {
+			if row["register_id"] == registerID {
+				// marked_by is omitempty, so an unmarked register has no key.
+				if marked, ok := row["marked_by"]; ok && marked != "" {
+					t.Errorf("marked_by = %v, want empty for an unmarked register", marked)
+				}
+				return
+			}
+		}
+		t.Fatalf("register %s missing from list", registerID)
+	})
+
 	t.Run("delete removes the register, its marks and records an audit row", func(t *testing.T) {
 		tx := freshTx(t)
 		registerID := newRegister(t, tx, "MORNING")

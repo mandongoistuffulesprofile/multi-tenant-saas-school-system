@@ -17,14 +17,17 @@ PREVIEW_LOG="$TMP/preview.log"
 DEMO_EMAIL="${DEMO_EMAIL:-admin@demo.test}"
 DEMO_PASSWORD="${DEMO_PASSWORD:-ShuleYetu2026!Demo}"
 DEMO_TENANT="${DEMO_TENANT:-demo-school}"
+DEMO_GUARDIAN_PHONE="${DEMO_GUARDIAN_PHONE:-254700000003}"
+PLATFORM_TENANT="${PLATFORM_TENANT:-platform-ops}"
 API_PORT="${API_PORT:-8080}"
 PREVIEW_PORT="${PREVIEW_PORT:-4173}"
 PUPPETEER_ROOT="${PUPPETEER_ROOT:-$TMP/shots}"
 SHOT_DIR="$TMP/screenshots"
 
-# Public pages plus the admin surfaces that touch the most endpoints: money,
-# people, attendance, curriculum and the gate console.
-CAPTURE_ONLY="${CAPTURE_ONLY:-^/login$|^/forgot-password$|^/dashboard$|^/learners$|^/staff$|^/attendance$|^/calendar$|^/finance/invoices$|^/finance/payments$|^/finance/reconciliation$|^/reports$|^/curriculum$|^/gate/admin$}"
+# Public pages plus the admin and parent surfaces that touch the most
+# endpoints: money, people, attendance, curriculum, the gate console and every
+# parent page. The full sweep below runs the remaining routes.
+CAPTURE_ONLY="${CAPTURE_ONLY:-^/login$|^/forgot-password$|^/dashboard$|^/learners$|^/staff$|^/attendance$|^/calendar$|^/finance/invoices$|^/finance/payments$|^/finance/reconciliation$|^/reports$|^/curriculum$|^/gate/admin$|^/parent$|^/parent/fees$|^/parent/attendance$|^/parent/receipts$|^/parent/progress$|^/parent/consents$|^/parent/notices$|^/parent/child$}"
 
 CHROME="${CHROME:-$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)}"
 
@@ -95,11 +98,20 @@ echo "== migrating and seeding the demo tenant"
 # with a fixed password instead of whatever devuser would generate.
 (cd "$ROOT/backend" && go run ./cmd/migrate -dir ../migrations -seed)
 
-echo "== creating $DEMO_EMAIL"
-(cd "$ROOT/backend" && \
-  DEV_EMAIL="$DEMO_EMAIL" DEV_PHONE="254700000001" DEV_ROLE="SCHOOL_ADMIN" \
-  DEV_TENANT="$DEMO_TENANT" DEV_PASSWORD="$DEMO_PASSWORD" \
-  go run ./cmd/devuser)
+echo "== creating demo personas"
+# One account per persona in routes.mjs. The parent account is linked to the
+# seeded guardian so /parent, /me/linked-learners and the fee pages have rows.
+create_user() {
+  local email=$1 phone=$2 role=$3 tenant=$4 guardian_phone=${5:-}
+  (cd "$ROOT/backend" && \
+    DEV_EMAIL="$email" DEV_PHONE="$phone" DEV_ROLE="$role" DEV_TENANT="$tenant" \
+    DEV_PASSWORD="$DEMO_PASSWORD" DEV_GUARDIAN_PHONE="$guardian_phone" \
+    go run ./cmd/devuser)
+}
+create_user "$DEMO_EMAIL" 254700000001 SCHOOL_ADMIN "$DEMO_TENANT"
+create_user "teacher@demo.test" 254700000002 TEACHER "$DEMO_TENANT"
+create_user "parent@demo.test" "$DEMO_GUARDIAN_PHONE" PARENT "$DEMO_TENANT" "$DEMO_GUARDIAN_PHONE"
+create_user "platform@demo.test" 254700000009 SAAS_ADMIN "$PLATFORM_TENANT"
 
 echo "== building and starting the API"
 (cd "$ROOT/backend" && go build -o "$TMP/api" ./cmd/api)
@@ -160,3 +172,17 @@ node "$ROOT/scripts/ui-screenshots/capture.mjs" \
   --puppeteer-root "$PUPPETEER_ROOT"
 
 echo "== screenshots and capture-report.json are in $SHOT_DIR"
+
+# The focused capture above is the review artefact. This pass visits every
+# route in the manifest, including the teacher and platform personas, and fails
+# on a document error, an API 5xx, an uncaught page error or a blank shell.
+# It caught GET /attendance/registers scanning a NULL marked_by as a string.
+echo "== sweeping every route"
+rm -rf "$TMP/sweep"
+node "$ROOT/scripts/ui-screenshots/capture.mjs" \
+  --base-url "http://127.0.0.1:$PREVIEW_PORT" \
+  --api-url "http://127.0.0.1:$API_PORT" \
+  --out "$TMP/sweep" \
+  --sweep \
+  --chrome "$CHROME" \
+  --puppeteer-root "$PUPPETEER_ROOT"

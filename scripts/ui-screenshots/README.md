@@ -16,6 +16,9 @@ node scripts/ui-screenshots/capture.mjs
 
 # 5. When every route passed, promote over the old set:
 node scripts/ui-screenshots/capture.mjs --replace
+
+# Visit every route and fail on document/API/console faults, writing no PNGs:
+node scripts/ui-screenshots/capture.mjs --sweep --out /tmp/route-sweep
 ```
 
 ## Files
@@ -24,7 +27,7 @@ node scripts/ui-screenshots/capture.mjs --replace
 | --- | --- |
 | `routes.mjs` | The manifest: path, output filename, persona, waits, assertions. |
 | `check-routes.mjs` | Parses `App.tsx` and fails if the manifest and the router drift apart. Runs in CI (the `frontend` job), so a new or removed route fails the build until the manifest follows. |
-| `../ci/screenshot-smoke.sh` | The CI smoke run: seeds the demo tenant, serves the API and the built frontend, then captures 13 critical routes (the `screenshot-smoke` job). A non-2xx page or missing endpoint fails the build. |
+| `../ci/screenshot-smoke.sh` | The CI smoke run: seeds a complete demo school, creates admin/teacher/parent/platform personas, captures the critical admin and parent routes, then sweeps every manifest route with `--sweep`. A non-2xx page, an API 5xx or a blank shell fails the build. |
 | `capture.mjs` | Logs in per persona, captures, asserts, and promotes only after a clean run. |
 
 ## Preflight

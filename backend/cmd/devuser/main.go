@@ -109,10 +109,8 @@ func main() {
 	}
 
 	var userID string
-	err = tx.QueryRow(
-		`SELECT user_id FROM users WHERE phone_number = $1 OR email = $2 LIMIT 1`,
-		phone, email,
-	).Scan(&userID)
+	lookup, lookupArgs := credentialLookup(email, phone)
+	err = tx.QueryRow(lookup, lookupArgs...).Scan(&userID)
 	if err == sql.ErrNoRows {
 		err = tx.QueryRow(
 			`INSERT INTO users (email, phone_number, password_hash, status, email_norm)
@@ -142,15 +140,80 @@ func main() {
 		os.Exit(1)
 	}
 
+	// A parent persona is only useful once the seeded guardian row points at
+	// this user: every /parent and /me/linked-learners query resolves through
+	// guardians.user_id. Link it here rather than asking the caller to run SQL.
+	guardianPhone := os.Getenv("DEV_GUARDIAN_PHONE")
+	if guardianPhone != "" {
+		var guardianID string
+		err := tx.QueryRow(
+			`SELECT guardian_id FROM guardians
+			  WHERE tenant_id = $1 AND phone_number = $2
+			  ORDER BY created_at
+			  LIMIT 1`,
+			tenantID, guardianPhone,
+		).Scan(&guardianID)
+		if err == sql.ErrNoRows {
+			fmt.Fprintf(os.Stderr, "no guardian with phone %s in tenant %s (run migrate -seed first)\n", guardianPhone, tenantID)
+			os.Exit(1)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "find guardian: %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := tx.Exec(
+			`UPDATE guardians SET user_id = $1, updated_at = now()
+			  WHERE guardian_id = $2 AND tenant_id = $3`,
+			userID, guardianID, tenantID,
+		); err != nil {
+			fmt.Fprintf(os.Stderr, "link guardian: %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO consent_records
+			     (tenant_id, user_id, notice_id, notice_version, granted, granted_at)
+			 SELECT $1::varchar, $2::uuid, notice_id, version, true, now()
+			   FROM consent_notices
+			  WHERE notice_code = 'DATA_PROCESSING' AND is_active
+			    AND NOT EXISTS (
+			      SELECT 1 FROM consent_records cr
+			       WHERE cr.tenant_id = $1::varchar AND cr.user_id = $2::uuid
+			         AND cr.notice_id = consent_notices.notice_id
+			         AND cr.notice_version = consent_notices.version
+			    )
+			  LIMIT 1`,
+			tenantID, userID,
+		); err != nil {
+			fmt.Fprintf(os.Stderr, "seed consent record: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		fmt.Fprintf(os.Stderr, "commit: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Printf("Dev user ready: %s (%s) role=%s tenant=%s\n", email, phone, role, tenantID)
+	if guardianPhone != "" {
+		fmt.Printf("Linked guardian phone: %s\n", guardianPhone)
+	}
 	if generatedPassword != "" {
 		fmt.Printf("Generated password (shown once): %s\n", generatedPassword)
 	}
+}
+
+// credentialLookup returns the identity probe used to find an existing user.
+// The phone branch is only present when a phone was supplied: an empty
+// DEV_PHONE used to make `phone_number = '' OR email = ...` match any account
+// whose phone is NULL/empty, so successive personas overwrote one another.
+func credentialLookup(email, phone string) (string, []interface{}) {
+	if phone == "" {
+		return `SELECT user_id FROM users WHERE email = $1 LIMIT 1`,
+			[]interface{}{email}
+	}
+	return `SELECT user_id FROM users WHERE phone_number = $1 OR email = $2 LIMIT 1`,
+		[]interface{}{phone, email}
 }
 
 func env(key, fallback string) string {

@@ -116,7 +116,7 @@ jobs:
   # fails on any non-2xx page or missing endpoint the harness sees.
   screenshot-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:18-alpine
@@ -175,6 +175,7 @@ jobs:
           name: screenshot-smoke-run
           path: |
             ${{ runner.temp }}/screenshots
+            ${{ runner.temp }}/sweep
             ${{ runner.temp }}/api.log
             ${{ runner.temp }}/preview.log
             ${{ runner.temp }}/login-summary.txt

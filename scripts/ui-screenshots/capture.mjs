@@ -21,6 +21,8 @@
  *   --replace        swap the new set into --target after all checks pass
  *   --no-backup      do not copy the old PNGs to screenshots.previous/
  *   --include-skipped  also capture routes the manifest marks as skipped
+ *   --sweep          visit every route but write no PNGs; fails on the same
+ *                    document/API/console faults (use as a CI route sweep)
  *   --dry-run        print the plan without launching a browser
  *   --report-card-id / --tenant-id  skip API resolution for param routes
  */
@@ -54,6 +56,10 @@ const REPLACE = Boolean(flag("replace", false));
 const BACKUP = !flag("no-backup", false);
 const INCLUDE_SKIPPED = Boolean(flag("include-skipped", false));
 const DRY_RUN = Boolean(flag("dry-run", false));
+// A sweep visits every route and applies the same document/API/console checks,
+// but writes no PNGs. It is the CI gate for 5xx and missing-table drift; the
+// focused run still produces the review screenshots.
+const SWEEP = Boolean(flag("sweep", false));
 // Some minimal Chrome builds (chrome-headless-shell, common on CI hosts) abort a
 // beyond-viewport capture with "Target closed". --expand grows the viewport to
 // the document height and takes a plain viewport shot instead, which they do
@@ -431,12 +437,12 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
               deviceScaleFactor: 2,
             });
             await new Promise((resolve) => setTimeout(resolve, 300));
-            await page.screenshot({ path: outFile });
-          } else {
+            if (!SWEEP) await page.screenshot({ path: outFile });
+          } else if (!SWEEP) {
             await page.screenshot({ path: outFile, fullPage: true });
           }
-          const bytes = fs.statSync(outFile).size;
-          if (bytes < MIN_PNG_BYTES) {
+          const bytes = SWEEP || !fs.existsSync(outFile) ? 0 : fs.statSync(outFile).size;
+          if (!SWEEP && bytes < MIN_PNG_BYTES) {
             failures.push(`screenshot is only ${bytes} bytes`);
           }
 

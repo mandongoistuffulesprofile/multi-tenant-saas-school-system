@@ -73,7 +73,8 @@ func (h *Handler) ListAttendanceRegisters(c *gin.Context) {
 	query := `
 		SELECT register_id, tenant_id, class_group_id, grade_id, stream_id,
 			academic_year_id, term_id, register_date, session_type, status,
-			marked_by, marked_at, created_at, updated_at
+			COALESCE(marked_by::text, ''), COALESCE(marked_at::text, ''),
+			created_at, updated_at
 		 FROM attendance_registers WHERE tenant_id = $1 ORDER BY register_date DESC
 		 LIMIT $%d OFFSET $%d`
 	query = fmt.Sprintf(query, len(args)+1, len(args)+2)

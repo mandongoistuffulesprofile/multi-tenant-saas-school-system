@@ -174,9 +174,10 @@ func (h *Handler) ListBroadcasts(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	rows, err := tx.Query(
 		`SELECT broadcast_id, tenant_id, broadcast_name, channel, target_audience,
-			target_grade_ids, subject, body_text, status, scheduled_at, sent_at,
-			completed_at, total_recipients, sent_count, failed_count, created_by,
-			created_at, updated_at
+			target_grade_ids, COALESCE(subject, ''), body_text, status,
+			COALESCE(scheduled_at::text, ''), COALESCE(sent_at::text, ''),
+			COALESCE(completed_at::text, ''), total_recipients, sent_count, failed_count,
+			COALESCE(created_by::text, ''), created_at, updated_at
 		 FROM broadcasts WHERE tenant_id = $1 ORDER BY created_at DESC`,
 		tenantID,
 	)

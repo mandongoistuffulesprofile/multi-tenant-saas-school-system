@@ -22,6 +22,14 @@ two class groups, ~6 learners, an attendance register with marks, an invoice wit
 partial payment, a consent and a report card — and the smoke run includes the
 parent persona and at least `/parent`, `/parent/fees`, `/parent/attendance`.
 
+**Done 2026-11-15.** `migrations/seed/0001_demo.sql` now creates the year, term,
+two streams/classes, six learners, a closed register with six marks, a tuition
+invoice with a 5,000 partial M-Pesa payment, a parent broadcast, a consent notice
+and a published report card. `scripts/ci/screenshot-smoke.sh` creates admin,
+teacher, parent and platform users and captures the parent pages; `devuser` links
+the parent account to the seeded guardian (and no longer matches on an empty
+phone).
+
 ## B. Nothing calls every route, so 5xx and 404 classes still pass CI
 
 **Evidence.** `scripts/ci/screenshot-smoke.sh` covers 13 routes; the full manifest
@@ -36,6 +44,15 @@ personas use with plausible parameters, and fails on any 5xx (4xx is acceptable 
 from an explicit allowlist of "deliberately unauthorized" cases). This is the gate
 that would have caught `relation "teaching_assignments" does not exist` and the
 parent-portal 500s.
+
+**Done 2026-11-15.** `capture.mjs --sweep` visits every manifest route with the
+same document/API/console assertions but writes no PNGs. The smoke job runs the
+focused capture, then the sweep against the freshly seeded database. The first
+sweep caught three real 500s: `GET /attendance/registers` scanned a NULL
+`marked_by` into a string, and `GET /comms/broadcasts` and
+`GET /compliance/consent-notices` scanned other nullable columns the same way.
+Those queries now coalesce the nullable columns; the attendance case has a
+regression test.
 
 ## C. Tenant isolation — schema verified, runtime coverage thin
 

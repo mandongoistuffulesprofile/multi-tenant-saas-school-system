@@ -59,7 +59,8 @@ func (h *Handler) ListConsentNotices(c *gin.Context) {
 	}
 	rows, err := tx.Query(
 		`SELECT notice_id, notice_code, title, content_text, version, is_active,
-			requires_renewal, renewal_period_days, created_by, created_at, updated_at
+			requires_renewal, COALESCE(renewal_period_days, 0),
+			COALESCE(created_by::text, ''), created_at, updated_at
 		 FROM consent_notices WHERE is_active = TRUE ORDER BY notice_code`,
 	)
 	if err != nil {
