@@ -117,13 +117,13 @@ type Subscription struct {
 	UpdatedAt      string `json:"updated_at"`
 }
 
+// ListSubscriptions is a platform route: it answers the whole estate, not the
+// platform tenant the caller happens to be signed in as.
 func (h *Handler) ListSubscriptions(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
 	rows, err := h.q(c).Query(
 		`SELECT subscription_id, tenant_id, plan_id, status, started_at, ends_at,
 			auto_renew, created_by, created_at, updated_at
-		 FROM subscriptions WHERE tenant_id = $1`,
-		tenantID,
+		 FROM subscriptions ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -160,13 +160,12 @@ type PlatformInvoice struct {
 	UpdatedAt     string  `json:"updated_at"`
 }
 
+// Platform invoices belong to every tenant; the platform desk lists them all.
 func (h *Handler) ListPlatformInvoices(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
 	rows, err := h.q(c).Query(
 		`SELECT invoice_id, tenant_id, invoice_number, amount, currency, status,
 			issue_date, due_date, paid_at, created_by, created_at, updated_at
-		 FROM platform_invoices WHERE tenant_id = $1 ORDER BY issue_date DESC`,
-		tenantID,
+		 FROM platform_invoices ORDER BY issue_date DESC`,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -206,13 +205,11 @@ type TenantUsage struct {
 }
 
 func (h *Handler) ListTenantUsage(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
 	rows, err := h.q(c).Query(
 		`SELECT usage_id, tenant_id, period_month, active_learners, active_staff,
 			sms_sent, reports_generated, assessments_recorded, payments_processed,
 			gate_taps, storage_mb, created_at, updated_at
-		 FROM tenant_usage WHERE tenant_id = $1 ORDER BY period_month DESC`,
-		tenantID,
+		 FROM tenant_usage ORDER BY period_month DESC`,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
@@ -252,13 +249,11 @@ type Export struct {
 }
 
 func (h *Handler) ListExports(c *gin.Context) {
-	tenantID := c.GetString("tenant_id")
 	rows, err := h.q(c).Query(
 		`SELECT export_id, tenant_id, export_type, status, file_ref, file_name,
 			file_size, record_count, parameters, error_message, created_by,
 			created_at, completed_at
-		 FROM exports WHERE tenant_id = $1 ORDER BY created_at DESC`,
-		tenantID,
+		 FROM exports ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
