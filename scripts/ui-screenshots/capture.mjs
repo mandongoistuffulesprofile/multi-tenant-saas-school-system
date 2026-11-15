@@ -54,6 +54,11 @@ const REPLACE = Boolean(flag("replace", false));
 const BACKUP = !flag("no-backup", false);
 const INCLUDE_SKIPPED = Boolean(flag("include-skipped", false));
 const DRY_RUN = Boolean(flag("dry-run", false));
+// Some minimal Chrome builds (chrome-headless-shell, common on CI hosts) abort a
+// beyond-viewport capture with "Target closed". --expand grows the viewport to
+// the document height and takes a plain viewport shot instead, which they do
+// support, so a full-page image is still possible there.
+const EXPAND = Boolean(flag("expand", false));
 const REPORT_CARD_ID = flag("report-card-id", null);
 const TENANT_ID = flag("tenant-id", null);
 
@@ -416,7 +421,20 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
             failures.push(`missing expected text "${route.expectText}"`);
           }
 
-          await page.screenshot({ path: outFile, fullPage: true });
+          if (EXPAND) {
+            const height = await page.evaluate(() =>
+              Math.ceil(Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)),
+            );
+            await page.setViewport({
+              width: 1440,
+              height: Math.min(Math.max(height, 900), 12000),
+              deviceScaleFactor: 2,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            await page.screenshot({ path: outFile });
+          } else {
+            await page.screenshot({ path: outFile, fullPage: true });
+          }
           const bytes = fs.statSync(outFile).size;
           if (bytes < MIN_PNG_BYTES) {
             failures.push(`screenshot is only ${bytes} bytes`);
