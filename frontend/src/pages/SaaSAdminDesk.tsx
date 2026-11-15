@@ -98,6 +98,14 @@ export const SaaSAdminDesk: React.FC = () => {
   const [impReason, setImpReason] = useState('');
   const [impError, setImpError] = useState<string | null>(null);
   const [impBusy, setImpBusy] = useState(false);
+  // A licence change the platform refused because the school moved first. The
+  // clerk's intent is kept so it can be applied to the state the platform shows.
+  const [licenseConflict, setLicenseConflict] = useState<{
+    id: string;
+    name: string;
+    desired: 'ACTIVE' | 'SUSPENDED';
+    message: string;
+  } | null>(null);
   const navigate = useNavigate();
 
   // The registry is read in four places — first paint, the poll, after a create
@@ -197,19 +205,22 @@ export const SaaSAdminDesk: React.FC = () => {
     }
   };
 
-  const toggleLicenseStatus = async (id: string) => {
+  const applyLicenseStatus = async (
+    id: string,
+    next: 'ACTIVE' | 'SUSPENDED',
+    expected: string,
+  ) => {
     const t0 = tenants.find((t) => t.id === id);
     if (!t0) return;
-    // Backend control plane only accepts ACTIVE | SUSPENDED.
-    const next = t0.license_status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     try {
       await api.put(`/platform/tenants/${id}/status`, {
         status: next,
         // The state this clerk was looking at. If the school has moved since, the
         // platform refuses instead of quietly overwriting the other operator's
         // decision, and the reasons it gives are specific enough to show as-is.
-        expected_status: t0.license_status,
+        expected_status: expected,
       });
+      setLicenseConflict(null);
       // Show the clerk's own change at once, then re-read the registry. Another
       // operator may have changed the same school in the meantime, and their
       // write — committed after ours or not — is what the server will serve; our
@@ -223,14 +234,41 @@ export const SaaSAdminDesk: React.FC = () => {
       const status = err?.response?.status;
       const reason = err?.response?.data?.message;
       if (status === 409 && reason) {
-        // Another operator got there first. Say what happened, then take the
-        // platform's view of the school so the chip stops showing a stale state.
-        showToast(`⚠ ${reason}`);
-        await loadTenants().catch(() => { /* the toast already carries the reason */ });
+        // Another operator got there first. The platform's copy is now the only
+        // true one, so read it and keep the intent: the clerk can apply it to what
+        // the school actually is instead of hunting for the row again.
+        await loadTenants().catch(() => { /* the panel still carries the reason */ });
+        setLicenseConflict({ id, name: t0.name, desired: next, message: reason });
         return;
       }
       showToast('Imeshindikana kubadilisha hali ya shule. Jaribu tena.');
     }
+  };
+
+  const toggleLicenseStatus = (id: string) => {
+    const t0 = tenants.find((t) => t.id === id);
+    if (!t0) return;
+    // Backend control plane only accepts ACTIVE | SUSPENDED.
+    const next = t0.license_status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    setLicenseConflict(null);
+    return applyLicenseStatus(id, next, t0.license_status);
+  };
+
+  /* Retry the refused change against the state the platform now holds. */
+  const retryLicenseChange = async () => {
+    if (!licenseConflict) return;
+    const fresh = tenants.find((t) => t.id === licenseConflict.id);
+    if (!fresh) {
+      setLicenseConflict(null);
+      return;
+    }
+    if (fresh.license_status === licenseConflict.desired) {
+      // The change the clerk wanted is already in force; nothing left to send.
+      showToast(`✓ '${fresh.name}' is already ${licenseConflict.desired}.`);
+      setLicenseConflict(null);
+      return;
+    }
+    await applyLicenseStatus(fresh.id, licenseConflict.desired, fresh.license_status);
   };
 
   /* Time-boxed impersonation: records a support session server-side.
@@ -344,6 +382,33 @@ export const SaaSAdminDesk: React.FC = () => {
       {toast && (
         <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs rounded-xl font-bold animate-in fade-in">
           {toast}
+        </div>
+      )}
+
+      {licenseConflict && (
+        <div
+          role="status"
+          className="p-3 bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-xl flex flex-wrap items-center justify-between gap-2"
+        >
+          <p>
+            <span className="font-black">{licenseConflict.name}</span> — {licenseConflict.message}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={retryLicenseChange}
+              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold cursor-pointer"
+            >
+              {licenseConflict.desired === 'SUSPENDED'
+                ? 'Jaribu tena: Simamisha (SUSPENDED)'
+                : 'Jaribu tena: Hudumia (ACTIVE)'}
+            </button>
+            <button
+              onClick={() => setLicenseConflict(null)}
+              className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 hover:border-amber-400 text-amber-900 font-bold cursor-pointer"
+            >
+              Ondoa
+            </button>
+          </div>
         </div>
       )}
 

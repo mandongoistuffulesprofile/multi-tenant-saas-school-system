@@ -508,6 +508,117 @@ describe("platform admin desk", () => {
     });
   });
 
+  it("re-applies a refused licence change to the state the platform now shows", async () => {
+    // The clerk saw GRACE_PERIOD and reinstates; another operator suspended the
+    // school first, so the platform answers 409 and the row refreshes as SUSPENDED.
+    let reads = 0;
+    harness.get.mockImplementation(async () => {
+      reads += 1;
+      return {
+        data: [
+          {
+            ...tenants[0],
+            status: reads === 1 ? "GRACE_PERIOD" : reads === 2 ? "SUSPENDED" : "ACTIVE",
+          },
+          tenants[1],
+        ],
+      };
+    });
+    harness.put.mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: { message: "Another operator changed this school to SUSPENDED. Reload and try again." },
+      },
+    });
+
+    await render();
+
+    const chip = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find((b) =>
+        (b.textContent || "").includes(label),
+      ) as HTMLButtonElement | undefined;
+
+    await act(async () => {
+      chip("Grace Period")!.click();
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    // The intent survives the refusal, with a retry against the refreshed row.
+    const retry = chip("Jaribu tena: Hudumia");
+    expect(retry).toBeDefined();
+    expect(container.textContent || "").toContain("changed this school to SUSPENDED");
+
+    await act(async () => {
+      retry!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(harness.put).toHaveBeenLastCalledWith("/platform/tenants/t-1/status", {
+      status: "ACTIVE",
+      expected_status: "SUSPENDED",
+    });
+    expect(chip("Leseni Hai")).toBeDefined();
+    // The panel goes away once the change lands.
+    expect(container.textContent || "").not.toContain("Jaribu tena:");
+  });
+
+  it("does not resend a change the platform already put in force", async () => {
+    // The school is already suspended when the clerk's suspended change is
+    // refused: the intent is satisfied, so retrying must not hit the API again.
+    let reads = 0;
+    harness.get.mockImplementation(async () => {
+      reads += 1;
+      return {
+        data: [
+          { ...tenants[0], status: reads === 1 ? "ACTIVE" : "SUSPENDED" },
+          tenants[1],
+        ],
+      };
+    });
+    harness.put.mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          message:
+            "This school is already SUSPENDED — another operator changed it before you. Reload to see the current state.",
+        },
+      },
+    });
+
+    await render();
+
+    const chip = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find((b) =>
+        (b.textContent || "").includes(label),
+      ) as HTMLButtonElement | undefined;
+
+    await act(async () => {
+      chip("Leseni Hai")!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      chip("Jaribu tena: Simamisha")!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // One attempt only, and the row already shows the outcome the clerk wanted.
+    expect(harness.put).toHaveBeenCalledTimes(1);
+    expect(container.textContent || "").toContain("already SUSPENDED");
+    expect(chip("Imesimamishwa")).toBeDefined();
+    expect(container.textContent || "").not.toContain("Jaribu tena:");
+  });
+
   it("shows why a licence change was refused when another operator got there first", async () => {
     // Another clerk suspended this school between our read and our write.
     harness.put.mockRejectedValue({
