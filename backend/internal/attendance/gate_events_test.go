@@ -56,9 +56,11 @@ func TestGateEndpointsResolveHolderNames(t *testing.T) {
 		).Scan(&guardianID); err != nil {
 			return err
 		}
+		// The gate reads staff names from users.first_name/last_name (staff_profiles
+		// holds employment data), so the name has to be on the account itself.
 		if err := tx.QueryRow(
-			`INSERT INTO users (email, phone_number, password_hash, email_norm)
-			 VALUES ($1::varchar, $2, 'x:x', $1::text) RETURNING user_id::text`,
+			`INSERT INTO users (email, phone_number, password_hash, email_norm, first_name, last_name)
+			 VALUES ($1::varchar, $2, 'x:x', $1::text, 'John', 'Kiptoo') RETURNING user_id::text`,
 			fmt.Sprintf("gate-staff-%d@example.test", suffix), fmt.Sprintf("2547%d", (suffix/3)%10000000),
 		).Scan(&staffUserID); err != nil {
 			return err
@@ -68,13 +70,6 @@ func TestGateEndpointsResolveHolderNames(t *testing.T) {
 			 VALUES ($1, $2, 'TEACHER') RETURNING membership_id`,
 			staffUserID, tenantID,
 		).Scan(&staffMembershipID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(
-			`INSERT INTO staff_profiles (membership_id, first_name, last_name)
-			 VALUES ($1, 'John', 'Kiptoo')`,
-			staffMembershipID,
-		); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(
