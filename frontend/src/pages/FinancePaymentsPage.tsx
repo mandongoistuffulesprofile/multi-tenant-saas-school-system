@@ -14,17 +14,25 @@ export default function FinancePaymentsPage() {
   const [learners, setLearners] = useState<{ id: string; label: string }[]>([]);
   const [payForm, setPayForm] = useState({ learner_id: "", amount: "", payment_method: "CASH", reference: "" });
   const [recording, setRecording] = useState(false);
+  // A 409 INVOICE_BUSY is not a failure: another clerk was mid-settlement on the
+  // same invoice. Keep the form as typed and offer the same request again.
+  const [invoiceBusy, setInvoiceBusy] = useState<string | null>(null);
 
   const learnerName = (id: string) => learners.find((l) => l.id === id)?.label || null;
 
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    await recordPayment();
+  };
+
+  const recordPayment = async () => {
     const amount = parseFloat(payForm.amount);
     if (!payForm.learner_id || !Number.isFinite(amount) || amount <= 0) {
       toast("Select a learner and enter an amount greater than zero", { type: "error" });
       return;
     }
     setRecording(true);
+    setInvoiceBusy(null);
     try {
       await api.post("/finance/payments", {
         learner_id: payForm.learner_id,
@@ -39,6 +47,17 @@ export default function FinancePaymentsPage() {
       setPayForm({ learner_id: "", amount: "", payment_method: "CASH", reference: "" });
       api.get("/finance/payments").then((r) => setPayments(Array.isArray(r.data) ? r.data : []));
     } catch (err: any) {
+      const status = err.response?.status;
+      const code = err.response?.data?.code;
+      if (status === 409 && code === "INVOICE_BUSY") {
+        // The payment was refused, not lost: nothing was committed, so repeating
+        // the same form cannot double-count. Say so and keep the dialog open.
+        setInvoiceBusy(
+          err.response?.data?.message ||
+            "Another payment is being applied to this invoice. Try again in a moment.",
+        );
+        return;
+      }
       const fe = err.response?.data?.field_errors;
       toast(fe?.[0]?.message || err.response?.data?.message || "Failed to record payment", { type: "error" });
     } finally {
@@ -152,6 +171,31 @@ export default function FinancePaymentsPage() {
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     />
                   </label>
+                  {invoiceBusy && (
+                    <div
+                      role="status"
+                      className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <p className="font-medium">{invoiceBusy}</p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => recordPayment()}
+                          disabled={recording}
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 font-bold text-white hover:bg-slate-800 disabled:opacity-60 cursor-pointer"
+                        >
+                          {recording ? "Inatuma…" : "Jaribu tena"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInvoiceBusy(null)}
+                          className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-bold text-amber-900 hover:border-amber-400 cursor-pointer"
+                        >
+                          Ondoa
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
                     <button type="button" onClick={() => setPayModal(false)} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
                     <button type="submit" className="btn-primary" disabled={recording}>
