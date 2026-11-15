@@ -47,7 +47,7 @@ func (s *Service) List(ctx context.Context, tenantID, status string, limit, offs
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	query := `SELECT id, tenant_id, msisdn, amount, reference, status, allocated_to, allocated_at, created_at
+	query := `SELECT id, tenant_id, sender_phone, amount, transaction_code, status, resolved_student_id, resolved_at, created_at
 			  FROM mpesa_holding_tank WHERE tenant_id=$1`
 	args := []interface{}{tenantID}
 	if status != "" {
@@ -62,7 +62,7 @@ func (s *Service) List(ctx context.Context, tenantID, status string, limit, offs
 		return nil, err
 	}
 	defer rows.Close()
-	var entries []HoldingEntry
+	entries := make([]HoldingEntry, 0)
 	for rows.Next() {
 		var e HoldingEntry
 		if err := rows.Scan(&e.ID, &e.TenantID, &e.MSISDN, &e.Amount, &e.Reference, &e.Status, &e.AllocatedTo, &e.AllocatedAt, &e.CreatedAt); err != nil {
@@ -81,8 +81,8 @@ func (s *Service) Resolve(ctx context.Context, tenantID, userID, entryID, studen
 	var amount float64
 	var reference string
 	err := q.QueryRow(
-		`SELECT amount, reference FROM mpesa_holding_tank
-		 WHERE tenant_id=$1 AND id=$2 AND status='UNALLOCATED'`,
+		`SELECT amount, transaction_code FROM mpesa_holding_tank
+		 WHERE tenant_id=$1 AND id=$2 AND status='UNMATCHED'`,
 		tenantID, entryID,
 	).Scan(&amount, &reference)
 	if err == sql.ErrNoRows {
@@ -93,8 +93,10 @@ func (s *Service) Resolve(ctx context.Context, tenantID, userID, entryID, studen
 	}
 
 	if _, err := q.Exec(
-		`UPDATE mpesa_holding_tank SET status='ALLOCATED', allocated_to=$1, allocated_at=NOW() WHERE tenant_id=$2 AND id=$3 AND status='UNALLOCATED'`,
-		studentID, tenantID, entryID,
+		`UPDATE mpesa_holding_tank
+		 SET status='ALLOCATED', resolved_student_id=$1, resolved_by=NULLIF($4, '')::uuid, resolved_at=NOW()
+		 WHERE tenant_id=$2 AND id=$3 AND status='UNMATCHED'`,
+		studentID, tenantID, entryID, userID,
 	); err != nil {
 		return err
 	}

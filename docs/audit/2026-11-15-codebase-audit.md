@@ -31,36 +31,38 @@ independent defect classes below.
 
 ---
 
-## P0 — Nine endpoints query a schema that does not exist
+## P0 — Nine endpoints queried a schema that did not exist (fixed)
 
-The API and the migrations have drifted. On a database built from
-`migrations/` alone these handlers fail every call, and the SPA shows an empty
-or error state as if there were no data.
+The API and the migrations had drifted. On a database built from `migrations/`
+alone these handlers failed every call, and the SPA showed an empty or error
+state as if there were no data.
 
-| Endpoint | API answer | Code | What the schema actually has |
-| --- | --- | --- | --- |
-| `GET /structure/teaching-assignments` | `pq: relation "teaching_assignments" does not exist` | `internal/structure/service.go:414`, also `internal/assessment/write.go:434` | no teaching table at all — neither `teaching_assignments` nor `teaching_allocations` exists in `migrations/` (an earlier version of this document wrongly claimed the latter existed) |
-| `GET /gate/tags`, `GET /gate/events` | `pq: column sp.first_name does not exist` | `internal/attendance/service.go:412,485` | `staff_profiles` has no name columns; names live on `users`, joined through `memberships` |
-| `GET /finance/holding-tank` | `pq: column "msisdn" does not exist` | `internal/finance/service.go` | `mpesa_holding_tank.sender_phone` |
-| `GET/POST /compliance/retention-policies` | `pq: relation "retention_policies" does not exist` | `internal/compliance/write.go:429,454` | no such table |
-| `GET/PATCH /school/finance-settings` | `pq: relation "school_finance_settings" does not exist` | `internal/school/service.go:338,369` | no such table |
-| `GET /sync/conflicts` | `pq: relation "sync_conflicts" does not exist` | `internal/sync/service.go:443,520` | no such table |
-| `GET /platform/usage` | `pq: relation "tenant_usage" does not exist` | `internal/platform/service.go:214` | no such table |
-| `GET /platform/subscriptions` | `pq: relation "subscriptions" does not exist` | `internal/platform/service.go:125` | no such table |
+| Endpoint | Was | Now |
+| --- | --- | --- |
+| `GET /structure/teaching-assignments` | no table at all | `teaching_assignments` created by 0057; `internal/assessment/write.go` opens an assessment against it too |
+| `GET /gate/tags`, `GET /gate/events` | `column sp.first_name does not exist` | queries read `users.first_name`/`last_name` (added by 0005); `staff_profiles` holds employment data, not names |
+| `GET /finance/holding-tank` | `column "msisdn" does not exist` | queries read `sender_phone`, `transaction_code`, `resolved_student_id`; 0058 adds `resolved_at` |
+| `GET/POST /compliance/retention-policies` | no table | `retention_policies` created by 0057 |
+| `GET/PUT /school/finance-settings` | no table | `school_finance_settings` created by 0057 |
+| `GET /sync/conflicts` | no table | `sync_conflicts` created by 0057 |
+| `GET /platform/usage` | no table | `tenant_usage` created by 0057 |
+| `GET /platform/subscriptions` | no table | `subscriptions` created by 0056 |
 
-**Impact.** `/grades-streams`, `/structure`, `/gate/admin`,
+Five of the nine were missing tables that existed only in `migrations/archive`;
+0057 recreates them with the archived shape and the column names the queries
+use, plus the tenant-isolation and platform-bypass policy pair every other
+tenant table has. Two were query drift rather than missing schema and are fixed
+in the handlers. The empty-list bug that made several of these screens look
+broken even after the schema landed (`null` instead of `[]`) is fixed on
+holding-tank, gate tags, platform usage and platform subscriptions.
+
+Verified on `unified_fresh`, a database created by `go run ./cmd/migrate -dir
+../migrations -seed` with nothing else applied: every endpoint answers 200, a
+written row round-trips (`POST /compliance/retention-policies` then list,
+`PUT /school/finance-settings` then read), and the screenshot harness passes on
+all nine affected screens — `/structure`, `/grades-streams`, `/gate/admin`,
 `/finance/holding-tank`, `/compliance/retention-policies`, `/integrations`,
-`/teacher/sync`, `/platform/operations` and `/platform/subscriptions` are all
-dead on a fresh install. `/platform/operations` additionally throws an uncaught
-`AxiosError` in the render path, so the platform console shows a React error
-boundary rather than a message.
-
-**Fix.** Either add the four missing tables as migrations (they are referenced
-by handlers that already exist, so the shape is defined by the queries), or
-move the handlers onto the tables that do exist — `users` joined via
-`memberships` for staff names, `sender_phone` for `msisdn` — and add a migration
-for teaching assignments, which nothing creates today. This is the single
-highest-value slice in the repo: nine screens come back at once.
+`/teacher/sync`, `/platform/operations`, `/platform/subscriptions`.
 
 ## P0 — The parent portal is broken end to end
 

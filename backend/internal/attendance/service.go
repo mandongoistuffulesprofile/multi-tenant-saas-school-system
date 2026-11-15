@@ -409,10 +409,9 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 				)
 				WHEN 'STAFF' THEN (
 					SELECT COALESCE(NULLIF(btrim(
-						COALESCE(sp.first_name, '') || ' ' || COALESCE(sp.last_name, '')), ''), u.email, tm.role)
+						COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.email, tm.role)
 					FROM tenant_memberships tm
 					JOIN users u ON u.user_id = tm.user_id
-					LEFT JOIN staff_profiles sp ON sp.membership_id = tm.membership_id
 					WHERE tm.membership_id = rt.holder_id AND tm.tenant_id = rt.tenant_id
 					LIMIT 1
 				)
@@ -431,7 +430,7 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var tags []RFIDTag
+	tags := make([]RFIDTag, 0)
 	for rows.Next() {
 		var t RFIDTag
 		if err := rows.Scan(&t.TagID, &t.TenantID, &t.TagUID, &t.HolderType, &t.HolderID,
@@ -482,10 +481,9 @@ func (h *Handler) ListGateEvents(c *gin.Context) {
 				)
 				WHEN 'STAFF' THEN (
 					SELECT COALESCE(NULLIF(btrim(
-						COALESCE(sp.first_name, '') || ' ' || COALESCE(sp.last_name, '')), ''), u.email, tm.role)
+						COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.email, tm.role)
 					FROM tenant_memberships tm
 					JOIN users u ON u.user_id = tm.user_id
-					LEFT JOIN staff_profiles sp ON sp.membership_id = tm.membership_id
 					WHERE tm.membership_id = ge.holder_id AND tm.tenant_id = ge.tenant_id
 					LIMIT 1
 				)
