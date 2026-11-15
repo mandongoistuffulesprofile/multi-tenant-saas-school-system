@@ -46,6 +46,13 @@ preflight, since it does not touch the network or the browser.
 ## What a run checks per route
 
 - document response is not 4xx/5xx, and no API call on the page returned 5xx
+- no uncaught page error was thrown (`pageerror`) and no `console.error`
+  appeared, so a page that throws during render or hydration fails the route
+  even when it still paints enough text to look healthy. Only environmental
+  noise is ignored: failed `favicon`/`apple-touch-icon` fetches and errors
+  originating from `chrome-extension://` URLs. React warnings logged through
+  `console.error` count as failures; ignored messages are still listed in the
+  report under `ignoredConsoleErrors`
 - the page is not the not-found route, which catches a route that exists in
   `App.tsx` but was dropped from the build. The harness looks for
   `NotFoundPage`'s `data-page="not-found"` element first, so the copy can be

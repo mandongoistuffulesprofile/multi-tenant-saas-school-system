@@ -225,6 +225,22 @@ async function login(email, password) {
   return { cookies, header };
 }
 
+// Console errors that are environmental rather than the page's fault. Keep
+// this narrow: anything matched here is invisible to the run, so a class of
+// real bug allowed here is a class nobody sees in CI.
+const CONSOLE_ALLOWLIST = [
+  // Chrome reports a console error for every failed favicon/icon fetch.
+  /favicon/i,
+  /apple-touch-icon/i,
+  // Errors thrown by browser extensions live in the page's console.
+  /chrome-extension:\/\//i,
+];
+
+function isIgnorableConsoleError(message, locationUrl) {
+  const haystack = `${message} ${locationUrl}`;
+  return CONSOLE_ALLOWLIST.some((pattern) => pattern.test(haystack));
+}
+
 // NotFoundPage renders data-page="not-found" on its root element. The marker
 // is deliberately independent of the copy, so translating or rewording the
 // screen cannot make a dev-only route look like a real regression. The text
@@ -314,6 +330,8 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
       const failures = [];
       const serverErrors = [];
       const pageErrors = [];
+      const consoleErrors = [];
+      const ignoredConsole = [];
       let text = "";
       let markedNotFound = false;
       let status = "ok";
@@ -322,9 +340,17 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
         if (response.status() >= 500) serverErrors.push(`${response.status()} ${response.url()}`);
       };
       const onPageError = (error) => pageErrors.push(String(error?.message ?? error));
+      const onConsole = (message) => {
+        if (message.type() !== "error") return;
+        const text = message.text();
+        const url = message.location?.()?.url ?? "";
+        if (isIgnorableConsoleError(text, url)) ignoredConsole.push(text);
+        else consoleErrors.push(`${text}${url ? ` [${url}]` : ""}`);
+      };
 
       page.on("response", onResponse);
       page.on("pageerror", onPageError);
+      page.on("console", onConsole);
       try {
         const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: DONE_EVENT_WAIT });
         if (response && response.status() >= 400) failures.push(`document HTTP ${response.status()}`);
@@ -370,6 +396,12 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
           }
           if (/something went wrong/i.test(text)) failures.push("page shows \"Something went wrong\"");
           if (serverErrors.length) failures.push(`${serverErrors.length} API 5xx response(s)`);
+          if (pageErrors.length) {
+            failures.push(`${pageErrors.length} uncaught page error(s): ${pageErrors[0].slice(0, 160)}`);
+          }
+          if (consoleErrors.length) {
+            failures.push(`${consoleErrors.length} console error(s): ${consoleErrors[0].slice(0, 160)}`);
+          }
           const minText = route.minText ?? MIN_TEXT_DEFAULT;
           if (text.trim().length < minText) failures.push(`only ${text.trim().length} chars of text (min ${minText})`);
           if (route.expectText && !text.includes(route.expectText)) {
@@ -390,6 +422,8 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
             textLength: text.trim().length,
             serverErrors,
             pageErrors,
+            consoleErrors,
+            ignoredConsoleErrors: ignoredConsole,
             failures,
             notFoundMarker: markedNotFound,
             sample: text.replace(/\s+/g, " ").trim().slice(0, 140),
@@ -410,10 +444,12 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
           failures: [String(error?.message ?? error)],
           serverErrors,
           pageErrors,
+          consoleErrors,
         });
       } finally {
         page.off("response", onResponse);
         page.off("pageerror", onPageError);
+        page.off("console", onConsole);
       }
       const label = status === "ok" ? "ok  " : status === "skipped" ? "skip" : "FAIL";
       console.log(`  ${label} ${route.file}  <- ${targetPath}${status === "skipped" ? " (dev-only route, not-found page served)" : ""}`);
