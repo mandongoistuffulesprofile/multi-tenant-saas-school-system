@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { saveAssessmentOffline, getPendingAssessments, markAssessmentsSynced } from '../services/assessmentDb';
-import { api } from '../lib/api';
 
 const CBC_LEVELS = [
   { code: 'EE', label: 'Exceeding Expectations', score: 4, color: '#16a34a' },
@@ -14,6 +13,10 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncing, setSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  // Marks are captured offline and stay on this device. The batch endpoint the
+  // original sync posted to does not exist on the API, so instead of sending
+  // them into a 404 and quietly losing them we say plainly that they are local.
+  const [syncNotice, setSyncNotice] = useState('');
 
   const refreshPendingCount = useCallback(async () => {
     try {
@@ -61,43 +64,13 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
   };
 
   const triggerSync = async () => {
-    if (syncing || !navigator.onLine) return;
-    setSyncing(true);
-
-    try {
-      // Route through the Vite proxy (/api -> http://localhost:8080).
-      // Never hardcode an absolute origin here: it breaks dev proxying and
-      // CORS in every deployment.
-      const pending = await getPendingAssessments(tenantId);
-      if (pending.length === 0) {
-        setSyncing(false);
-        return;
-      }
-
-      const res = await api.post('/assessments/cbc/bulk-sync', {
-          tenant_id: tenantId,
-          assessments: pending.map((p) => ({
-            studentId: p.studentId,
-            subStrandId: p.subStrandId,
-            score: p.score,
-            ratingCode: p.ratingCode,
-            updated_at: p.updatedAt
-          }))
-        }, {
-          headers: {
-            'X-Tenant-ID': tenantId,
-          }
-        });
-
-      if (res.ok) {
-        await markAssessmentsSynced(pending.map((p) => p.id));
-        await refreshPendingCount();
-      }
-    } catch (err) {
-      console.warn('Sync delayed, data safely stored in IndexedDB:', err);
-    } finally {
-      setSyncing(false);
-    }
+    // No network call: there is no bulk-sync route to receive these yet. The
+    // marks remain in IndexedDB, so nothing is lost by not sending them.
+    const pending = await getPendingAssessments(tenantId);
+    setSyncNotice(
+      `Online sync is not available yet. ${pending.length} change${pending.length === 1 ? '' : 's'} ` +
+        'are saved on this device and will be kept until sync is enabled.',
+    );
   };
 
   return (
@@ -123,19 +96,43 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
           </span>
           <div style={{ fontSize: '13px', marginTop: '6px' }}>
             {pendingCount > 0 ? (
-              <button 
-                onClick={triggerSync} 
-                disabled={syncing || !isOnline}
-                style={{ cursor: isOnline ? 'pointer' : 'not-allowed', padding: '4px 10px', borderRadius: '4px', border: '1px solid #d1d5db', background: '#f8fafc' }}
-              >
-                {syncing ? 'Syncing...' : `Sync ${pendingCount} Local Changes`}
-              </button>
+              <div>
+                <button
+                  type="button"
+                  onClick={triggerSync}
+                  disabled={syncing}
+                  title="Online sync is not available yet; changes stay saved on this device."
+                  style={{ cursor: 'pointer', padding: '4px 10px', borderRadius: '4px', border: '1px solid #d1d5db', background: '#f8fafc' }}
+                >
+                  {pendingCount} change{pendingCount === 1 ? '' : 's'} saved on this device
+                </button>
+                <div style={{ fontSize: '11px', color: '#b45309', marginTop: '4px' }}>
+                  Online sync not available yet
+                </div>
+              </div>
             ) : (
               <span style={{ color: '#16a34a' }}>✓ All changes saved</span>
             )}
           </div>
         </div>
       </header>
+
+      {syncNotice && (
+        <div
+          role="status"
+          style={{
+            margin: '0 0 16px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            border: '1px solid #fcd34d',
+            background: '#fffbeb',
+            color: '#92400e',
+            fontSize: '13px',
+          }}
+        >
+          {syncNotice}
+        </div>
+      )}
 
       <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e7eb' }}>
         <thead>
