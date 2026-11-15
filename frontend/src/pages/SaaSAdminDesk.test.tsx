@@ -1,5 +1,6 @@
 import React, { act } from "react";
 import { createRoot, Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The desk normalises the platform tenant payload (tenant_id, school_name,
@@ -20,7 +21,7 @@ const tenants = [
     school_type: "PUBLIC",
     funding_mode: "CAPITATION",
     status: "ACTIVE",
-    county: "Kitui",
+    county: "Machakos",
     learners: 412,
     last_activity: "2026-11-14T09:00:00Z",
     onboarding_status: "COMPLETE",
@@ -61,7 +62,11 @@ afterEach(async () => {
 
 async function render() {
   await act(async () => {
-    root.render(<SaaSAdminDesk />);
+    root.render(
+      <MemoryRouter>
+        <SaaSAdminDesk />
+      </MemoryRouter>,
+    );
   });
   await act(async () => {
     await Promise.resolve();
@@ -89,6 +94,42 @@ describe("platform admin desk", () => {
     // Status drives the licence chip.
     expect(text).toContain("Leseni Hai");
     expect(text).toContain("Imesimamishwa");
+
+    // County is shown from the registry payload rather than left blank.
+    expect(text).toContain("Machakos");
+
+    // Each row offers the setup wizard, which owns the details this table and
+    // the create form cannot write themselves.
+    const setupLinks = Array.from(container.querySelectorAll("a")).map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(setupLinks).toContain("/platform/tenants/t-1/setup");
+    expect(setupLinks).toContain("/platform/tenants/t-2/setup");
+  });
+
+  it("no longer asks for details only the setup wizard can store", async () => {
+    await render();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    const modal = container.querySelector("form")!;
+    expect(modal).not.toBeNull();
+
+    // MoE number, sub-county and paybill had no column behind CreateTenant, so
+    // the form no longer asks for them; the setup wizard records them instead.
+    const placeholders = Array.from(modal.querySelectorAll("input")).map((i) =>
+      i.getAttribute("placeholder"),
+    );
+    expect(placeholders).not.toContain("MoE/PRI/2026/...");
+    expect(placeholders).not.toContain("Mfano: Mwingi North");
+    expect(placeholders).not.toContain("522123");
+    expect(modal.textContent || "").not.toContain("Sub-County");
+    expect(modal.textContent || "").not.toContain("Safaricom Paybill");
+
+    // The workflow is still reachable, and the form points at it.
+    expect(modal.textContent || "").toContain("Setup ya shule");
   });
 
   it("refuses to submit until the fields CreateTenant requires are filled", async () => {

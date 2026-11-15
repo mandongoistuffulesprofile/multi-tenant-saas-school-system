@@ -1,5 +1,6 @@
 import { api } from "../lib/api";
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { formatKES } from '../utils/kenyaFormatters';
 
 type WizardField = 'name' | 'slug' | 'email' | 'phone';
@@ -24,12 +25,9 @@ interface SchoolTenant {
   id: string;
   name: string;
   slug: string;
-  moe_code: string;
   county: string;
-  sub_county: string;
   category: 'PUBLIC_COMPREHENSIVE' | 'PRIVATE_ACADEMY';
   residency: 'DAY_AND_BOARDING' | 'DAY_ONLY';
-  paybill: string;
   learner_count: number;
   staff_count?: number;
   license_status: 'ACTIVE' | 'GRACE_PERIOD' | 'SUSPENDED';
@@ -76,12 +74,9 @@ export const SaaSAdminDesk: React.FC = () => {
           id: r.tenant_id,
           name: r.school_name || r.subdomain,
           slug: r.subdomain || '',
-          moe_code: '',
-          county: '',
-          sub_county: '',
+          county: r.county || '',
           category: 'PUBLIC_COMPREHENSIVE',
           residency: 'DAY_ONLY',
-          paybill: '',
           learner_count: Number(r.learners ?? r.student_count ?? 0),
           license_status: (r.status || (r.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
           term_subscription_fee: PLAN_FEE[r.plan_code] ?? 0,
@@ -98,8 +93,8 @@ export const SaaSAdminDesk: React.FC = () => {
         const rows = Array.isArray(res.data) ? res.data : [];
         setTenants(rows.map((r: any) => ({
           id: r.tenant_id, name: r.school_name || r.subdomain, slug: r.subdomain || '',
-          moe_code: '', county: '', sub_county: '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_ONLY',
-          paybill: '', learner_count: Number(r.learners ?? r.student_count ?? 0),
+          county: r.county || '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_ONLY',
+          learner_count: Number(r.learners ?? r.student_count ?? 0),
           license_status: (r.status || (r.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
           term_subscription_fee: PLAN_FEE[r.plan_code] ?? 0, contact_headteacher: '', phone_headteacher: '',
           staff_count: Number(r.staff_count ?? 0),
@@ -113,12 +108,9 @@ export const SaaSAdminDesk: React.FC = () => {
   const [wizardData, setWizardData] = useState({
     name: '',
     slug: '',
-    moe_code: '',
     county: 'Kitui',
-    sub_county: '',
     category: 'PUBLIC_COMPREHENSIVE' as const,
     residency: 'DAY_AND_BOARDING' as const,
-    paybill: '',
     admin_email: '',
     headteacher_name: '',
     headteacher_phone: '',
@@ -175,15 +167,15 @@ export const SaaSAdminDesk: React.FC = () => {
         const rows = Array.isArray(r.data) ? r.data : [];
         setTenants(rows.map((x: any) => ({
           id: x.tenant_id, name: x.school_name || x.subdomain, slug: x.subdomain || '',
-          moe_code: '', county: '', sub_county: '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_ONLY',
-          paybill: '', learner_count: Number(x.learners ?? x.student_count ?? 0),
+          county: x.county || '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_ONLY',
+          learner_count: Number(x.learners ?? x.student_count ?? 0),
           license_status: (x.status || (x.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
           term_subscription_fee: PLAN_FEE[x.plan_code] ?? 0, contact_headteacher: '', phone_headteacher: '',
         })));
       });
       setIsOnboardingOpen(false);
       showToast(`✓ '${created.school_name || wizardData.name}' imesajiliwa. Msimamizi: ${created.admin_email} · Password ya muda (iona mara moja): ${created.temp_password}`);
-      setWizardData({ name: '', slug: '', moe_code: '', county: 'Kitui', sub_county: '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_AND_BOARDING', paybill: '', admin_email: '', headteacher_name: '', headteacher_phone: '', term_fee: 30000 });
+      setWizardData({ name: '', slug: '', county: 'Kitui', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_AND_BOARDING', admin_email: '', headteacher_name: '', headteacher_phone: '', term_fee: 30000 });
       setErrors({});
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Usajili umeshindikana.');
@@ -306,9 +298,8 @@ export const SaaSAdminDesk: React.FC = () => {
           <thead className="bg-slate-100 text-slate-800 uppercase font-bold border-b border-slate-200 text-[11px]">
             <tr>
               <th className="p-3.5">Shule & Tovuti (Slug)</th>
-              <th className="p-3.5">Usajili wa MoE & Kaunti</th>
+              <th className="p-3.5">Kaunti (County)</th>
               <th className="p-3.5">Aina & Makazi</th>
-              <th className="p-3.5">Paybill</th>
               <th className="p-3.5">Wanafunzi</th>
               <th className="p-3.5">Leseni (License)</th>
               <th className="p-3.5 text-center">Hatua</th>
@@ -321,17 +312,13 @@ export const SaaSAdminDesk: React.FC = () => {
                   <div className="font-bold text-slate-900">{t.name}</div>
                   <div className="text-[11px] font-mono text-emerald-600">{t.slug}.eduke.co.ke</div>
                 </td>
-                <td className="p-3.5">
-                  <div className="font-mono text-slate-700 font-semibold">{t.moe_code}</div>
-                  <div className="text-[10px] text-slate-500">{t.sub_county}, {t.county}</div>
-                </td>
+                <td className="p-3.5 font-mono text-slate-700">{t.county || '—'}</td>
                 <td className="p-3.5">
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
                     {t.category === 'PUBLIC_COMPREHENSIVE' ? 'Comprehensive' : 'Private'}
                   </span>
                   <div className="text-[10px] text-slate-500 mt-0.5">{t.residency === 'DAY_AND_BOARDING' ? 'Bweni na Kutwa' : 'Kutwa Pekee'}</div>
                 </td>
-                <td className="p-3.5 font-mono font-bold text-slate-800">{t.paybill}</td>
                 <td className="p-3.5 font-mono font-semibold">{t.learner_count}</td>
                 <td className="p-3.5">
                   <button
@@ -347,7 +334,13 @@ export const SaaSAdminDesk: React.FC = () => {
                     {t.license_status === 'ACTIVE' ? '● Leseni Hai' : t.license_status === 'GRACE_PERIOD' ? '◐ Grace Period' : '✕ Imesimamishwa'}
                   </button>
                 </td>
-                <td className="p-3.5 text-center">
+                <td className="p-3.5 text-center whitespace-nowrap space-x-1">
+                  <Link
+                    to={`/platform/tenants/${encodeURIComponent(t.id)}/setup`}
+                    className="inline-block px-2.5 py-1 text-[11px] font-bold bg-white border border-slate-300 hover:border-slate-400 text-slate-800 rounded-lg"
+                  >
+                    Setup
+                  </Link>
                   <button
                     onClick={() => handleLoginAs(t)}
                     className="px-2.5 py-1 text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg cursor-pointer"
@@ -417,16 +410,6 @@ export const SaaSAdminDesk: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Nambari ya Usajili wa MoE:</label>
-                  <input
-                    value={wizardData.moe_code}
-                    onChange={(e) => setWizardData({ ...wizardData, moe_code: e.target.value })}
-                    placeholder="MoE/PRI/2026/..."
-                    className="w-full p-2 border border-slate-300 rounded-lg font-mono"
-                  />
-                </div>
-
-                <div>
                   <label className="block font-bold text-slate-700 mb-1">Kaunti (County):</label>
                   <select
                     value={wizardData.county}
@@ -439,16 +422,6 @@ export const SaaSAdminDesk: React.FC = () => {
                     <option value="Nairobi">Nairobi County</option>
                     <option value="Kiambu">Kiambu County</option>
                   </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Sub-County / Wilaya:</label>
-                  <input
-                    value={wizardData.sub_county}
-                    onChange={(e) => setWizardData({ ...wizardData, sub_county: e.target.value })}
-                    placeholder="Mfano: Mwingi North"
-                    className="w-full p-2 border border-slate-300 rounded-lg"
-                  />
                 </div>
 
                 <div>
@@ -475,14 +448,9 @@ export const SaaSAdminDesk: React.FC = () => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Safaricom Paybill / Till:</label>
-                  <input
-                    value={wizardData.paybill}
-                    onChange={(e) => setWizardData({ ...wizardData, paybill: e.target.value })}
-                    placeholder="522123"
-                    className="w-full p-2 border border-slate-300 rounded-lg font-mono font-bold"
-                  />
+                <div className="col-span-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600">
+                  Nambari za MoE/NEMIS, wilaya na M-Pesa Paybill hurekodiwa kwenye{' '}
+                  <span className="font-bold">Setup ya shule</span> baada ya kusajiliwa, si hapa.
                 </div>
 
                 <div>
