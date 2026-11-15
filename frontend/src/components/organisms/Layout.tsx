@@ -48,6 +48,7 @@ import {
 } from "../../lib/roles";
 import TopBar from "../organisms/TopBar";
 import Breadcrumb, { useBreadcrumbs } from "../organisms/Breadcrumb";
+import ImpersonationBanner from "./ImpersonationBanner";
 
 interface LayoutProps {
   children?: ReactNode;
@@ -232,7 +233,7 @@ export default function Layout({ children }: LayoutProps) {
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("app_lang") || "en"; } catch { return "en"; } });
   const [palette, setPalette] = useState<PaletteState>({ open: false, query: "" });
   const [badges, setBadges] = useState<Record<string, number | string | null>>({});
-  const [impSchool, setImpSchool] = useState<string | null>(() => { try { return localStorage.getItem("imp_school"); } catch { return null; } });
+
   const [showRecoveryHint, setShowRecoveryHint] = useState(false);
 
   useEffect(() => {
@@ -249,17 +250,6 @@ export default function Layout({ children }: LayoutProps) {
     setPalette((p) => (p.open ? { ...p, open: false } : p));
     window.scrollTo(0, 0);
   }, [location.pathname]);
-
-  /* Exit an impersonation session: restore the platform-owner tokens. */
-  const exitImpersonation = () => {
-    try {
-      sessionStorage.removeItem("imp_restore");
-      localStorage.removeItem("imp_school");
-    } catch { /* fallthrough */ }
-    setImpSchool(null);
-    clearAuth();
-    window.location.href = "/platform/operations";
-  };
 
   /* EN/SW toggle: persists and switches every translated surface. */
   const toggleLang = () => {
@@ -395,19 +385,7 @@ export default function Layout({ children }: LayoutProps) {
       )}
 
       <TopBar
-        banner={impSchool && (
-          <div className="w-full bg-slate-900 text-white text-xs px-4 py-2 flex items-center justify-between no-print">
-            <span className="font-bold tracking-wide">
-              🎭 AUDIT SESSION: viewing <b>{impSchool}</b> as school admin — every action is attributed and logged (Platform Audit)
-            </span>
-            <button
-              onClick={exitImpersonation}
-              className="px-3 py-1 rounded-md bg-white text-slate-900 font-black hover:bg-slate-100"
-            >
-              Exit Impersonation
-            </button>
-          </div>
-        )}
+        banner={<ImpersonationBanner />}
         left={
           <>
             <button
