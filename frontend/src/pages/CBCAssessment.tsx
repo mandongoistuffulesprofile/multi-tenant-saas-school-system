@@ -3,6 +3,7 @@ import { CBCRubricSelector } from '../components/CBCRubricSelector';
 import { CBCLevel, CBC_RUBRIC_CONFIG } from '../utils/kenyaFormatters';
 // @ts-ignore
 import CBCRubricAssessment from '../components/CBCRubricAssessment';
+import { useAuthStore } from '../lib/authStore';
 
 interface LearnerAssessment {
   id: string;
@@ -23,6 +24,7 @@ const INITIAL_LEARNERS: LearnerAssessment[] = [
 
 export const CBCAssessment: React.FC = () => {
   const [assessments, setAssessments] = useState<LearnerAssessment[]>(INITIAL_LEARNERS);
+  const tenantId = useAuthStore((s) => s.tenantId) || 'demo-school';
 
   const handleUpdateRubric = (id: string, newLevel: CBCLevel) => {
     setAssessments((prev) =>
@@ -91,7 +93,7 @@ export const CBCAssessment: React.FC = () => {
       {/* Offline-first CBC rubric engine (IndexedDB -> /assessments/cbc/bulk-sync).
           Mounted here so the feature lives inside the existing routed view. */}
       <CBCRubricAssessment
-        tenantId="demo"
+        tenantId={tenantId}
         subStrand={{ id: `${assessments[0]?.strand ?? 'General'}_${assessments[0]?.substrand ?? 'Competency'}`, name: `${assessments[0]?.strand ?? 'General'} — ${assessments[0]?.substrand ?? 'Living Things'}` }}
         learners={assessments.map((s) => ({
           id: s.id,
