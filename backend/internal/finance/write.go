@@ -10,6 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
@@ -911,6 +913,28 @@ func (h *Handler) STKStatus(c *gin.Context) {
 	})
 }
 
+// How long a payment waits for another transaction to finish settling the same
+// invoice before giving up. A var so tests can shorten it; the bound matters
+// because a stalled transaction would otherwise hold the clerk's request open.
+var paymentLockTimeoutMS = 3000
+
+// isLockTimeout reports whether the statement was cancelled by lock_timeout —
+// the invoice is being settled by someone else right now, which is a "try again",
+// not a database failure.
+func isLockTimeout(err error) bool {
+	// 55P03 is lock_not_available, the SQLSTATE lock_timeout raises. Both drivers
+	// in the tree can surface it, so both error types are checked.
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "55P03"
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "55P03"
+	}
+	return false
+}
+
 // RecordPayment handles the bursar's manual cash/bank receipt. The
 // idempotency key makes a double submit harmless.
 func (h *Handler) RecordPayment(c *gin.Context) {
@@ -997,6 +1021,13 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	}
 
 	// Allocate to the selected invoice, or the oldest unpaid invoice.
+	// Bound the wait for the invoice row: waiting behind a slow settlement is
+	// fine, waiting behind a stalled one is not.
+	if _, err := tx.Exec(`SELECT set_config('lock_timeout', $1, true)`,
+		fmt.Sprintf("%dms", paymentLockTimeoutMS)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 	allocationInvoice := req.InvoiceID
 	if allocationInvoice == "" {
 		// No unpaid invoice is a normal outcome; a failed lookup is not, because the
@@ -1010,6 +1041,10 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 			  ORDER BY due_date NULLS LAST, issue_date
 			  LIMIT 1 FOR UPDATE`,
 			tenantID, req.LearnerID).Scan(&allocationInvoice); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			if isLockTimeout(err) {
+				invoiceBusy(c)
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
@@ -1021,6 +1056,10 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 			`SELECT amount_outstanding::text FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
 			allocationInvoice, tenantID).Scan(&outstandingStr)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			if isLockTimeout(err) {
+				invoiceBusy(c)
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
@@ -1087,6 +1126,16 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		"payment_id":       paymentID,
 		"invoice_id":       allocationInvoice,
 		"allocated_amount": allocatedAmount,
+	})
+}
+
+// invoiceBusy tells the clerk the payment was not recorded because another
+// transaction is mid-settlement on the same invoice, so they can retry rather
+// than assume the money went through.
+func invoiceBusy(c *gin.Context) {
+	c.JSON(http.StatusConflict, gin.H{
+		"code":    "INVOICE_BUSY",
+		"message": "Another payment is being applied to this invoice. Try again in a moment.",
 	})
 }
 

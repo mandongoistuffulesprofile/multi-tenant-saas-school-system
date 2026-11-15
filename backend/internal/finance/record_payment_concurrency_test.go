@@ -251,3 +251,54 @@ func TestConcurrentPaymentsWithoutAnInvoiceBothSettleIt(t *testing.T) {
 		t.Fatalf("%d payment rows, want 2", got)
 	}
 }
+
+func TestRecordPaymentStopsWaitingForAStalledInvoice(t *testing.T) {
+	f := newPaymentFixture(t)
+
+	// Two seconds is longer than any clerk will wait, so the test shortens the
+	// bound; what matters is that the request ends at all.
+	previous := paymentLockTimeoutMS
+	paymentLockTimeoutMS = 200
+	defer func() { paymentLockTimeoutMS = previous }()
+
+	blocker, err := f.database.BeginTxx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin blocker: %v", err)
+	}
+	defer blocker.Rollback()
+	if _, err := blocker.Exec(`SELECT set_config('app.current_tenant_id', $1, true)`, f.tenantID); err != nil {
+		t.Fatalf("blocker tenant context: %v", err)
+	}
+	var locked string
+	if err := blocker.QueryRow(`SELECT invoice_id FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
+		f.invoiceID, f.tenantID).Scan(&locked); err != nil {
+		t.Fatalf("lock invoice: %v", err)
+	}
+
+	started := time.Now()
+	outcome := submitPayment(f, "", 2500)
+	elapsed := time.Since(started)
+
+	if outcome.err != nil {
+		t.Fatalf("request failed: %v", outcome.err)
+	}
+	if outcome.status != http.StatusConflict {
+		t.Fatalf("got %d, want 409: %v", outcome.status, outcome.body)
+	}
+	if code, _ := outcome.body["code"].(string); code != "INVOICE_BUSY" {
+		t.Fatalf("code is %q, want INVOICE_BUSY", code)
+	}
+	// Bounded: it gave up on the lock, it did not sit behind it.
+	if elapsed > time.Second {
+		t.Fatalf("request took %s to give up on a 200ms lock timeout", elapsed)
+	}
+
+	// Nothing was recorded, so the clerk's retry cannot double-count.
+	if got := countPayments(t, f); got != 0 {
+		t.Fatalf("%d payments recorded for a refused request", got)
+	}
+	totals := readInvoiceTotals(t, f)
+	if totals.paid != 0 || totals.allocations != 0 {
+		t.Fatalf("invoice touched by a refused request: paid %.2f, %d allocations", totals.paid, totals.allocations)
+	}
+}
