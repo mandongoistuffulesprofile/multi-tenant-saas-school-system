@@ -43,7 +43,7 @@ export default function ParentFeesPage() {
     let alive = true;
     // Persona-scoped server-side: parents receive invoices for their children.
     api
-      .get("/finance/invoices")
+      .get("/finance/parent/invoices")
       .then((r) => {
         if (!alive) return;
         const list: Invoice[] = Array.isArray(r.data) ? r.data : [];

@@ -43,7 +43,7 @@ func (h *Handler) GetLinkedLearners(c *gin.Context) {
 		       l.last_name,
 		       COALESCE(l.admission_number, '') AS admission_number,
 		       COALESCE(g.grade_label, '') AS grade_label,
-		       COALESCE(lg.relationship_type, '') AS relationship
+		       COALESCE(lg.relationship, '') AS relationship
 		  FROM guardians gd
 		  JOIN learner_guardians lg ON lg.guardian_id = gd.guardian_id
 		  JOIN learners l ON l.learner_id = lg.learner_id

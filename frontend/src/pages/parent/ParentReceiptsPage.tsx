@@ -24,7 +24,7 @@ export default function ParentReceiptsPage() {
     // Payments are persona-scoped server-side: parents see only their
     // children's receipts. payment rows carry payment_reference/source/recorded_at.
     api
-      .get("/finance/payments")
+      .get("/finance/parent/payments")
       .then((r) => {
         if (!alive) return;
         const rows = Array.isArray(r.data) ? r.data : [];

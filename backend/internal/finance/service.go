@@ -594,6 +594,95 @@ func (s *Service) ListPayments(ctx context.Context, tenantID string, limit, offs
 	return payments, nil
 }
 
+// ParentInvoices lists the invoices belonging to the learners linked to one
+// guardian user. The staff list is tenant-wide; this one is filtered by the
+// learner_guardians links, so a parent can never read another family's bill.
+func (s *Service) ParentInvoices(ctx context.Context, tenantID, userID string, limit, offset int) ([]Invoice, error) {
+	q := middleware.TxFromContext(ctx)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := q.Query(
+		`SELECT i.invoice_id, i.tenant_id, i.invoice_number, i.learner_id, i.academic_year_id,
+			COALESCE(i.term_id::text, ''), i.status, i.currency, i.total_amount, i.amount_paid, i.amount_outstanding,
+			COALESCE(i.issue_date::text, ''), COALESCE(i.due_date::text, ''), COALESCE(i.paid_at::text, ''),
+			COALESCE(i.created_by::text, ''), i.created_at, i.updated_at
+		 FROM invoices i
+		 JOIN learner_guardians lg ON lg.learner_id = i.learner_id
+		 JOIN guardians gd ON gd.guardian_id = lg.guardian_id
+		 WHERE i.tenant_id = $1 AND gd.user_id = $2 AND gd.tenant_id = $1
+		 ORDER BY i.created_at DESC
+		 LIMIT $3 OFFSET $4`,
+		tenantID, userID, limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	invoices := make([]Invoice, 0)
+	for rows.Next() {
+		var inv Invoice
+		if err := rows.Scan(
+			&inv.InvoiceID, &inv.TenantID, &inv.InvoiceNumber, &inv.LearnerID,
+			&inv.AcademicYearID, &inv.TermID, &inv.Status, &inv.Currency,
+			&inv.TotalAmount, &inv.AmountPaid, &inv.AmountOutstanding,
+			&inv.IssueDate, &inv.DueDate, &inv.PaidAt, &inv.CreatedBy,
+			&inv.CreatedAt, &inv.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		invoices = append(invoices, inv)
+	}
+	return invoices, rows.Err()
+}
+
+// ParentPayments lists completed receipts for the learners linked to one
+// guardian user.
+func (s *Service) ParentPayments(ctx context.Context, tenantID, userID string, limit, offset int) ([]Payment, error) {
+	q := middleware.TxFromContext(ctx)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := q.Query(
+		`SELECT p.payment_id, p.tenant_id, p.payment_reference, p.learner_id, p.source,
+			COALESCE(p.channel_id::text, ''), p.amount, p.currency, p.status, COALESCE(p.mpesa_trans_id, ''),
+			p.received_at, COALESCE(p.recorded_by::text, ''), COALESCE(p.idempotency_key, ''), p.created_at, p.updated_at
+		 FROM payments p
+		 JOIN learner_guardians lg ON lg.learner_id = p.learner_id
+		 JOIN guardians gd ON gd.guardian_id = lg.guardian_id
+		 WHERE p.tenant_id = $1 AND gd.user_id = $2 AND gd.tenant_id = $1
+		 ORDER BY p.received_at DESC
+		 LIMIT $3 OFFSET $4`,
+		tenantID, userID, limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	payments := make([]Payment, 0)
+	for rows.Next() {
+		var p Payment
+		if err := rows.Scan(
+			&p.PaymentID, &p.TenantID, &p.PaymentReference, &p.LearnerID,
+			&p.Source, &p.ChannelID, &p.Amount, &p.Currency, &p.Status,
+			&p.MPESATransID, &p.ReceivedAt, &p.RecordedBy, &p.IdempotencyKey,
+			&p.CreatedAt, &p.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		payments = append(payments, p)
+	}
+	return payments, rows.Err()
+}
+
 // ============ Payment Allocations (tenant-scoped) ============
 
 type PaymentAllocation struct {
@@ -1947,6 +2036,32 @@ func (h *Handler) ListPayments(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := paginationParams(c)
 	payments, err := h.service.ListPayments(c.Request.Context(), tenantID, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, payments)
+}
+
+// Parent-scoped reads: the same rows as the staff lists, filtered to the
+// learners linked to the signed-in guardian.
+func (h *Handler) ListParentInvoices(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	limit, offset := paginationParams(c)
+	invoices, err := h.service.ParentInvoices(c.Request.Context(), tenantID, userID, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, invoices)
+}
+
+func (h *Handler) ListParentPayments(c *gin.Context) {
+	tenantID := c.GetString("tenant_id")
+	userID := c.GetString("user_id")
+	limit, offset := paginationParams(c)
+	payments, err := h.service.ParentPayments(c.Request.Context(), tenantID, userID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
