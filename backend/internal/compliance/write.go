@@ -534,18 +534,24 @@ func (h *Handler) ComplianceSummary(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 
 	var learners, withConsent, pendingDSR, openBreaches int
-	_ = tx.QueryRow(
-		`SELECT COUNT(*) FROM learners WHERE tenant_id = $1 AND status = 'ACTIVE'`, tenantID).Scan(&learners)
-	_ = tx.QueryRow(
-		`SELECT COUNT(DISTINCT lg.learner_id)
+	// A failed count must not be reported as a reassuring zero.
+	count := func(query string, dst *int) bool {
+		if err := tx.QueryRow(query, tenantID).Scan(dst); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return false
+		}
+		return true
+	}
+	if !count(`SELECT COUNT(*) FROM learners WHERE tenant_id = $1 AND status = 'ACTIVE'`, &learners) ||
+		!count(`SELECT COUNT(DISTINCT lg.learner_id)
 		 FROM learner_guardians lg
 		 JOIN guardians gd ON gd.guardian_id = lg.guardian_id
 		 JOIN consent_records cr ON cr.user_id = gd.user_id AND cr.granted = true AND cr.revoked_at IS NULL
-		 WHERE gd.tenant_id = $1`, tenantID).Scan(&withConsent)
-	_ = tx.QueryRow(
-		`SELECT COUNT(*) FROM dsr_requests WHERE tenant_id = $1 AND status IN ('PENDING','IN_PROGRESS')`, tenantID).Scan(&pendingDSR)
-	_ = tx.QueryRow(
-		`SELECT COUNT(*) FROM breach_register WHERE tenant_id = $1 AND status <> 'CLOSED'`, tenantID).Scan(&openBreaches)
+		 WHERE gd.tenant_id = $1`, &withConsent) ||
+		!count(`SELECT COUNT(*) FROM dsr_requests WHERE tenant_id = $1 AND status IN ('PENDING','IN_PROGRESS')`, &pendingDSR) ||
+		!count(`SELECT COUNT(*) FROM breach_register WHERE tenant_id = $1 AND status <> 'CLOSED'`, &openBreaches) {
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"active_learners":       learners,

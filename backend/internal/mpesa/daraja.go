@@ -268,8 +268,10 @@ func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 		err := s.database.WithTenant(ctx, it.tenantID, "", func(tenantTx *db.Tx) error {
 			status, processErr := s.allocate(ctx, tenantTx.Tx, it.tenantID, it.transID, it.ref, it.amount)
 			if processErr != nil {
-				status = "FAILED"
-				_, _ = tenantTx.ExecContext(ctx, `
+				// Record the failure and its backoff in the same transaction as the
+				// attempt: a discarded error here aborts that transaction, so the
+				// retry bookkeeping is lost while the batch moves on.
+				_, recordErr := tenantTx.ExecContext(ctx, `
 					UPDATE mpesa_raw_inbox
 					SET attempts = attempts + 1,
 					    error_log = $1,
@@ -277,13 +279,19 @@ func (s *Service) ProcessInbox(ctx context.Context, limit int) (int, error) {
 					    processing_status = CASE WHEN attempts + 1 >= 10 THEN 'MANUAL_REVIEW' ELSE 'PENDING' END
 					WHERE inbox_id = $2`, processErr.Error(), it.id)
 				log.Printf("mpesa: allocation failed for %s: %v", it.transID, processErr)
-				return nil // don't fail the whole batch
+				if recordErr != nil {
+					log.Printf("mpesa: could not record failure for %s: %v", it.transID, recordErr)
+					return recordErr // don't fail the whole batch; the caller logs it
+				}
+				return nil
 			}
 
-			_, _ = tenantTx.ExecContext(ctx, `
+			if _, err := tenantTx.ExecContext(ctx, `
 				UPDATE mpesa_raw_inbox
 				SET processing_status = $1, processed_at = now(), error_log = NULL
-				WHERE inbox_id = $2`, status, it.id)
+				WHERE inbox_id = $2`, status, it.id); err != nil {
+				return err
+			}
 			return nil
 		})
 		if err != nil {
@@ -396,7 +404,7 @@ func (s *Service) allocate(ctx context.Context, tx *sqlx.Tx, tenantID, transID, 
 
 	msg := fmt.Sprintf("Payment received: KES %s (Ref %s). Thank you.", amount, transID)
 	idem := "mpesa-receipt:" + tenantID + ":" + transID
-	_, _ = tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO outbound_messages (tenant_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, idempotency_key)
 		SELECT $1, 'GUARDIAN', g.guardian_id, 'SMS',
 		       COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,'')),
@@ -415,7 +423,9 @@ func (s *Service) allocate(ctx context.Context, tx *sqlx.Tx, tenantID, transID, 
 		 LIMIT 1
 		ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
 		tenantID, msg, learnerID, idem,
-	)
+	); err != nil {
+		return "", err
+	}
 
 	return "PROCESSED", nil
 }

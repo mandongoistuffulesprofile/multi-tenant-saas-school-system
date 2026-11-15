@@ -176,12 +176,14 @@ func (s *Service) ResolveMPESAEvent(ctx context.Context, tenantID, eventID, lear
 		).Scan(&paymentID); err != nil {
 			return nil, err
 		}
-		_, _ = q.Exec(
+		if _, err := q.Exec(
 			`UPDATE mpesa_raw_inbox SET processing_status = 'PROCESSED',
 			        processed_at = COALESCE(processed_at, now()), error_log = NULL
 			  WHERE inbox_id = $1 AND tenant_id = $2`,
 			eventID, tenantID,
-		)
+		); err != nil {
+			return nil, err
+		}
 		return gin.H{"payment_id": paymentID, "already_reconciled": true}, nil
 	}
 	if err != nil {

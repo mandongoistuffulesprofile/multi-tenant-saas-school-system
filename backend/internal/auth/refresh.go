@@ -428,12 +428,15 @@ func (h *Handler) ParentActivate(c *gin.Context) {
 				VALUES ($1, $2, 'PARENT', 'ACTIVE')
 				ON CONFLICT (user_id, tenant_id) DO NOTHING`, guardianTenant, userID); err != nil {
 				// Fallback for schemas without the unique constraint yet.
-				_, _ = tx.ExecContext(c.Request.Context(), `
+				if _, err := tx.ExecContext(c.Request.Context(), `
 					INSERT INTO tenant_memberships (tenant_id, user_id, role, status)
 					SELECT $1, $2, 'PARENT', 'ACTIVE'
 					WHERE NOT EXISTS (
 						SELECT 1 FROM tenant_memberships WHERE tenant_id = $1 AND user_id = $2
-					)`, guardianTenant, userID)
+					)`, guardianTenant, userID); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to create portal membership"})
+					return
+				}
 			}
 		}
 	}

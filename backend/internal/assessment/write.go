@@ -313,14 +313,17 @@ func (h *Handler) upsertResult(tx *sqlx.Tx, tenantID, userID, role string, input
 		}
 	}
 
-	// Append-only history for every change.
-	_, _ = tx.Exec(
+	// Append-only history for every change. A result without its history row is
+	// not a result we are willing to keep.
+	if _, err := tx.Exec(
 		`INSERT INTO assessment_result_history
 		 (tenant_id, result_id, event_id, learner_id, sub_strand_id, level_code, points,
 		  raw_score, max_score, state, changed_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		tenantID, resultID, input.EventID, input.LearnerID, subStrand,
-		nullableString(input.LevelCode), points, rawScore, maxScore, targetState, nullableString(userID))
+		nullableString(input.LevelCode), points, rawScore, maxScore, targetState, nullableString(userID)); err != nil {
+		return nil, err
+	}
 
 	return gin.H{
 		"result_id":  resultID,
@@ -485,10 +488,13 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 
 	// Closing an event locks the results that were submitted.
 	if status == EventClosed {
-		_, _ = tx.Exec(
+		if _, err := tx.Exec(
 			`UPDATE assessment_results SET state = $1, server_ts = now()
 			 WHERE tenant_id = $2 AND event_id = $3 AND state IN ($4, $5)`,
-			StateLocked, tenantID, eventID, StateSubmitted, StateModerated)
+			StateLocked, tenantID, eventID, StateSubmitted, StateModerated); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"event_id": eventID, "status": status})
@@ -531,11 +537,14 @@ func (h *Handler) ReopenResult(c *gin.Context) {
 		return
 	}
 
-	_, _ = tx.Exec(
+	if _, err := tx.Exec(
 		`INSERT INTO assessment_result_history
 		 (tenant_id, result_id, event_id, learner_id, state, changed_by, change_reason)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		tenantID, resultID, eventID, learnerID, StateDraft, nullableString(userID), req.Reason)
+		tenantID, resultID, eventID, learnerID, StateDraft, nullableString(userID), req.Reason); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"result_id": resultID, "state": state})
 }

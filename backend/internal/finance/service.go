@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -865,12 +866,29 @@ func (s *Service) SuspendInvoice(ctx context.Context, tenantID, invoiceID, suspe
 // transition itself on a logging error (best-effort audit), but the write is
 // part of the same transaction so it commits or rolls back atomically.
 func logInvoiceTransition(tx *sqlx.Tx, tenantID, invoiceID, fromState, toState, event, actorID, reason string) {
-	_, _ = tx.ExecContext(context.Background(), `
+	ctx := context.Background()
+	// Best-effort inside a shared transaction needs a savepoint: without one, a
+	// failed insert aborts the caller's transaction and the invoice change it was
+	// logging fails with an error that points at the wrong statement.
+	if _, err := tx.ExecContext(ctx, `SAVEPOINT invoice_transition_log`); err != nil {
+		log.Printf("finance: could not open savepoint for invoice transition log: %v", err)
+		return
+	}
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO state_transition_logs
 			(tenant_id, entity_name, entity_id, from_state, to_state, event, actor_id, reason)
 		VALUES ($1, 'invoice', $2, $3, $4, $5, $6, $7)`,
 		tenantID, invoiceID, fromState, toState, event, actorID, reason,
-	)
+	); err != nil {
+		log.Printf("finance: could not log invoice transition %s->%s: %v", fromState, toState, err)
+		if _, rbErr := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT invoice_transition_log`); rbErr != nil {
+			log.Printf("finance: could not roll back transition-log savepoint: %v", rbErr)
+		}
+		return
+	}
+	if _, err := tx.ExecContext(ctx, `RELEASE SAVEPOINT invoice_transition_log`); err != nil {
+		log.Printf("finance: could not release transition-log savepoint: %v", err)
+	}
 }
 
 // ============ Credits (tenant-scoped) ============

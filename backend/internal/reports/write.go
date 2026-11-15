@@ -277,9 +277,12 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		generated++
 	}
 
-	_, _ = tx.Exec(
+	if _, err := tx.Exec(
 		`UPDATE report_runs SET learner_count = $1, generated_count = $2, status = 'COMPLETED', completed_at = now(), error_message = ''
-		 WHERE run_id = $3`, len(learners), generated, runID)
+		 WHERE run_id = $3`, len(learners), generated, runID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"run_id":          runID,
@@ -447,8 +450,11 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 		published++
 	}
 
-	_, _ = tx.Exec(
-		`UPDATE report_runs SET status = 'PUBLISHED' WHERE run_id = $1 AND tenant_id = $2`, runID, tenantID)
+	if _, err := tx.Exec(
+		`UPDATE report_runs SET status = 'PUBLISHED' WHERE run_id = $1 AND tenant_id = $2`, runID, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"run_id":            runID,

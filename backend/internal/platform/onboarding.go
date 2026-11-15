@@ -371,7 +371,12 @@ func (h *Handler) withTenantTx(ctx context.Context, tenantID, actor string, fn f
 		return err
 	}
 	if actor != "" {
-		_, _ = tx.ExecContext(ctx, `SELECT set_config('app.current_user_id', $1, true)`, actor)
+		// Every statement below runs inside this transaction; if the actor scope
+		// fails and is ignored, the transaction is aborted and the caller only sees
+		// a confusing failure at Commit.
+		if _, err = tx.ExecContext(ctx, `SELECT set_config('app.current_user_id', $1, true)`, actor); err != nil {
+			return err
+		}
 	}
 	if err = fn(tx); err != nil {
 		return err
@@ -659,7 +664,9 @@ func (h *Handler) applyFinance(ctx context.Context, tx *sql.Tx, tenantID string,
 		}
 	}
 	if len(req.FinanceSettings) > 0 {
-		_, _ = tx.ExecContext(ctx, `INSERT INTO school_finance_settings (tenant_id) VALUES ($1) ON CONFLICT DO NOTHING`, tenantID)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO school_finance_settings (tenant_id) VALUES ($1) ON CONFLICT DO NOTHING`, tenantID); err != nil {
+			return err
+		}
 		sets := []string{}
 		args := []any{}
 		i := 1
@@ -673,7 +680,9 @@ func (h *Handler) applyFinance(ctx context.Context, tx *sql.Tx, tenantID string,
 		}
 		if len(sets) > 0 {
 			args = append(args, tenantID)
-			_, _ = tx.ExecContext(ctx, `UPDATE school_finance_settings SET `+strings.Join(sets, ",")+` WHERE tenant_id=$`+strconv.Itoa(i), args...)
+			if _, err := tx.ExecContext(ctx, `UPDATE school_finance_settings SET `+strings.Join(sets, ",")+` WHERE tenant_id=$`+strconv.Itoa(i), args...); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -794,14 +803,18 @@ func (h *Handler) SetupSeeds(c *gin.Context) {
 			if uid == "" {
 				continue
 			}
-			_, _ = tx.ExecContext(c.Request.Context(), `INSERT INTO tenant_memberships (user_id, tenant_id, role, status) VALUES ($1,$2,'TEACHER','ACTIVE') ON CONFLICT DO NOTHING`, uid, tenantID)
+			if _, err := tx.ExecContext(c.Request.Context(), `INSERT INTO tenant_memberships (user_id, tenant_id, role, status) VALUES ($1,$2,'TEACHER','ACTIVE') ON CONFLICT DO NOTHING`, uid, tenantID); err != nil {
+				return err
+			}
 			var smid string
 			_ = tx.QueryRowContext(c.Request.Context(), `INSERT INTO staff_memberships (tenant_id, user_id, role, employment_status) VALUES ($1,$2,'TEACHER','ACTIVE') ON CONFLICT DO NOTHING RETURNING staff_membership_id`, tenantID, uid).Scan(&smid)
 			if smid == "" {
 				_ = tx.QueryRowContext(c.Request.Context(), `SELECT staff_membership_id FROM staff_memberships WHERE tenant_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 1`, tenantID, uid).Scan(&smid)
 			}
 			if smid != "" {
-				_, _ = tx.ExecContext(c.Request.Context(), `UPDATE staff_memberships SET first_name=$1, last_name=$2 WHERE staff_membership_id=$3`, strings.TrimSpace(first), strings.TrimSpace(last), smid)
+				if _, err := tx.ExecContext(c.Request.Context(), `UPDATE staff_memberships SET first_name=$1, last_name=$2 WHERE staff_membership_id=$3`, strings.TrimSpace(first), strings.TrimSpace(last), smid); err != nil {
+					return err
+				}
 			}
 		}
 		var yearID, cgID string
@@ -831,7 +844,9 @@ func (h *Handler) SetupSeeds(c *gin.Context) {
 				return err
 			}
 			if lid != "" && yearID != "" {
-				_, _ = tx.ExecContext(c.Request.Context(), `INSERT INTO enrolments (tenant_id, learner_id, year_id, class_group_id, status) VALUES ($1,$2,$3,$4,'ACTIVE') ON CONFLICT DO NOTHING`, tenantID, lid, yearID, nullableString(cgID))
+				if _, err := tx.ExecContext(c.Request.Context(), `INSERT INTO enrolments (tenant_id, learner_id, year_id, class_group_id, status) VALUES ($1,$2,$3,$4,'ACTIVE') ON CONFLICT DO NOTHING`, tenantID, lid, yearID, nullableString(cgID)); err != nil {
+					return err
+				}
 			}
 		}
 		return nil

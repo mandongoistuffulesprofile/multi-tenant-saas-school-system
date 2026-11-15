@@ -80,15 +80,19 @@ func (w *AllocationWorker) processBatch(ctx context.Context) error {
 	for _, item := range batch {
 		if err := w.allocatePayment(ctx, tx, item.ID, item.TenantID, item.TransID, item.Amount, item.BillRef); err != nil {
 			w.logger.Error("Failed to allocate payment item", "trans_id", item.TransID, "error", err)
-			_, _ = tx.ExecContext(ctx, `
+			if _, markErr := tx.ExecContext(ctx, `
 				UPDATE mpesa_inbox 
 				SET status = 'FAILED', error_message = $1, retry_count = retry_count + 1, updated_at = NOW() 
-				WHERE id = $2`, err.Error(), item.ID)
+				WHERE id = $2`, err.Error(), item.ID); markErr != nil {
+				return markErr
+			}
 		} else {
-			_, _ = tx.ExecContext(ctx, `
+			if _, markErr := tx.ExecContext(ctx, `
 				UPDATE mpesa_inbox 
 				SET status = 'PROCESSED', updated_at = NOW() 
-				WHERE id = $1`, item.ID)
+				WHERE id = $1`, item.ID); markErr != nil {
+				return markErr
+			}
 		}
 	}
 

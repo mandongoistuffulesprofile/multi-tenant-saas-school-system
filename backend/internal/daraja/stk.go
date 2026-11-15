@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -209,13 +210,16 @@ func (s *MpesaService) ProcessSTKCallback(ctx context.Context, tenantID uuid.UUI
 			if err == nil {
 				defer tx.Rollback()
 				if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_tenant_id', $1, true)", tenantID.String()); err == nil {
-					_, _ = tx.ExecContext(ctx, `
+					if _, err := tx.ExecContext(ctx, `
 						UPDATE mpesa_stk_requests
 						SET status = CASE WHEN $3 = 1032 THEN 'CANCELLED' ELSE 'FAILED' END,
 						    callback_received_at = NOW(), callback_payload = $4, updated_at = NOW()
 						WHERE tenant_id = $1 AND checkout_request_id = $2`,
-						tenantID.String(), stk.CheckoutRequestID, stk.ResultCode, body)
-					_ = tx.Commit()
+						tenantID.String(), stk.CheckoutRequestID, stk.ResultCode, body); err != nil {
+						log.Printf("daraja: could not mark STK %s failed: %v", stk.CheckoutRequestID, err)
+					} else if err := tx.Commit(); err != nil {
+						log.Printf("daraja: could not commit failed STK %s: %v", stk.CheckoutRequestID, err)
+					}
 				}
 			}
 		}
@@ -276,13 +280,16 @@ func (s *MpesaService) ProcessSTKCallback(ctx context.Context, tenantID uuid.UUI
 	if err != nil {
 		return err
 	}
-	// Best-effort: mark STK request completed.
+	// The payment row and the STK request it settles are one unit of work: if the
+	// request cannot be updated the transaction is aborted anyway, so say so.
 	if strings.TrimSpace(stk.CheckoutRequestID) != "" {
-		_, _ = tx.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			UPDATE mpesa_stk_requests
 			SET status = 'SUCCESS', callback_received_at = NOW(), callback_payload = $3, mpesa_trans_id = $4, updated_at = NOW()
 			WHERE tenant_id = $1 AND checkout_request_id = $2`,
-			tenantID.String(), stk.CheckoutRequestID, body, mpesaReceipt)
+			tenantID.String(), stk.CheckoutRequestID, body, mpesaReceipt); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return err

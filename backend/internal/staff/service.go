@@ -380,12 +380,16 @@ func (h *Handler) UpdateStaff(c *gin.Context) {
 		return
 	}
 
-	// If role changed, also update tenant_memberships
+	// If role changed, also update tenant_memberships. The two rows have to agree,
+	// so a failure here must fail the request rather than leave them divergent.
 	if req.Role != "" {
-		_, _ = tx.Exec(
+		if _, err := tx.Exec(
 			`UPDATE tenant_memberships SET role = $1 WHERE membership_id = $2 AND tenant_id = $3`,
 			req.Role, membershipID, tenantID,
-		)
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Staff updated"})

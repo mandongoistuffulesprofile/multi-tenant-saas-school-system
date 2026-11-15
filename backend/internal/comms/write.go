@@ -187,14 +187,20 @@ func (h *Handler) CreateBroadcast(c *gin.Context) {
 
 	recipients, excluded := h.expandAudience(tx, tenantID, req.Audience)
 	for _, r := range recipients {
-		_, _ = tx.Exec(
+		if _, err := tx.Exec(
 			`INSERT INTO broadcast_recipients (tenant_id, broadcast_id, recipient_type, recipient_id_ref, channel, recipient_address)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			tenantID, broadcastID, r.recipientType, r.recipientID, channel, r.address)
+			tenantID, broadcastID, r.recipientType, r.recipientID, channel, r.address); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
 	}
 
-	_, _ = tx.Exec(
-		`UPDATE broadcasts SET total_recipients = $1 WHERE broadcast_id = $2`, len(recipients), broadcastID)
+	if _, err := tx.Exec(
+		`UPDATE broadcasts SET total_recipients = $1 WHERE broadcast_id = $2`, len(recipients), broadcastID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"broadcast_id":        broadcastID,
@@ -270,8 +276,11 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 		queued++
 	}
 
-	_, _ = tx.Exec(
-		`UPDATE broadcasts SET status = 'SENT', sent_at = now(), sent_count = $1 WHERE broadcast_id = $2`, queued, broadcastID)
+	if _, err := tx.Exec(
+		`UPDATE broadcasts SET status = 'SENT', sent_at = now(), sent_count = $1 WHERE broadcast_id = $2`, queued, broadcastID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"broadcast_id": broadcastID, "queued": queued})
 }

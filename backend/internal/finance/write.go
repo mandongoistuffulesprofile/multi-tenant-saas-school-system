@@ -213,10 +213,13 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 		}
 
 		for _, l := range d.lines {
-			_, _ = tx.Exec(
+			if _, err := tx.Exec(
 				`INSERT INTO invoice_lines (tenant_id, invoice_id, category_id, description, quantity, unit_amount, line_amount, academic_year_id, term_id)
 				 VALUES ($1, $2, $3, $4, 1, $5, $5, $6, $7)`,
-				tenantID, invoiceID, l.categoryID, l.description, l.amount, req.AcademicYearID, req.TermID)
+				tenantID, invoiceID, l.categoryID, l.description, l.amount, req.AcademicYearID, req.TermID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				return
+			}
 		}
 		created++
 	}
@@ -601,9 +604,12 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 		return
 	}
 
-	_, _ = tx.Exec(
+	if _, err := tx.Exec(
 		`UPDATE mpesa_transactions SET status = 'REFUND_FLAGGED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,
-		transactionID, tenantID)
+		transactionID, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"refund_id": refundID, "transaction_id": transactionID})
 }
@@ -993,13 +999,16 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 				`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 				 VALUES ($1, $2, $3, $4, $5)`,
 				tenantID, paymentID, allocationInvoice, alloc.StringFixed(2), nullableString(userID)); err == nil {
-				_, _ = tx.Exec(
+				if _, err := tx.Exec(
 					`UPDATE invoices SET amount_paid = amount_paid + $1,
 					   amount_outstanding = amount_outstanding - $1,
 					   status = CASE WHEN amount_outstanding - $1 <= 0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
 					   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
 					   updated_at = now()
-					 WHERE invoice_id = $2 AND tenant_id = $3`, alloc.StringFixed(2), allocationInvoice, tenantID)
+					 WHERE invoice_id = $2 AND tenant_id = $3`, alloc.StringFixed(2), allocationInvoice, tenantID); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+					return
+				}
 				allocatedAmount = alloc.InexactFloat64()
 			}
 		}
@@ -1008,7 +1017,9 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	// Best-effort receipt notification to primary payer guardian (idempotent).
 	idem := "payment-receipt:" + tenantID + ":" + paymentID
 	msg := fmt.Sprintf("Payment received: KES %s (Ref %s). Thank you.", paymentAmount.StringFixed(2), reference)
-	_, _ = tx.Exec(`
+	// Best-effort notification, but inside the payment's transaction: a failure has
+	// to be reported rather than left to abort the commit with no explanation.
+	if _, err := tx.Exec(`
 		INSERT INTO outbound_messages (tenant_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, idempotency_key)
 		SELECT $1, 'GUARDIAN', g.guardian_id, 'SMS',
 		       COALESCE(NULLIF(g.phone_number,''), NULLIF(u.phone_number,'')),
@@ -1027,7 +1038,10 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		 LIMIT 1
 		ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
 		tenantID, msg, req.LearnerID, idem,
-	)
+	); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"payment_id":       paymentID,

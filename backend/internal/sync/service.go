@@ -92,7 +92,10 @@ func (h *Handler) Push(c *gin.Context) {
 				c.JSON(http.StatusForbidden, gin.H{"code": "DEVICE_TENANT_MISMATCH", "message": "Device does not belong to this tenant"})
 				return
 			}
-			_, _ = tx.Exec(`UPDATE devices SET last_seen_at = now() WHERE device_id = $1`, req.DeviceID)
+			if _, err := tx.Exec(`UPDATE devices SET last_seen_at = now() WHERE device_id = $1`, req.DeviceID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				return
+			}
 		}
 	}
 
@@ -133,9 +136,12 @@ func (h *Handler) Push(c *gin.Context) {
 		results = append(results, result)
 	}
 
-	_, _ = tx.Exec(
+	if _, err := tx.Exec(
 		`UPDATE sync_log SET items_sent = $1, conflicts = $2, status = $3, completed_at = now()
-		 WHERE sync_id = $4`, applied, conflicts, statusFor(failed), syncID)
+		 WHERE sync_id = $4`, applied, conflicts, statusFor(failed), syncID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"sync_id":   syncID,

@@ -577,12 +577,14 @@ func (s *Service) VoidIntake(ctx context.Context, tenantID, userID, logID, reaso
 		return nil, err
 	}
 
-	// Audit event
-	_, _ = tx.Exec(
+	// Audit event: a void without its audit trail is not a void we accept.
+	if _, err := tx.Exec(
 		`INSERT INTO audit_events (tenant_id, user_id, action, table_name, record_id, reason)
 		 VALUES ($1, $2, 'VOID', 'in_kind_intake_logs', $3, $4)`,
 		tenantID, nullIfEmpty(userID), logID, reason,
-	)
+	); err != nil {
+		return nil, err
+	}
 
 	l.Status = "VOIDED"
 	return &l, nil

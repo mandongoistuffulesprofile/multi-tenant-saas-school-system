@@ -751,12 +751,17 @@ func (h *Handler) resolvePendingAssistance(ctx context.Context, userID string) {
 			return
 		}
 	}
-	_, _ = tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE password_assistance_requests
 		   SET status = 'RESOLVED', resolved_at = now(),
 		       resolution_method = COALESCE(NULLIF(resolution_method, ''), 'PASSWORD_CHANGED')
-		 WHERE user_id = $1 AND status = 'PENDING'`, userID)
-	_ = tx.Commit()
+		 WHERE user_id = $1 AND status = 'PENDING'`, userID); err != nil {
+		log.Printf("auth: could not resolve password assistance for %s: %v", userID, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("auth: could not commit password assistance resolution for %s: %v", userID, err)
+	}
 }
 
 func (h *Handler) recoveryLocked(ctx context.Context, userID string) bool {
