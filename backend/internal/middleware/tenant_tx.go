@@ -17,6 +17,28 @@ const (
 	tenantStatusKeyPrefix = "tenant:status:"
 )
 
+// tenantLicenseStatus reads a school's licence status for the suspension gate.
+//
+// schools is FORCE-RLS protected and the pool has no tenant context, so the read
+// runs in its own short transaction carrying the platform role — the same
+// condition the platform routes use — rather than as the unprivileged app role,
+// which would see no row and look like "nothing to check".
+func tenantLicenseStatus(ctx context.Context, db *sqlx.DB, tenantID string) (string, error) {
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT set_config('app.current_user_role', 'SAAS_ADMIN', true)"); err != nil {
+		return "", err
+	}
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&status); err != nil {
+		return "", err
+	}
+	return status, nil
+}
+
 // TenantTxMiddleware opens a request-scoped transaction, sets the tenant
 // context for RLS, and commits on success / rolls back on error.
 // It also checks that the tenant is not suspended (cached in Redis).
@@ -37,36 +59,39 @@ func TenantTxMiddleware(db *sqlx.DB, redisClient *redis.Client) gin.HandlerFunc 
 			}
 		}
 
-		// Check tenant status (suspended tenants cannot make API calls)
+		// Suspended schools cannot make API calls.
+		//
+		// Redis is only the cache; the database holds the answer. Neither a missing
+		// cache nor a failed read may be taken for "active" — that is the one answer
+		// this gate must not invent, because everything behind it would then run for
+		// a suspended school. When the status cannot be established, the request is
+		// refused (503) instead of let through.
+		cacheKey := tenantStatusKeyPrefix + tenantID
+		var cacheErr error = redis.Nil
 		if redisClient != nil {
-			cacheKey := tenantStatusKeyPrefix + tenantID
 			status, err := redisClient.Get(c.Request.Context(), cacheKey).Result()
-			if err == nil {
-				if status == "SUSPENDED" {
-					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
-					return
-				}
-			} else if err != redis.Nil {
-				// On Redis error, fall back to DB check (fail-open for availability)
-				var dbStatus string
-				if err := db.QueryRowContext(c.Request.Context(), `SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&dbStatus); err == nil {
-					if dbStatus == "SUSPENDED" {
-						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
-						return
-					}
-					// Cache the status
-					_ = redisClient.Set(c.Request.Context(), cacheKey, dbStatus, tenantStatusCacheTTL).Err()
-				}
-			} else {
-				// Cache miss - fetch from DB and cache
-				var dbStatus string
-				if err := db.QueryRowContext(c.Request.Context(), `SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&dbStatus); err == nil {
-					if dbStatus == "SUSPENDED" {
-						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
-						return
-					}
-					_ = redisClient.Set(c.Request.Context(), cacheKey, dbStatus, tenantStatusCacheTTL).Err()
-				}
+			cacheErr = err
+			if err == nil && status == "SUSPENDED" {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+				return
+			}
+		}
+		if cacheErr != nil {
+			// Cache miss, or Redis unavailable: go to the database.
+			dbStatus, err := tenantLicenseStatus(c.Request.Context(), db, tenantID)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+					"code":    "TENANT_STATUS_UNAVAILABLE",
+					"message": "Cannot confirm the school's status right now. Try again shortly.",
+				})
+				return
+			}
+			if dbStatus == "SUSPENDED" {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+				return
+			}
+			if redisClient != nil {
+				_ = redisClient.Set(c.Request.Context(), cacheKey, dbStatus, tenantStatusCacheTTL).Err()
 			}
 		}
 
