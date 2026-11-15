@@ -121,7 +121,7 @@ export const routes = [
   { path: "/platform/audit", file: "88-saas-platform-audit.png", persona: "platform" },
   {
     path: "/platform/tenants/:tenantId/setup",
-    file: "83-saas-tenant-setup.png",
+    file: "89-saas-tenant-setup.png",
     persona: "platform",
     resolve: "first-tenant",
   },

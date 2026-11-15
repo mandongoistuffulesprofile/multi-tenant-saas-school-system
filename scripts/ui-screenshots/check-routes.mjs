@@ -37,6 +37,7 @@ const warnings = [];
 
 const manifestPaths = new Map();
 const files = new Map();
+const prefixes = new Map();
 for (const route of routes) {
   if (manifestPaths.has(route.path)) problems.push(`duplicate manifest path: ${route.path}`);
   manifestPaths.set(route.path, route);
@@ -48,6 +49,14 @@ for (const route of routes) {
       files.set(route.file, route.path);
       if (!/^\d{2}-[a-z0-9-]+\.png$/.test(route.file)) {
         problems.push(`${route.path}: filename "${route.file}" is not NN-lowercase-slug.png`);
+      }
+      // Two images sharing a prefix sort arbitrarily and make the numbering
+      // meaningless as a reading order.
+      const prefix = route.file.slice(0, 2);
+      if (prefixes.has(prefix)) {
+        problems.push(`${route.path}: prefix ${prefix} already used by ${prefixes.get(prefix)}`);
+      } else {
+        prefixes.set(prefix, route.path);
       }
     }
     if (!(route.persona in PERSONAS)) {
