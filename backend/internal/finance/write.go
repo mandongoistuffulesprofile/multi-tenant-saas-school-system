@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/money"
@@ -1028,13 +1029,21 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	// tenant has to be part of the key.
 	idempotencyKey = tenantID + ":" + idempotencyKey
 
-	// Replay protection: the same key returns the original payment.
-	var existingID string
+	// Replay protection: the same key returns the original payment, including the
+	// receipt number it was given, so the clerk can print the same receipt again.
+	var existingID, existingReceipt string
 	err := tx.QueryRow(
-		`SELECT payment_id FROM payments WHERE tenant_id = $1 AND idempotency_key = $2`,
-		tenantID, idempotencyKey).Scan(&existingID)
+		`SELECT p.payment_id, COALESCE(l.receipt_number, '')
+		   FROM payments p
+		   LEFT JOIN payment_ledger l ON l.payment_id = p.payment_id AND l.tenant_id = p.tenant_id
+		  WHERE p.tenant_id = $1 AND p.idempotency_key = $2`,
+		tenantID, idempotencyKey).Scan(&existingID, &existingReceipt)
 	if err == nil {
-		c.JSON(http.StatusOK, gin.H{"payment_id": existingID, "idempotent_replay": true})
+		c.JSON(http.StatusOK, gin.H{
+			"payment_id":        existingID,
+			"receipt_number":    existingReceipt,
+			"idempotent_replay": true,
+		})
 		return
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -1055,10 +1064,6 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		return
 	}
 
-	// No receipt number is issued here: payments has no receipt_number column,
-	// and receipt_sequences carries last_number (not a serial), so the only way
-	// to make a number durable is the payment_ledger row, which RecordPayment
-	// does not write. Issue one when that ledger write lands.
 	// Allocate to the selected invoice, or the oldest unpaid invoice.
 	// Bound the wait for the invoice row: waiting behind a slow settlement is
 	// fine, waiting behind a stalled one is not.
@@ -1141,6 +1146,34 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	// so the old NULL-invoice credit insert could only ever fail. The remainder
 	// is reported in the response and stays visible to reconciliation.
 
+	// Issue the receipt number and write the immutable ledger row in this same
+	// transaction: a payment with no receipt number cannot be reconciled, and a
+	// number without a ledger row could be issued twice.
+	receiptNumber, err := issueReceiptNumber(tx, tenantID, time.Now().Format("2006"))
+	if err != nil {
+		validation.DBError(c, err)
+		return
+	}
+	balanceAfter, err := learnerOutstanding(tx, tenantID, req.LearnerID)
+	if err != nil {
+		validation.DBError(c, err)
+		return
+	}
+	balanceBefore := balanceAfter.Add(allocatedAmount)
+	ledgerActor := userID
+	if strings.TrimSpace(ledgerActor) == "" {
+		ledgerActor = "SYSTEM"
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO payment_ledger (tenant_id, payment_id, receipt_number, student_id, invoice_id,
+			amount, balance_before, balance_after, allocated_by)
+		 VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, $6::numeric, $7::numeric, $8::numeric, $9)`,
+		tenantID, paymentID, receiptNumber, req.LearnerID, allocationInvoice,
+		paymentAmount.StringFixed(2), balanceBefore.StringFixed(2), balanceAfter.StringFixed(2), ledgerActor); err != nil {
+		validation.DBError(c, err)
+		return
+	}
+
 	// Best-effort receipt notification to primary payer guardian (idempotent).
 	idem := "payment-receipt:" + tenantID + ":" + paymentID
 	msg := fmt.Sprintf("Payment received: KES %s (Ref %s). Thank you.", paymentAmount.StringFixed(2), reference)
@@ -1172,6 +1205,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"payment_id":       paymentID,
+		"receipt_number":   receiptNumber,
 		"invoice_id":       allocationInvoice,
 		"allocated_amount": allocatedAmount.StringFixed(2),
 		"overpayment":      overpayment.StringFixed(2),
@@ -1189,6 +1223,42 @@ func invoiceBusy(c *gin.Context) {
 }
 
 // ---------- helpers ----------
+
+// issueReceiptNumber consumes the tenant's sequence for the period under a row
+// lock and returns the number it issued. receipt_sequences.last_number is the
+// only counter (there is no serial and payments has no receipt column), so this
+// and the ledger write must share the payment's transaction: a rollback gives
+// the number back, and no two payments can read the same last_number.
+func issueReceiptNumber(tx *sqlx.Tx, tenantID, period string) (string, error) {
+	if _, err := tx.Exec(
+		`INSERT INTO receipt_sequences (tenant_id, prefix, last_number, reset_frequency, current_period)
+		 VALUES ($1, 'RCP', 0, 'YEARLY', $2)
+		 ON CONFLICT (tenant_id, current_period) DO NOTHING`, tenantID, period); err != nil {
+		return "", err
+	}
+	var prefix string
+	var last int
+	if err := tx.QueryRow(
+		`UPDATE receipt_sequences
+		    SET last_number = last_number + 1, updated_at = now()
+		  WHERE tenant_id = $1 AND current_period = $2
+		  RETURNING prefix, last_number`, tenantID, period).Scan(&prefix, &last); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s-%s-%06d", prefix, period, last), nil
+}
+
+// learnerOutstanding is the sum the learner still owes across their invoices.
+func learnerOutstanding(tx *sqlx.Tx, tenantID, learnerID string) (money.Decimal, error) {
+	var raw string
+	if err := tx.QueryRow(
+		`SELECT COALESCE(SUM(amount_outstanding), 0)::text
+		   FROM invoices WHERE tenant_id = $1 AND learner_id = $2`,
+		tenantID, learnerID).Scan(&raw); err != nil {
+		return money.Zero(), err
+	}
+	return money.New(raw), nil
+}
 
 func nullableString(s string) interface{} {
 	if strings.TrimSpace(s) == "" {
