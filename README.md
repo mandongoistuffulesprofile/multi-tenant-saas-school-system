@@ -176,12 +176,32 @@ visible in the tenant audit log and the platform console:
 | `ACADEMIC_ROLLOVER_APPLIED` | A school administrator applies a year-end rollover (`apply: true` / `dry_run: false`) | `from_year_id`, `to_year_id` (also the event's record), `promoted`, `graduating`, `total_learners` |
 | `LEARNER_IMPORT_APPLIED` | A school administrator applies a learner CSV import (`dry_run: false`) | `rows_created`, `total_rows`, `duplicates`, `invalid` |
 
+## API: money and amounts
+
+**Monetary amounts in finance API responses are JSON strings holding exact decimals, not JSON numbers** (the one exception is listed at the end of this section). Parse them before doing arithmetic; do not treat them as floats.
+
+```json
+{
+  "invoice_id": "inv-1",
+  "total_amount": "123456789.12",
+  "amount_paid": "0.01",
+  "amount_outstanding": "123456789.11"
+}
+```
+
+- Amounts are `NUMERIC` in PostgreSQL and `money.Decimal` (shopspring/decimal) in Go, so no value passes through an IEEE-754 double. `"0.01"` and `"123456789.12"` round-trip exactly.
+- The quoted form is deliberate: a JSON number is a double in most clients, and `123456789.12` cannot be represented exactly there. The wire shape is pinned by `backend/internal/finance/invoice_json_test.go`.
+- This covers the finance surface: invoices and invoice lines (`unit_amount`, `line_amount`, `total_amount`, `amount_paid`, `amount_outstanding`), payments and receipts, allocations, M-Pesa events and reconciliation, and the value ledger.
+- **Client guidance:** parse with a decimal type (`decimal.js`, `big.js`, Python `Decimal`, Java `BigDecimal`) and format only for display. `Number(x)`/`parseFloat` is fine for rendering a single label, not for summing, comparing or writing back.
+- **Requests may send either form:** the decoders accept `"1250.00"` and `1250.00`. Sending the string is recommended, since it survives the round trip unchanged.
+- **Known exception:** fee structures (`GET /finance/fee-structures`) still carry `amount_per_term` and `amount_per_year` as JSON numbers (`float64`), pending conversion to `money.Decimal`. Read those two fields as numbers today; everything else above is a string.
+
 ## Architecture notes
 
 - **Tenancy:** `schools(tenant_id)` is the tenant root; `users` is global; authorization lives in `tenant_memberships`. Domain rows carry `tenant_id VARCHAR(50)`.
 - **RLS:** `migrations/0009_force_rls.sql` enables and **forces** RLS on every table with a `tenant_id`, so even the owner is subject to policies. `TenantTxMiddleware` sets `app.current_tenant_id` (and `app.current_user_role` for platform admins) transaction-locally; `0028_platform_admin_rls.sql` and `0030_rls_remaining_tables.sql` add the cross-tenant `platform_admin_bypass` policies. Handlers still keep explicit `WHERE tenant_id = $n` predicates as defence in depth. Backups must use an admin/superuser URL (`ADMIN_DATABASE_URL`) because FORCE RLS blocks `pg_dump` for the owner.
 - **Auth:** Argon2id passwords, HS256 JWTs with issuer/audience validation, refresh-token rotation persisted in `refresh_tokens`. Login also sets HttpOnly `access_token`/`refresh_token` cookies and a readable `csrf_token`; cookie-authenticated mutations require `X-CSRF-Token` (double submit). The SPA still uses bearer tokens, so cookie-only mode is a follow-up.
-- **Money:** invoice → payment → allocation model. M-Pesa C2B callbacks write to a durable inbox and a worker allocates idempotently on `(tenant_id, trans_id)`.
+- **Money:** every amount is an exact decimal, serialised as a JSON string (see [API: money and amounts](#api-money-and-amounts)). invoice → payment → allocation model. M-Pesa C2B callbacks write to a durable inbox and a worker allocates idempotently on `(tenant_id, trans_id)`.
 - **Async:** correlation outbox with `FOR UPDATE SKIP LOCKED`, attempt tracking and retry backoff; M-Pesa has its own worker.
 - **Observability:** structured JSON request logs, request IDs, `/metrics` counters, DB + Redis readiness, graceful SIGTERM shutdown.
 - **CBC:** assessment events + result history rather than overwriting rows.
