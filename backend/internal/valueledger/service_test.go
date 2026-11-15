@@ -30,6 +30,25 @@ func metricsTestDB(t *testing.T) *db.DB {
 // (so RLS hid every row) and against fee_invoices/students, tables that do not
 // exist; every error was discarded, so the dashboard always read zero. A school
 // with one learner and one unpaid invoice has to show both.
+// A failed query must come back as an error. Compute used to discard every
+// error, so a missing table, a lost connection or an aborted transaction looked
+// exactly like a school with no money — zeros on the dashboard.
+func TestComputeReportsAQueryFailure(t *testing.T) {
+	database := metricsTestDB(t)
+	svc := NewService(database)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	metrics, err := svc.Compute(ctx, "value-ledger-failure")
+	if err == nil {
+		t.Fatalf("Compute succeeded with a cancelled context: %+v", metrics)
+	}
+	if metrics != nil {
+		t.Fatalf("Compute returned metrics alongside the error: %+v", metrics)
+	}
+}
+
 func TestComputeReadsTheTenantLedger(t *testing.T) {
 	database := metricsTestDB(t)
 	tenantID := fmt.Sprintf("value-ledger-%d", time.Now().UnixNano()%1e9)
