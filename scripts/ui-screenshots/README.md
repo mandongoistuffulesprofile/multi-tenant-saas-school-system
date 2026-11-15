@@ -49,11 +49,21 @@ preflight, since it does not touch the network or the browser.
 - document response is not 4xx/5xx, and no API call on the page returned 5xx
 - no uncaught page error was thrown (`pageerror`) and no `console.error`
   appeared, so a page that throws during render or hydration fails the route
-  even when it still paints enough text to look healthy. Only environmental
-  noise is ignored: failed `favicon`/`apple-touch-icon` fetches and errors
-  originating from `chrome-extension://` URLs. React warnings logged through
-  `console.error` count as failures; ignored messages are still listed in the
-  report under `ignoredConsoleErrors`
+  even when it still paints enough text to look healthy. React warnings logged
+  through `console.error` count as failures. Three things are ignored:
+  failed `favicon`/`apple-touch-icon` fetches, errors originating from
+  `chrome-extension://` URLs, and — on `public` routes only — a `401` from the
+  signed-out session probes `/api/v1/me` and `/api/v1/auth/refresh`.
+
+  That last exception is deliberate. A signed-out page asks both endpoints who
+  is signed in, both answer `401` by design, and Chrome logs every failed fetch
+  as a console error, so without it `/login` and `/forgot-password` could never
+  pass. It is scoped by persona, path and status: the same `401` on a signed-in
+  page still fails (there it means the session broke), a `5xx` from those
+  endpoints still fails, and a `401` from any other endpoint still fails.
+  Ignored messages are recorded per route under `ignoredConsoleErrors` in
+  `capture-report.json`, so the exception list can be audited rather than
+  trusted
 - the page is not the not-found route, which catches a route that exists in
   `App.tsx` but was dropped from the build. The harness looks for
   `NotFoundPage`'s `data-page="not-found"` element first, so the copy can be

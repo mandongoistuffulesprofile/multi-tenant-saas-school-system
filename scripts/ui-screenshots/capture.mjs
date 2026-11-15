@@ -225,20 +225,28 @@ async function login(email, password) {
   return { cookies, header };
 }
 
-// Console errors that are environmental rather than the page's fault. Keep
-// this narrow: anything matched here is invisible to the run, so a class of
-// real bug allowed here is a class nobody sees in CI.
+// Requests a signed-out page makes to discover an existing session. Both answer
+// 401 by design, and Chrome logs every failed fetch as a console error, so
+// without this the login and forgot-password screens could never pass.
+const SESSION_PROBE_PATH = /\/api\/v1\/(me|auth\/refresh)(?:[?#]|$)/;
+
+// Console errors that are environmental rather than the page's fault. Keep this
+// narrow: anything matched here is invisible to the run, so a class of real bug
+// allowed here is a class nobody sees in CI.
 const CONSOLE_ALLOWLIST = [
   // Chrome reports a console error for every failed favicon/icon fetch.
-  /favicon/i,
-  /apple-touch-icon/i,
+  (text, url) => /favicon|apple-touch-icon/i.test(`${text} ${url}`),
   // Errors thrown by browser extensions live in the page's console.
-  /chrome-extension:\/\//i,
+  (text, url) => /chrome-extension:\/\//i.test(`${text} ${url}`),
+  // The signed-out session probes: 401 only, those two paths only, and only on
+  // a public route. A 401 from another endpoint, a 5xx from these, or the same
+  // 401 on a signed-in page (where it means the session broke) still fails.
+  (text, url, route) =>
+    route.persona === "public" && /\b401\b/.test(text) && SESSION_PROBE_PATH.test(url),
 ];
 
-function isIgnorableConsoleError(message, locationUrl) {
-  const haystack = `${message} ${locationUrl}`;
-  return CONSOLE_ALLOWLIST.some((pattern) => pattern.test(haystack));
+function isIgnorableConsoleError(message, locationUrl, route) {
+  return CONSOLE_ALLOWLIST.some((matches) => matches(message, locationUrl || "", route));
 }
 
 // NotFoundPage renders data-page="not-found" on its root element. The marker
@@ -344,7 +352,7 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
         if (message.type() !== "error") return;
         const text = message.text();
         const url = message.location?.()?.url ?? "";
-        if (isIgnorableConsoleError(text, url)) ignoredConsole.push(text);
+        if (isIgnorableConsoleError(text, url, route)) ignoredConsole.push(text);
         else consoleErrors.push(`${text}${url ? ` [${url}]` : ""}`);
       };
 
