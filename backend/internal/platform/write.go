@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/auth"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
@@ -132,6 +134,35 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		return
 	}
 
+	// The administrator becomes a real account in the shared users table, so a
+	// duplicate email or phone has to be reported as the conflict it is. Without
+	// this the request failed deep in the transaction with a raw unique-index
+	// error, after the school row had been written.
+	adminEmail := strings.TrimSpace(req.AdminEmail)
+	adminPhone := strings.TrimSpace(req.AdminPhone)
+	var emailTaken, phoneTaken bool
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM users WHERE email = $1::citext OR email_norm = LOWER($1::text))`,
+		adminEmail).Scan(&emailTaken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM users WHERE phone_number = $1)`,
+		adminPhone).Scan(&phoneTaken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	switch {
+	case emailTaken && phoneTaken:
+		validation.Conflict(c, "An account already uses that administrator email and phone number")
+		return
+	case emailTaken:
+		validation.Conflict(c, "An account already uses that administrator email")
+		return
+	case phoneTaken:
+		validation.Conflict(c, "An account already uses that phone number")
+		return
+	}
+
 	if _, err := tx.Exec(
 		`INSERT INTO schools (tenant_id, school_name, subdomain, school_type, funding_mode, status, license_tier, county)
 		 VALUES ($1, $2, $3, $4, $5, 'ACTIVE', $6, $7)`,
@@ -152,11 +183,24 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 	}
 
 	var userID string
+	// email_norm is what the login lookup and the unique index use, so it has to
+	// be written here rather than left NULL for an account created by the console.
 	err = tx.QueryRow(
-		`INSERT INTO users (email, phone_number, password_hash, status)
-		 VALUES ($1, $2, $3, 'ACTIVE') RETURNING user_id`,
-		nullableString(strings.ToLower(req.AdminEmail)), req.AdminPhone, hash).Scan(&userID)
+		`INSERT INTO users (email, email_norm, phone_number, password_hash, status)
+		 VALUES ($1::citext, LOWER($1::text), $2, $3, 'ACTIVE') RETURNING user_id`,
+		adminEmail, adminPhone, hash).Scan(&userID)
 	if err != nil {
+		// Two operators onboarding at the same moment can pass the check above;
+		// the unique indexes decide, and that race deserves the same answer.
+		var pgErr *pq.Error
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if strings.Contains(pgErr.Constraint, "email") {
+				validation.Conflict(c, "An account already uses that administrator email")
+			} else {
+				validation.Conflict(c, "An account already uses that phone number")
+			}
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
@@ -208,10 +252,17 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		}
 	}
 
-	_, _ = tx.Exec(
+	// created_by/updated_by are UUID columns, and the platform operator's id is
+	// carried as text, so the cast is explicit. The insert used to be unattended:
+	// lib/pq rejected the text value, the ignored error aborted the transaction
+	// and every onboarding answered 500 at Commit.
+	if _, err := tx.Exec(
 		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, created_by, updated_by)
-		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,''), NULLIF($2,''))
-		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID, adminUserID)
+		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,'')::uuid, NULLIF($2,'')::uuid)
+		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID, adminUserID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
