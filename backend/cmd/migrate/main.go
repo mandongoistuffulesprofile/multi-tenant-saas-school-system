@@ -47,6 +47,13 @@ var repairedChecksums = map[string][]string{
 	"0029_seed_plans.sql": {
 		"08e09becd1db397b858cf39126a28346116e4cf1faf0ca3d52114adfd2f97462",
 	},
+	// 0062 first shipped without the SET LOCAL that lets its backfill read
+	// tenant_memberships through forced RLS. A database that applied that
+	// version did so while staff_profiles was still empty, so there is nothing
+	// to re-backfill and adopting the corrected file is safe.
+	"0062_staff_profiles_tenant_scope.sql": {
+		"0757890ada53940a277c13564a298a352abfe9262d9896e95250a0526a45e1b3",
+	},
 	// The demo seed's chart of accounts moved out into the generated
 	// seed/0002_ledger_accounts.sql. These are the two earlier versions of
 	// 0001_demo.sql that seeded a database: the one before the accounts were

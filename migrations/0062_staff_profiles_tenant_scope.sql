@@ -13,11 +13,21 @@
 
 ALTER TABLE public.staff_profiles ADD COLUMN IF NOT EXISTS tenant_id character varying(50);
 
+-- tenant_memberships has been under forced RLS since 0060, so the role running
+-- this migration cannot read the memberships it has to copy the tenant from.
+-- The join silently matches nothing, every tenant_id stays NULL, and the
+-- NOT NULL below fails on any database that already has profiles — which is
+-- every real one. Read them through the platform-admin bypass the policies
+-- already define, for this transaction only.
+SET LOCAL app.current_user_role = 'SAAS_ADMIN';
+
 UPDATE public.staff_profiles sp
    SET tenant_id = tm.tenant_id
   FROM public.tenant_memberships tm
  WHERE tm.membership_id = sp.membership_id
    AND sp.tenant_id IS NULL;
+
+SET LOCAL app.current_user_role = DEFAULT;
 
 ALTER TABLE public.staff_profiles ALTER COLUMN tenant_id SET NOT NULL;
 
