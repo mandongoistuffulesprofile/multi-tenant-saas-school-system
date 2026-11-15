@@ -131,7 +131,7 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var subs []Subscription
+	subs := make([]Subscription, 0)
 	for rows.Next() {
 		var s Subscription
 		if err := rows.Scan(&s.SubscriptionID, &s.TenantID, &s.PlanID, &s.Status,
@@ -220,7 +220,7 @@ func (h *Handler) ListTenantUsage(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var usage []TenantUsage
+	usage := make([]TenantUsage, 0)
 	for rows.Next() {
 		var u TenantUsage
 		if err := rows.Scan(&u.UsageID, &u.TenantID, &u.PeriodMonth, &u.ActiveLearners,
