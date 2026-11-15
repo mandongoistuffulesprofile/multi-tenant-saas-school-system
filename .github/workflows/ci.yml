@@ -72,6 +72,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      # Pure Node, no dependencies: fails when a route is added to or removed
+      # from App.tsx without the screenshot manifest following, which keeps
+      # docs/ui-design/screenshots/coverable rather than silently partial.
+      - name: Screenshot manifest matches App.tsx
+        run: node scripts/ui-screenshots/check-routes.mjs
       - name: Install
         working-directory: frontend
         run: npm ci --no-audit --no-fund

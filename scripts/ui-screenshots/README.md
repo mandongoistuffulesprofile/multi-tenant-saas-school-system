@@ -23,7 +23,7 @@ node scripts/ui-screenshots/capture.mjs --replace
 | File | Purpose |
 | --- | --- |
 | `routes.mjs` | The manifest: path, output filename, persona, waits, assertions. |
-| `check-routes.mjs` | Parses `App.tsx` and fails if the manifest and the router drift apart. |
+| `check-routes.mjs` | Parses `App.tsx` and fails if the manifest and the router drift apart. Runs in CI (the `frontend` job), so a new or removed route fails the build until the manifest follows. |
 | `capture.mjs` | Logs in per persona, captures, asserts, and promotes only after a clean run. |
 
 ## Preflight
