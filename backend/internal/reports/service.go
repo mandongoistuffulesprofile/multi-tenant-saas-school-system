@@ -342,7 +342,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var cards []ReportCard
+	cards := make([]ReportCard, 0)
 	for rows.Next() {
 		var card ReportCard
 		var snapText string

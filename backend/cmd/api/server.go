@@ -714,6 +714,8 @@ func Run() error {
 		// Personas: parents/guardians pay their own linked learners' invoices
 		// and poll their own STK request status. Invoice linkage, amount
 		// ceiling and channel resolution are enforced server-side.
+		financeGroup.GET("/parent/invoices", middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian), financeHandler.ListParentInvoices)
+		financeGroup.GET("/parent/payments", middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian), financeHandler.ListParentPayments)
 		financeGroup.POST("/parent/mpesa/stk-requests", middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian), financeHandler.CreateParentMPESASTKRequest)
 		financeGroup.GET("/parent/mpesa/stk-requests/:id", middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian), financeHandler.ParentMPESASTKStatus)
 

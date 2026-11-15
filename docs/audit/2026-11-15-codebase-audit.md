@@ -64,34 +64,44 @@ all nine affected screens — `/structure`, `/grades-streams`, `/gate/admin`,
 `/finance/holding-tank`, `/compliance/retention-policies`, `/integrations`,
 `/teacher/sync`, `/platform/operations`, `/platform/subscriptions`.
 
-## P0 — The parent portal is broken end to end
+## P0 — The parent portal was broken end to end (fixed)
 
-`GET /me/linked-learners` fails on `learner_guardians.relationship_type`:
+`GET /me/linked-learners` failed on `learner_guardians.relationship_type`:
 
 ```
 pq: column lg.relationship_type does not exist (SQLSTATE 42703)
 ```
 
-`internal/auth/parent.go:53` selects `COALESCE(lg.relationship_type, '')`; the
-column is `relationship`. Same message at `internal/reports/service.go:297,575`.
-Because every parent screen waits on this call, `/parent`, `/parent/progress`,
-`/parent/child` and the child picker on every other parent page render
-"No linked children found" — an empty state, not an error, so a parent is told
-they have no children rather than that the lookup failed.
+`internal/auth/parent.go` selected `COALESCE(lg.relationship_type, '')`; the
+column is `relationship` (`0001_baseline.sql`). Because every parent screen
+waits on this call, `/parent`, `/parent/progress`, `/parent/child` and the child
+picker on every other parent page showed "No linked children found" — an empty
+state, not an error, so a parent was told they had no children rather than that
+the lookup had failed. The reference is fixed; `internal/reports` already read
+the link correctly.
 
 Two more parent faults, independent of that:
 
-- `/parent/fees` calls `GET /finance/invoices` and `/parent/receipts` calls
-  `GET /finance/payments`: staff endpoints, guarded by `RoleFinanceStaff`. A
-  parent gets **403** and then an empty list. Parent scoping exists on the
-  backend (`/finance/parent/...`, `GET /me/linked-learners`) but these pages do
-  not use it.
-- The bottom tab bar shows the raw key `parent.child` as a label (see the i18n
-  finding).
+- `/parent/fees` called `GET /finance/invoices` and `/parent/receipts` called
+  `GET /finance/payments` — staff endpoints guarded by `RoleFinanceStaff`, so a
+  parent got **403** and then an empty list. Rather than widening a staff route,
+  finance gained `GET /finance/parent/invoices` and `GET /finance/parent/payments`,
+  which join `learner_guardians` to the signed-in user (the same linkage rule the
+  parent STK endpoint enforces) and return only that guardian's children's rows.
+- The bottom tab bar showed the raw key `parent.child`. That key exists in both
+  locales now (`My Child` / `Mtoto Wangu`); the i18n slice above added it.
 
-**Fix.** Rename the column reference, point the two parent pages at their
-parent-scoped endpoints, add the missing i18n key. One migration-free slice
-that unbreaks six screens.
+`/reports/cards` also returned `null` for a guardian with no cards where the
+parent pages expect an array; it now returns `[]`.
+
+**Verified** against a guardian linked to one learner on the fresh database:
+`/me/linked-learners` returns that learner with `relationship: "MOTHER"`,
+`/finance/parent/invoices` returns their invoice (KES 20,000 outstanding) and
+`/finance/parent/payments` their receipt, the staff routes still answer the
+parent with 403, and the screenshot harness passes all ten parent routes:
+`/parent`, `/parent/fees`, `/parent/attendance`, `/parent/consents`,
+`/parent/notices`, `/parent/progress`, `/parent/receipts`, `/parent/child` plus
+the two public activation screens.
 
 ## P1 — Sixteen SPA calls hit routes that do not exist (fixed)
 
