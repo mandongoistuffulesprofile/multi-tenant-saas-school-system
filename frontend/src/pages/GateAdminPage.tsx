@@ -23,6 +23,7 @@ interface RFIDTag {
   tag_uid: string;
   holder_type: string;
   holder_id: string;
+  holder_name?: string;
   is_active: boolean;
   issued_at: string | null;
 }
@@ -565,9 +566,11 @@ export default function GateAdminPage() {
                 {tags.map((tag) => (
                   <tr key={tag.tag_id}>
                     <td className="px-3 py-3 text-sm font-mono text-gray-900">{tag.tag_uid}</td>
-                    <td className="px-3 py-3 text-sm text-gray-600">
-                      {tag.holder_type}
-                      <span className="block text-xs text-gray-400 font-mono">{tag.holder_id}</span>
+                    <td className="px-3 py-3 text-sm text-gray-900">
+                      {tag.holder_name || tag.holder_type}
+                      <span className={tag.holder_name ? "block text-xs text-gray-400" : "block text-xs text-gray-400 font-mono"}>
+                        {tag.holder_name ? tag.holder_type : tag.holder_id}
+                      </span>
                     </td>
                     <td className="px-3 py-3 text-sm text-gray-600">
                       {tag.issued_at ? new Date(tag.issued_at).toLocaleDateString() : "—"}

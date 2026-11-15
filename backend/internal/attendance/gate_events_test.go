@@ -13,13 +13,13 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 )
 
-// TestListGateEventsResolvesHolderNames covers the gate log showing a person
+// TestGateEndpointsResolveHolderNames covers the gate log and the tag list showing a person
 // rather than a fragment of a record ID. Each holder type resolves from its own
 // table: learners and guardians by their primary key, staff through the tenant
 // membership (falling back to the account email when no profile name is set).
 //
 // Needs TEST_DATABASE_URL and is skipped otherwise, like the other RLS tests.
-func TestListGateEventsResolvesHolderNames(t *testing.T) {
+func TestGateEndpointsResolveHolderNames(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL not set")
@@ -97,12 +97,26 @@ func TestListGateEventsResolvesHolderNames(t *testing.T) {
 				return err
 			}
 		}
+		for _, row := range []struct{ uid, holderType, holderID string }{
+			{"04:AA:00:01", "LEARNER", learnerID},
+			{"04:AA:00:02", "GUARDIAN", guardianID},
+			{"04:AA:00:03", "STAFF", staffMembershipID},
+		} {
+			if _, err := tx.Exec(
+				`INSERT INTO rfid_tags (tenant_id, tag_uid, holder_type, holder_id)
+				 VALUES ($1, $2, $3, $4)`,
+				tenantID, row.uid, row.holderType, row.holderID,
+			); err != nil {
+				return err
+			}
+		}
 		return nil
 	}); err != nil {
 		t.Fatalf("create fixture: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = database.WithTenant(t.Context(), tenantID, "", func(tx *db.Tx) error {
+			_, _ = tx.Exec(`DELETE FROM rfid_tags WHERE tenant_id = $1`, tenantID)
 			_, _ = tx.Exec(`DELETE FROM gate_events WHERE tenant_id = $1`, tenantID)
 			_, _ = tx.Exec(`DELETE FROM gate_devices WHERE tenant_id = $1`, tenantID)
 			_, _ = tx.Exec(`DELETE FROM staff_profiles WHERE membership_id = $1`, staffMembershipID)
@@ -148,6 +162,31 @@ func TestListGateEventsResolvesHolderNames(t *testing.T) {
 	for _, event := range events {
 		if event.HolderName != want[event.HolderType] {
 			t.Errorf("%s tap holder name = %q, want %q", event.HolderType, event.HolderName, want[event.HolderType])
+		}
+	}
+
+	// The tag list must name its holder too, so an issued badge is recognisable.
+	tagsRecorder := httptest.NewRecorder()
+	tagsCtx, _ := gin.CreateTestContext(tagsRecorder)
+	tagsCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/gate/tags", nil)
+	tagsCtx.Set("tenant_id", tenantID)
+	tagsCtx.Set("tx", tenantTx.Tx)
+
+	NewHandler(NewService(database)).ListRFIDTags(tagsCtx)
+
+	if tagsRecorder.Code != http.StatusOK {
+		t.Fatalf("tags status = %d, body = %s", tagsRecorder.Code, tagsRecorder.Body.String())
+	}
+	var tags []RFIDTag
+	if err := json.Unmarshal(tagsRecorder.Body.Bytes(), &tags); err != nil {
+		t.Fatalf("decode tags body %q: %v", tagsRecorder.Body.String(), err)
+	}
+	if len(tags) != 3 {
+		t.Fatalf("got %d tags, want 3", len(tags))
+	}
+	for _, tag := range tags {
+		if tag.HolderName != want[tag.HolderType] {
+			t.Errorf("%s tag holder name = %q, want %q", tag.HolderType, tag.HolderName, want[tag.HolderType])
 		}
 	}
 }
