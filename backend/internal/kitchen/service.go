@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
@@ -105,7 +106,9 @@ func (s *Service) q(ctx context.Context) queryer {
 
 func (s *Service) ListRecipes(ctx context.Context, tenantID string, mealType string, includeInactive bool) ([]MealRecipe, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, name, meal_type, is_active, created_by, created_at, updated_at
+	// The table column is name, and timestamps are cast so they scan into the
+	// JSON string fields instead of failing on a time.Time.
+	query := `SELECT id, tenant_id, name, meal_type, is_active, created_at::text, updated_at::text
 			  FROM meal_recipes WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	if mealType != "" {
@@ -115,7 +118,7 @@ func (s *Service) ListRecipes(ctx context.Context, tenantID string, mealType str
 	if !includeInactive {
 		query += ` AND is_active = true`
 	}
-	query += ` ORDER BY recipe_name`
+	query += ` ORDER BY name`
 
 	rows, err := q.Query(query, args...)
 	if err != nil {
@@ -126,7 +129,7 @@ func (s *Service) ListRecipes(ctx context.Context, tenantID string, mealType str
 	var recipes []MealRecipe
 	for rows.Next() {
 		var r MealRecipe
-		if err := rows.Scan(&r.ID, &r.TenantID, &r.RecipeName, &r.MealType, &r.IsActive, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.TenantID, &r.RecipeName, &r.MealType, &r.IsActive, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		recipes = append(recipes, r)
@@ -138,11 +141,12 @@ func (s *Service) CreateRecipe(ctx context.Context, tenantID, userID string, req
 	q := s.q(ctx)
 	var r MealRecipe
 	err := q.QueryRow(
-		`INSERT INTO meal_recipes (tenant_id, name, meal_type, created_by)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, tenant_id, name, meal_type, is_active, created_by, created_at, updated_at`,
-		tenantID, req.RecipeName, req.MealType, nullIfEmpty(userID),
-	).Scan(&r.ID, &r.TenantID, &r.RecipeName, &r.MealType, &r.IsActive, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
+		// meal_recipes has no created_by column; the creator is not recorded there.
+		`INSERT INTO meal_recipes (tenant_id, name, meal_type)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, tenant_id, name, meal_type, is_active, created_at::text, updated_at::text`,
+		tenantID, req.RecipeName, req.MealType,
+	).Scan(&r.ID, &r.TenantID, &r.RecipeName, &r.MealType, &r.IsActive, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
@@ -155,8 +159,8 @@ func (s *Service) CreateRecipe(ctx context.Context, tenantID, userID string, req
 
 func (s *Service) ListRequisitions(ctx context.Context, tenantID string, status string, fromDate, toDate string, limit, offset int) ([]StoreRequisition, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed,
-			  status, approved_by, approved_at, approval_reason, created_by, created_at, updated_at
+	query := `SELECT id, tenant_id, slip_number, requisition_date::text, meal_type, recipe_id, boarder_count_fed,
+			  status, approved_by, approved_at::text, approval_reason, created_by, created_at::text, updated_at::text
 			  FROM daily_store_requisitions WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	argIdx := 2
@@ -199,7 +203,9 @@ func (s *Service) ListRequisitions(ctx context.Context, tenantID string, status 
 
 func (s *Service) CreateRequisition(ctx context.Context, tenantID, userID string, req CreateRequisitionRequest) (*StoreRequisition, error) {
 	q := s.q(ctx)
-	tx, ok := q.(*sql.Tx)
+	// The request transaction is *sqlx.Tx, so asserting *sql.Tx here refused every
+	// real request with "transaction required".
+	tx, ok := q.(*sqlx.Tx)
 	if !ok {
 		return nil, errors.New("transaction required")
 	}
@@ -208,7 +214,7 @@ func (s *Service) CreateRequisition(ctx context.Context, tenantID, userID string
 	err := tx.QueryRow(
 		`INSERT INTO daily_store_requisitions (tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, 'RECONCILED', $7)
-		 RETURNING id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status, approved_by, approved_at, approval_reason, created_by, created_at, updated_at`,
+		 RETURNING id, tenant_id, slip_number, requisition_date::text, meal_type, recipe_id, boarder_count_fed, status, approved_by, approved_at::text, approval_reason, created_by, created_at::text, updated_at::text`,
 		tenantID, req.SlipNumber, req.RequisitionDate, req.MealType, nullIfEmptyStr(req.RecipeID), req.BoarderCountFed, nullIfEmpty(userID),
 	).Scan(&r.ID, &r.TenantID, &r.SlipNumber, &r.RequisitionDate, &r.MealType, &r.RecipeID, &r.BoarderCountFed, &r.Status,
 		&r.ApprovedBy, &r.ApprovedAt, &r.ApprovalReason, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
@@ -232,8 +238,10 @@ func (s *Service) CreateRequisition(ctx context.Context, tenantID, userID string
 	}
 
 	rows, err := tx.Query(
+		// store_requisition_items has no notes column; selecting it failed the
+		// whole create on any database migrated from this schema.
 		`SELECT id, tenant_id, requisition_id, inventory_item_id, expected_qty, actual_issued_qty,
-		 variance_qty, variance_pct, unit_cost_at_time, notes, created_at
+		 variance_qty, variance_pct, unit_cost_at_time, created_at::text
 		 FROM store_requisition_items WHERE tenant_id = $1 AND requisition_id = $2`,
 		tenantID, r.ID,
 	)
@@ -246,7 +254,7 @@ func (s *Service) CreateRequisition(ctx context.Context, tenantID, userID string
 		var unitCost *float64
 		if err := rows.Scan(&i.ID, &i.TenantID, &i.RequisitionID, &i.InventoryItemID,
 			&i.ExpectedQty, &i.ActualIssuedQty, &i.VarianceQty, &i.VariancePct,
-			&unitCost, &i.Notes, &i.CreatedAt); err != nil {
+			&unitCost, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		i.UnitCostAtTime = unitCost
@@ -276,7 +284,7 @@ func nullIfEmptyStr(s *string) interface{} {
 // variance against tenant thresholds, and deducts stock by FIFO.
 func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requisitionID string, boarderCount int) (*StoreRequisition, error) {
 	q := s.q(ctx)
-	tx, ok := q.(*sql.Tx)
+	tx, ok := q.(*sqlx.Tx)
 	if !ok {
 		return nil, errors.New("transaction required")
 	}
@@ -284,7 +292,7 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 	// Load requisition
 	var r StoreRequisition
 	err := tx.QueryRow(
-		`SELECT id, tenant_id, slip_number, requisition_date, meal_type, recipe_id, boarder_count_fed, status
+		`SELECT id, tenant_id, slip_number, requisition_date::text, meal_type, recipe_id, boarder_count_fed, status
 		 FROM daily_store_requisitions WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
 		tenantID, requisitionID,
 	).Scan(&r.ID, &r.TenantID, &r.SlipNumber, &r.RequisitionDate, &r.MealType, &r.RecipeID, &r.BoarderCountFed, &r.Status)
@@ -343,7 +351,9 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 		expectedMap[ri.InventoryItemID] = ri.QtyPer100 * float64(boarderCount) / 100.0
 	}
 
-	// Load requisition items
+	// Load requisition items. The rows are closed before the lot queries below:
+	// lib/pq cannot run a new query on the connection while a result set is open,
+	// and the deferred Close poisoned the rest of the transaction.
 	rows, err := tx.Query(
 		`SELECT id, inventory_item_id, actual_issued_qty FROM store_requisition_items WHERE tenant_id = $1 AND requisition_id = $2`,
 		tenantID, requisitionID,
@@ -369,6 +379,7 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	rows.Close()
 
 	// Determine variance status
 	status := "RECONCILED"
@@ -384,11 +395,12 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 			variancePct = 100 // hard lock
 		}
 
-		// Update item expected_qty and variance
+		// Only expected_qty is writable: variance_qty and variance_pct are generated
+		// columns, so assigning them failed every requisition that had a variance.
 		_, err = tx.Exec(
-			`UPDATE store_requisition_items SET expected_qty = $1, variance_qty = $2, variance_pct = $3
-			 WHERE tenant_id = $4 AND id = $5`,
-			expected, ri.ActualIssued-expected, variancePct, tenantID, ri.ID,
+			`UPDATE store_requisition_items SET expected_qty = $1
+			 WHERE tenant_id = $2 AND id = $3`,
+			expected, tenantID, ri.ID,
 		)
 		if err != nil {
 			return nil, err
@@ -426,14 +438,33 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 			if err != nil {
 				return nil, err
 			}
-			for lotRows.Next() && remaining > 0 {
-				var lotID string
-				var lotQty float64
-				var lotCost float64
-				if err := lotRows.Scan(&lotID, &lotQty, &lotCost); err != nil {
+			// Drain the lots before writing: the updates below would otherwise run
+			// on the connection while this result set is still open, which lib/pq
+			// answers with a protocol error and a dead transaction.
+			type lot struct {
+				id   string
+				qty  float64
+				cost float64
+			}
+			var lots []lot
+			for lotRows.Next() {
+				var l lot
+				if err := lotRows.Scan(&l.id, &l.qty, &l.cost); err != nil {
 					lotRows.Close()
 					return nil, err
 				}
+				lots = append(lots, l)
+			}
+			if err := lotRows.Err(); err != nil {
+				lotRows.Close()
+				return nil, err
+			}
+			lotRows.Close()
+			for _, l := range lots {
+				if remaining <= 0 {
+					break
+				}
+				lotID, lotQty, lotCost := l.id, l.qty, l.cost
 				consume := lotQty
 				if consume > remaining {
 					consume = remaining
@@ -459,7 +490,6 @@ func (s *Service) ProcessRequisition(ctx context.Context, tenantID, userID, requ
 				}
 				remaining -= consume
 			}
-			lotRows.Close()
 			if remaining > 0 {
 				return nil, errors.New("insufficient stock for item " + ri.InventoryItemID)
 			}

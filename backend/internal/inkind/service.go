@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
@@ -157,7 +159,7 @@ func (s *Service) q(ctx context.Context) queryer {
 
 func (s *Service) ListRates(ctx context.Context, tenantID string, includeInactive bool) ([]InKindRate, error) {
 	q := s.q(ctx)
-	query := `SELECT r.id, r.tenant_id, r.inventory_item_id, i.name, i.unit, r.rate_per_unit, r.is_current, r.term_id, r.created_by, r.created_at
+	query := `SELECT r.id, r.tenant_id, r.inventory_item_id, i.name, i.unit, r.rate_per_unit, r.is_current, r.term_id, r.created_by, r.created_at::text
 			  FROM in_kind_rates r JOIN inventory_items i ON i.tenant_id = r.tenant_id AND i.id = r.inventory_item_id
 			  WHERE r.tenant_id = $1`
 	args := []interface{}{tenantID}
@@ -202,7 +204,7 @@ func (s *Service) CreateRate(ctx context.Context, tenantID, userID string, req C
 	err = q.QueryRow(
 		`INSERT INTO in_kind_rates (tenant_id, inventory_item_id, term_id, rate_per_unit, is_current, created_by)
 		 VALUES ($1, $2, $3, $4, true, $5)
-		 RETURNING id, tenant_id, inventory_item_id, rate_per_unit, is_current, term_id, created_by, created_at`,
+		 RETURNING id, tenant_id, inventory_item_id, rate_per_unit, is_current, term_id, created_by, created_at::text`,
 		tenantID, req.InventoryItemID, termID, req.RatePerUnit, nullIfEmpty(userID),
 	).Scan(&r.ID, &r.TenantID, &r.InventoryItemID, &r.RatePerUnit, &r.IsActive,
 		&r.TermID, &r.CreatedBy, &r.CreatedAt)
@@ -220,7 +222,7 @@ func (s *Service) CreateRate(ctx context.Context, tenantID, userID string, req C
 
 func (s *Service) ListItems(ctx context.Context, tenantID string, itemType string) ([]InventoryItem, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, code, name, unit, standard_unit_weight_kg, is_active, created_by, created_at
+	query := `SELECT id, tenant_id, code, name, unit, standard_unit_weight_kg, is_active, created_by, created_at::text
 			  FROM inventory_items WHERE tenant_id = $1 AND is_active = true`
 	args := []interface{}{tenantID}
 	query += ` ORDER BY name`
@@ -259,7 +261,7 @@ func (s *Service) CreateItem(ctx context.Context, tenantID, userID string, req C
 	err := q.QueryRow(
 		`INSERT INTO inventory_items (tenant_id, code, name, unit, standard_unit_weight_kg, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, tenant_id, code, name, unit, standard_unit_weight_kg, is_active, created_by, created_at`,
+		 RETURNING id, tenant_id, code, name, unit, standard_unit_weight_kg, is_active, created_by, created_at::text`,
 		tenantID, req.ItemName, req.ItemName, req.Unit, req.UnitWeightKg, nullIfEmpty(userID),
 	).Scan(&i.ID, &i.TenantID, &i.Code, &i.Name, &i.Unit, &i.StandardWeight,
 		&i.IsActive, &i.CreatedBy, &i.CreatedAt)
@@ -275,7 +277,7 @@ func (s *Service) CreateItem(ctx context.Context, tenantID, userID string, req C
 
 func (s *Service) ListIntakes(ctx context.Context, tenantID, studentID, status string, limit, offset int) ([]InKindIntakeLog, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, student_id, intake_date, received_by, recorded_by, intake_number, status, notes, created_at, updated_at
+	query := `SELECT id, tenant_id, student_id, intake_date::text, received_by, recorded_by, intake_number, status, notes, created_at::text, updated_at::text
 			  FROM in_kind_intake_logs WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	argIdx := 2
@@ -314,7 +316,7 @@ func (s *Service) GetIntake(ctx context.Context, tenantID, logID string) (*InKin
 	q := s.q(ctx)
 	var l InKindIntakeLog
 	err := q.QueryRow(
-		`SELECT id, tenant_id, student_id, intake_date, received_by, recorded_by, intake_number, status, notes, created_at, updated_at
+		`SELECT id, tenant_id, student_id, intake_date::text, received_by, recorded_by, intake_number, status, notes, created_at::text, updated_at::text
 		 FROM in_kind_intake_logs WHERE tenant_id = $1 AND id = $2`,
 		tenantID, logID,
 	).Scan(&l.ID, &l.TenantID, &l.StudentID, &l.IntakeDate, &l.ReceivedBy, &l.RecordedBy,
@@ -330,7 +332,9 @@ func (s *Service) GetIntake(ctx context.Context, tenantID, logID string) (*InKin
 
 func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req CreateIntakeLogRequest) (*InKindIntakeLog, error) {
 	q := s.q(ctx)
-	tx, ok := q.(*sql.Tx)
+	// The request transaction is *sqlx.Tx, so asserting *sql.Tx here refused every
+	// real intake with "transaction required".
+	tx, ok := q.(*sqlx.Tx)
 	if !ok {
 		return nil, errors.New("transaction required")
 	}
@@ -342,26 +346,29 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		return nil, errors.New("no current term configured")
 	}
 
-	intakeDate := req.IntakeDate
-	if intakeDate == "" {
-		intakeDate = "CURRENT_DATE"
+	// An empty date is left to the database default. Passing the literal string
+	// "CURRENT_DATE" into $3::date made Postgres reject every intake that omitted
+	// the date.
+	var intakeDate interface{}
+	if req.IntakeDate != "" {
+		intakeDate = req.IntakeDate
 	}
 
 	var l InKindIntakeLog
 	err = tx.QueryRow(
 		`INSERT INTO in_kind_intake_logs (tenant_id, student_id, intake_date, received_by, recorded_by, intake_number, notes)
 		 VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), $4, $5, $6, $7)
-		 RETURNING id, tenant_id, student_id, intake_date, received_by, recorded_by, intake_number, status, notes, created_at, updated_at`,
+		 RETURNING id, tenant_id, student_id, intake_date::text, received_by, recorded_by, intake_number, status, notes, created_at::text, updated_at::text`,
 		tenantID, req.StudentID, intakeDate, nullIfEmpty(userID), nullIfEmpty(userID), req.IntakeNumber, req.Notes,
 	).Scan(&l.ID, &l.TenantID, &l.StudentID, &l.IntakeDate, &l.ReceivedBy, &l.RecordedBy,
 		&l.IntakeNumber, &l.Status, &l.Notes, &l.CreatedAt, &l.UpdatedAt)
-	if err != nil {
-		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-			return nil, errors.New("intake number already exists")
+			if err != nil {
+			var pqErr *pq.Error
+			if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+				return nil, errors.New("intake number already exists")
+			}
+			return nil, fmt.Errorf("insert intake log: %w", err)
 		}
-		return nil, err
-	}
 
 	totalValue := money.Zero()
 	for _, item := range req.Items {
@@ -391,7 +398,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 			tenantID, l.ID, item.InventoryItemID, item.Quantity, unit, money.New(ratePerUnit).StringFixed(2), cashEquivalent.StringFixed(2), item.QualityGrade, item.Notes,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("insert intake item: %w", err)
 		}
 
 		// Create inventory lot (FIFO) with unit cost = rate applied
@@ -401,7 +408,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 			tenantID, l.ID, item.InventoryItemID, item.Quantity, money.New(ratePerUnit).StringFixed(2),
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("insert inventory lot: %w", err)
 		}
 	}
 
@@ -414,43 +421,70 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 		tenantID, l.ID, "In-kind intake "+req.IntakeNumber, nullIfEmpty(userID),
 	).Scan(&entryID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("insert journal entry: %w", err)
 	}
 
 	// Debit: Central Food Inventory asset account
 	// Credit: student fee receivable (Boarding votehead)
 	// For simplicity, we create two lines. In production, look up account IDs.
 	// Line 1: Debit inventory (asset +)
-	_, err = tx.Exec(
+	// The INSERT ... SELECT writes nothing when the chart of accounts is missing
+	// the code, which used to leave an entry with no lines and no error. A
+	// half-posted intake is worse than a refused one, so check that a line landed.
+	debitRes, err := tx.Exec(
+		// Every parameter is cast: an untyped parameter in the SELECT list of an
+		// INSERT ... SELECT is resolved as text, which then conflicts with the
+		// varchar column it is compared to in the WHERE clause.
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
-		 SELECT $1, $2, la.id, $3::uuid, $4, 0
-		 FROM ledger_accounts la WHERE la.tenant_id = $1 AND la.code = 'INV_FOOD' LIMIT 1`,
+		 SELECT $1::varchar, $2::uuid, la.id, $3::uuid, $4::numeric, 0::numeric
+		 FROM ledger_accounts la WHERE la.tenant_id = $1::varchar AND la.code = 'INV_FOOD' LIMIT 1`,
 		tenantID, entryID, req.StudentID, totalValue.StringFixed(2),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("debit journal line: %w", err)
+	}
+	if n, _ := debitRes.RowsAffected(); n == 0 {
+		return nil, errors.New("chart of accounts has no INV_FOOD account to debit")
 	}
 
 	// Line 2: Credit student fee receivable (liability -)
-	_, err = tx.Exec(
+	creditRes, err := tx.Exec(
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
-		 SELECT $1, $2, la.id, $3::uuid, 0, $4
-		 FROM ledger_accounts la WHERE la.tenant_id = $1 AND la.code = 'FEE_RECEIVABLE' LIMIT 1`,
+		 SELECT $1::varchar, $2::uuid, la.id, $3::uuid, 0::numeric, $4::numeric
+		 FROM ledger_accounts la WHERE la.tenant_id = $1::varchar AND la.code = 'FEE_RECEIVABLE' LIMIT 1`,
 		tenantID, entryID, req.StudentID, totalValue.StringFixed(2),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("credit journal line: %w", err)
+	}
+	if n, _ := creditRes.RowsAffected(); n == 0 {
+		return nil, errors.New("chart of accounts has no FEE_RECEIVABLE account to credit")
 	}
 
-	// Create notification_outbox (SMS receipt)
-	_, err = tx.Exec(
-		`INSERT INTO notification_outbox (tenant_id, channel, recipient, template_key, payload, status)
-		 VALUES ($1, 'SMS', (SELECT phone_number FROM users WHERE user_id = (SELECT user_id FROM learners WHERE learner_id = $2)), 'IN_KIND_RECEIPT', $3, 'PENDING')`,
-		tenantID, req.StudentID, `{"intake_number": "`+req.IntakeNumber+`", "total_value": `+totalValue.StringFixed(2)+`}`,
-	)
-	if err != nil {
-		// Non-fatal: log but don't fail the transaction
-		_ = err
+	// Queue the SMS receipt to the primary payer's guardian.
+	//
+	// This used to write notification_outbox, a table that does not exist, and
+	// discard the error. A failed statement inside a transaction aborts it, so
+	// every intake failed at Commit with "current transaction is aborted" long
+	// after the real cause. The outbox here is outbound_messages, as finance uses.
+	// No guardian phone is a normal outcome: zero rows, no error.
+	receiptBody := fmt.Sprintf("In-kind intake %s received: KES %s. Thank you.", req.IntakeNumber, totalValue.StringFixed(2))
+	if _, err = tx.Exec(
+		`INSERT INTO outbound_messages (tenant_id, recipient_type, recipient_id, channel, recipient_address, body_text, status, idempotency_key)
+		 SELECT $1, 'GUARDIAN', g.guardian_id, 'SMS',
+		        COALESCE(NULLIF(g.phone_number, ''), NULLIF(u.phone_number, '')),
+		        $3, 'QUEUED', $4::varchar
+		   FROM learner_guardians lg
+		   JOIN guardians g ON g.guardian_id = lg.guardian_id AND g.tenant_id = $1
+		   LEFT JOIN users u ON u.user_id = g.user_id
+		  WHERE lg.learner_id = $2::uuid
+		    AND COALESCE(NULLIF(g.phone_number, ''), NULLIF(u.phone_number, '')) IS NOT NULL
+		  ORDER BY lg.is_primary_payer DESC NULLS LAST, lg.created_at
+		  LIMIT 1
+		ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
+		tenantID, req.StudentID, receiptBody, "inkind-receipt:"+tenantID+":"+l.ID,
+	); err != nil {
+		return nil, fmt.Errorf("queue intake receipt: %w", err)
 	}
 
 	return &l, nil
@@ -460,7 +494,7 @@ func (s *Service) CreateIntake(ctx context.Context, tenantID, userID string, req
 // Blocked if the lot quantity was already consumed (escalated to adjustment).
 func (s *Service) VoidIntake(ctx context.Context, tenantID, userID, logID, reason string) (*InKindIntakeLog, error) {
 	q := s.q(ctx)
-	tx, ok := q.(*sql.Tx)
+	tx, ok := q.(*sqlx.Tx)
 	if !ok {
 		return nil, errors.New("transaction required")
 	}
@@ -560,8 +594,8 @@ func (s *Service) VoidIntake(ctx context.Context, tenantID, userID, logID, reaso
 	// Reverse lines: swap debit/credit
 	_, err = tx.Exec(
 		`INSERT INTO journal_lines (tenant_id, entry_id, account_id, student_id, debit, credit)
-		 SELECT tenant_id, $1, account_id, student_id, credit, debit
-		 FROM journal_lines WHERE tenant_id = $2 AND entry_id = $3`,
+		 SELECT tenant_id, $1::uuid, account_id, student_id, credit, debit
+		 FROM journal_lines WHERE tenant_id = $2::varchar AND entry_id = $3::uuid`,
 		reversalEntryID, tenantID, originalEntryID,
 	)
 	if err != nil {
@@ -592,14 +626,14 @@ func (s *Service) VoidIntake(ctx context.Context, tenantID, userID, logID, reaso
 
 func (s *Service) VerifyIntake(ctx context.Context, tenantID, userID, logID string, req VerifyIntakeRequest) (*InKindIntakeLog, error) {
 	q := s.q(ctx)
-	tx, ok := q.(*sql.Tx)
+	tx, ok := q.(*sqlx.Tx)
 	if !ok {
 		return nil, errors.New("transaction required")
 	}
 
 	var l InKindIntakeLog
 	err := tx.QueryRow(
-		`SELECT id, tenant_id, student_id, intake_date, received_by, recorded_by, intake_number, status, notes, created_at, updated_at
+		`SELECT id, tenant_id, student_id, intake_date::text, received_by, recorded_by, intake_number, status, notes, created_at::text, updated_at::text
 		 FROM in_kind_intake_logs WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
 		tenantID, logID,
 	).Scan(&l.ID, &l.TenantID, &l.StudentID, &l.IntakeDate, &l.ReceivedBy, &l.RecordedBy,
@@ -633,7 +667,7 @@ func (s *Service) VerifyIntake(ctx context.Context, tenantID, userID, logID stri
 
 func (s *Service) ListAllocations(ctx context.Context, tenantID, studentID string, limit, offset int) ([]FeePaymentAllocation, error) {
 	q := s.q(ctx)
-	query := `SELECT id, tenant_id, student_id, payment_type, source_reference, amount, allocated_to_invoice_id, allocation_date, allocated_by, notes, created_at
+	query := `SELECT id, tenant_id, student_id, payment_type, source_reference, amount, allocated_to_invoice_id, allocation_date::text, allocated_by, notes, created_at::text
 			  FROM fee_payment_allocations WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	argIdx := 2
@@ -669,7 +703,7 @@ func (s *Service) CreateAllocation(ctx context.Context, tenantID, userID string,
 	err := q.QueryRow(
 		`INSERT INTO fee_payment_allocations (tenant_id, student_id, payment_type, source_reference, amount, allocated_to_invoice_id, allocated_by, notes)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		 RETURNING id, tenant_id, student_id, payment_type, source_reference, amount, allocated_to_invoice_id, allocation_date, allocated_by, notes, created_at`,
+		 RETURNING id, tenant_id, student_id, payment_type, source_reference, amount, allocated_to_invoice_id, allocation_date::text, allocated_by, notes, created_at::text`,
 		tenantID, req.StudentID, req.PaymentType, req.SourceReference, req.Amount, req.AllocatedToInvoiceID, nullIfEmpty(userID), req.Notes,
 	).Scan(&a.ID, &a.TenantID, &a.StudentID, &a.PaymentType, &a.SourceReference,
 		&a.Amount, &a.AllocatedToInvoiceID, &a.AllocationDate, &a.AllocatedBy, &a.Notes, &a.CreatedAt)
