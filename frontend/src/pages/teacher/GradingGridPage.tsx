@@ -7,7 +7,13 @@ import Badge from "../../components/atoms/Badge";
 import Button from "../../components/atoms/Button";
 import ViewState from "../../components/organisms/ViewState";
 import DataTable from "../../components/organisms/DataTable";
-import { recordOfflineAssessment, getAssessmentResults, getDeviceId } from "../../lib/offline";
+import {
+  recordOfflineAssessment,
+  getAssessmentResults,
+  getDeviceId,
+  cacheReference,
+  readReference,
+} from "../../lib/offline";
 import { Learner, AssessmentResult, LevelCode } from "../../lib/types";
 import { useToast } from "../../components/toast/ToastProvider";
 
@@ -108,18 +114,65 @@ export default function GradingGridPage() {
   const [subStrands, setSubStrands] = useState<any[]>([]);
   const [selectedSubStrand, setSelectedSubStrand] = useState<string>("");
   const [gradingMode, setGradingMode] = useState<string>("AUTO");
+  const [source, setSource] = useState<"network" | "cache">("network");
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<any[]>("/assessment/events")
-      .then((r) => { setEvents(Array.isArray(r.data) ? r.data : []); })
-      .catch(() => {});
-    api.get<Learner[]>("/learners")
-      .then((r) => { setLearners(Array.isArray(r.data) ? r.data : []); setState("content"); })
-      .catch(() => setState("error"));
     api.get("/grading/settings")
       .then((r) => setGradingMode(r.data?.config?.scale || "AUTO"))
       .catch(() => setGradingMode("AUTO"));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const [eventsRes, learnerRes] = await Promise.all([
+          api.get<any[]>("/assessment/events"),
+          api.get<Learner[]>("/learners"),
+        ]);
+        if (cancelled) return;
+        const eventRows = Array.isArray(eventsRes.data) ? eventsRes.data : [];
+        const roster = Array.isArray(learnerRes.data) ? learnerRes.data : [];
+        setEvents(eventRows);
+        setLearners(roster);
+        setSource("network");
+        setState("content");
+        if (tenantId) {
+          // Grading needs the event list and the roster before a single tap, so
+          // both are saved for the next cold start without a connection.
+          await Promise.all([
+            cacheReference(tenantId, "grading.events", eventRows),
+            cacheReference(tenantId, "grading.learners", roster),
+          ]);
+        }
+      } catch {
+        if (cancelled) return;
+        const [cachedEvents, cachedRoster] = tenantId
+          ? await Promise.all([
+              readReference<any[]>(tenantId, "grading.events"),
+              readReference<Learner[]>(tenantId, "grading.learners"),
+            ])
+          : [null, null];
+        if (cancelled) return;
+        if (cachedEvents && cachedRoster) {
+          setEvents(cachedEvents.data);
+          setLearners(cachedRoster.data);
+          setSource("cache");
+          setCachedAt(cachedEvents.cachedAt);
+          setState("content");
+        } else {
+          // A failed request is not "no events". Saying that hid the network
+          // failure behind an empty state a teacher could not act on.
+          setState("error");
+        }
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [tenantId]);
 
   // Load the KICD sub-strands for the chosen learning area. Results are
   // captured against a real sub_strand_id; sending a learning-area id used to
@@ -163,10 +216,28 @@ export default function GradingGridPage() {
   }, [tenantId]);
 
   if (state === "loading") return <ViewState state="loading" />;
+  if (state === "error") {
+    return (
+      <ViewState
+        state="offline"
+        message="You are offline and this device has no saved assessment events yet. Open this screen once with a connection to save a copy."
+      />
+    );
+  }
   if (events.length === 0) return <ViewState state="empty" message={'No assessment events'} />;
+
+  const offlineNotice = source === "cache" ? (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      Offline — showing assessment events saved{" "}
+      {cachedAt ? new Date(cachedAt).toLocaleString() : "earlier"}. Marks you record are kept on this device and sync when
+      the connection returns.
+    </div>
+  ) : null;
+
   if (!selectedEvent) {
     return (
       <div className="p-4 space-y-4">
+        {offlineNotice}
         <Card className="p-4">
           <h2 className="text-heading mb-3">{t("teacher.grading")}</h2>
           <p className="text-body mb-4">{'Select an assessment event to start grading'}</p>
@@ -235,6 +306,7 @@ export default function GradingGridPage() {
 
   return (
     <div className="p-4 space-y-4">
+      {offlineNotice}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-heading font-display">{event.assessment_type}</h2>
