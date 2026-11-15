@@ -121,8 +121,9 @@ type Subscription struct {
 // platform tenant the caller happens to be signed in as.
 func (h *Handler) ListSubscriptions(c *gin.Context) {
 	rows, err := h.q(c).Query(
-		`SELECT subscription_id, tenant_id, plan_id, status, started_at, ends_at,
-			auto_renew, created_by, created_at, updated_at
+		`SELECT subscription_id, tenant_id, plan_id, status, started_at,
+			COALESCE(ends_at::text, ''), auto_renew, COALESCE(created_by::text, ''),
+			created_at, updated_at
 		 FROM subscriptions ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -164,7 +165,9 @@ type PlatformInvoice struct {
 func (h *Handler) ListPlatformInvoices(c *gin.Context) {
 	rows, err := h.q(c).Query(
 		`SELECT invoice_id, tenant_id, invoice_number, amount, currency, status,
-			issue_date, due_date, paid_at, created_by, created_at, updated_at
+			COALESCE(issue_date::text, ''), COALESCE(due_date::text, ''),
+			COALESCE(paid_at::text, ''), COALESCE(created_by::text, ''),
+			created_at, updated_at
 		 FROM platform_invoices ORDER BY issue_date DESC`,
 	)
 	if err != nil {
@@ -250,9 +253,10 @@ type Export struct {
 
 func (h *Handler) ListExports(c *gin.Context) {
 	rows, err := h.q(c).Query(
-		`SELECT export_id, tenant_id, export_type, status, file_ref, file_name,
-			file_size, record_count, parameters, error_message, created_by,
-			created_at, completed_at
+		`SELECT export_id, tenant_id, export_type, status,
+			COALESCE(file_ref, ''), COALESCE(file_name, ''), COALESCE(file_size, 0),
+			record_count, COALESCE(parameters, ''), COALESCE(error_message, ''),
+			COALESCE(created_by::text, ''), created_at, COALESCE(completed_at::text, '')
 		 FROM exports ORDER BY created_at DESC`,
 	)
 	if err != nil {
