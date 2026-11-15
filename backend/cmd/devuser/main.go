@@ -96,6 +96,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// tenant_memberships (and the other tenant tables) only accept writes from
+	// the tenant policy or from the platform bypass policy keyed on
+	// app.current_user_role. Without this GUC the membership INSERT is silently
+	// filtered by RLS: the user row exists but login finds no membership and
+	// answers NO_ACTIVE_SCHOOL/INVALID_CREDENTIALS. Bootstrap as the platform
+	// admin so personas created here can actually sign in.
+	if _, err := tx.Exec(
+		`SELECT set_config('app.current_user_role', 'SAAS_ADMIN', true)`,
+	); err != nil {
+		fmt.Fprintf(os.Stderr, "set user role context: %v\n", err)
+		os.Exit(1)
+	}
+
 	// The school is the tenant root; memberships and every domain row point at
 	// schools.tenant_id.
 	if _, err := tx.Exec(
