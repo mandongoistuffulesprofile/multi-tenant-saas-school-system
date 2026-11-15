@@ -2,6 +2,7 @@ package finance
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -961,6 +962,12 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"payment_id": existingID, "idempotent_replay": true})
 		return
 	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		// A failed read cannot be read as "not replayed": that would record the same
+		// payment twice.
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
 
 	var paymentID string
 	err = tx.QueryRow(
@@ -976,12 +983,17 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	// Allocate to the selected invoice, or the oldest unpaid invoice.
 	allocationInvoice := req.InvoiceID
 	if allocationInvoice == "" {
-		_ = tx.QueryRow(
+		// No unpaid invoice is a normal outcome; a failed lookup is not, because the
+		// payment would then be recorded with nothing to settle it.
+		if err := tx.QueryRow(
 			`SELECT invoice_id FROM invoices
 			  WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
 			  ORDER BY due_date NULLS LAST, issue_date
 			  LIMIT 1 FOR UPDATE SKIP LOCKED`,
-			tenantID, req.LearnerID).Scan(&allocationInvoice)
+			tenantID, req.LearnerID).Scan(&allocationInvoice); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
 	}
 	allocatedAmount := 0.0
 	if allocationInvoice != "" {
@@ -989,6 +1001,10 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		err := tx.QueryRow(
 			`SELECT amount_outstanding::text FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
 			allocationInvoice, tenantID).Scan(&outstandingStr)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
 		outstanding := money.New(outstandingStr)
 		if err == nil && outstanding.IsPositive() {
 			alloc := paymentAmount
@@ -998,7 +1014,12 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 			if _, err := tx.Exec(
 				`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 				 VALUES ($1, $2, $3, $4, $5)`,
-				tenantID, paymentID, allocationInvoice, alloc.StringFixed(2), nullableString(userID)); err == nil {
+				tenantID, paymentID, allocationInvoice, alloc.StringFixed(2), nullableString(userID)); err != nil {
+				// The payment is in this same transaction: failing to record where it went
+				// has to undo it, not leave the money unallocated.
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				return
+			} else {
 				if _, err := tx.Exec(
 					`UPDATE invoices SET amount_paid = amount_paid + $1,
 					   amount_outstanding = amount_outstanding - $1,
