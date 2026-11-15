@@ -113,7 +113,7 @@ func (h *Handler) ListGrades(c *gin.Context) {
 		}
 		grades = append(grades, g)
 	}
-	c.JSON(http.StatusOK, grades)
+	c.JSON(http.StatusOK, validation.List(grades))
 }
 
 // ---------- Streams ----------
@@ -142,7 +142,7 @@ func (h *Handler) ListStreams(c *gin.Context) {
 		}
 		streams = append(streams, s)
 	}
-	c.JSON(http.StatusOK, streams)
+	c.JSON(http.StatusOK, validation.List(streams))
 }
 
 func (h *Handler) CreateStream(c *gin.Context) {
@@ -284,7 +284,7 @@ func (h *Handler) ListClassGroups(c *gin.Context) {
 		}
 		groups = append(groups, cg)
 	}
-	c.JSON(http.StatusOK, groups)
+	c.JSON(http.StatusOK, validation.List(groups))
 }
 
 func (h *Handler) CreateClassGroup(c *gin.Context) {
@@ -448,7 +448,7 @@ func (h *Handler) ListTeachingAssignments(c *gin.Context) {
 		}
 		assignments = append(assignments, a)
 	}
-	c.JSON(http.StatusOK, assignments)
+	c.JSON(http.StatusOK, validation.List(assignments))
 }
 
 func (h *Handler) CreateTeachingAssignment(c *gin.Context) {

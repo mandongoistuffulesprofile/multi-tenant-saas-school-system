@@ -428,7 +428,7 @@ func (h *Handler) ListPaymentChannels(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, channels)
+	c.JSON(http.StatusOK, validation.List(channels))
 }
 
 func (h *Handler) CreatePaymentChannel(c *gin.Context) {

@@ -101,7 +101,7 @@ func (h *Handler) ListPlans(c *gin.Context) {
 		p.Features = string(features)
 		plans = append(plans, p)
 	}
-	c.JSON(http.StatusOK, plans)
+	c.JSON(http.StatusOK, validation.List(plans))
 }
 
 // Subscription
@@ -143,7 +143,7 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 		}
 		subs = append(subs, s)
 	}
-	c.JSON(http.StatusOK, subs)
+	c.JSON(http.StatusOK, validation.List(subs))
 }
 
 // PlatformInvoice
@@ -188,7 +188,7 @@ func (h *Handler) ListPlatformInvoices(c *gin.Context) {
 		}
 		invoices = append(invoices, inv)
 	}
-	c.JSON(http.StatusOK, invoices)
+	c.JSON(http.StatusOK, validation.List(invoices))
 }
 
 // TenantUsage
@@ -232,7 +232,7 @@ func (h *Handler) ListTenantUsage(c *gin.Context) {
 		}
 		usage = append(usage, u)
 	}
-	c.JSON(http.StatusOK, usage)
+	c.JSON(http.StatusOK, validation.List(usage))
 }
 
 // Export
@@ -279,7 +279,7 @@ func (h *Handler) ListExports(c *gin.Context) {
 		e.Parameters = string(params)
 		exports = append(exports, e)
 	}
-	c.JSON(http.StatusOK, exports)
+	c.JSON(http.StatusOK, validation.List(exports))
 }
 
 // ListIntegrationHealth reports integration status derived from real data.
@@ -300,7 +300,7 @@ func (h *Handler) ListIntegrationHealth(c *gin.Context) {
 		{Name: "NEMIS Sync", Channel: "NEMIS", Status: "unconfigured", SuccessRate: nil, CallbackLag: "—", QueueDepth: 0},
 		{Name: "KEMIS Sync", Channel: "KEMIS", Status: "unconfigured", SuccessRate: nil, CallbackLag: "—", QueueDepth: 0},
 	}
-	c.JSON(http.StatusOK, rows)
+	c.JSON(http.StatusOK, validation.List(rows))
 }
 
 // ListPlatformAudit returns recent audit events across all tenants for the
@@ -345,7 +345,7 @@ func (h *Handler) ListPlatformAudit(c *gin.Context) {
 		l.SchoolCode = l.TenantCode
 		out = append(out, l)
 	}
-	c.JSON(http.StatusOK, out)
+	c.JSON(http.StatusOK, validation.List(out))
 }
 
 var _ = http.StatusOK

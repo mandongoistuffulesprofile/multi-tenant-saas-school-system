@@ -116,7 +116,7 @@ func (h *Handler) ListTransportZones(c *gin.Context) {
 		}
 		zones = append(zones, z)
 	}
-	c.JSON(http.StatusOK, zones)
+	c.JSON(http.StatusOK, validation.List(zones))
 }
 
 func (h *Handler) CreateTransportZone(c *gin.Context) {
@@ -317,7 +317,7 @@ func (h *Handler) ListTenantLearningAreas(c *gin.Context) {
 		}
 		areas = append(areas, a)
 	}
-	c.JSON(http.StatusOK, areas)
+	c.JSON(http.StatusOK, validation.List(areas))
 }
 
 func (h *Handler) CreateTenantLearningArea(c *gin.Context) {

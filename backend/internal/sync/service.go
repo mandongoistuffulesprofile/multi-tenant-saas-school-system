@@ -498,7 +498,7 @@ func (h *Handler) ListConflicts(c *gin.Context) {
 		_ = json.Unmarshal(serverRaw, &cf.ServerValues)
 		items = append(items, cf)
 	}
-	c.JSON(http.StatusOK, items)
+	c.JSON(http.StatusOK, validation.List(items))
 }
 
 // ResolveConflict applies a manual resolution. The device sends the values it
@@ -751,7 +751,7 @@ func (h *Handler) ListDevices(c *gin.Context) {
 		}
 		devs = append(devs, d)
 	}
-	c.JSON(http.StatusOK, devs)
+	c.JSON(http.StatusOK, validation.List(devs))
 }
 
 // ListSyncLog returns recent sync sessions for admin visibility
@@ -787,5 +787,5 @@ func (h *Handler) ListSyncLog(c *gin.Context) {
 		}
 		logs = append(logs, l)
 	}
-	c.JSON(http.StatusOK, logs)
+	c.JSON(http.StatusOK, validation.List(logs))
 }

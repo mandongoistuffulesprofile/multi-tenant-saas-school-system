@@ -104,7 +104,7 @@ func (h *Handler) ListNationalResults(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, results)
+	c.JSON(http.StatusOK, validation.List(results))
 }
 
 type nationalImportItem struct {

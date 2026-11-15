@@ -25,7 +25,7 @@ func (h *Handler) ListHoldingTank(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, entries)
+	c.JSON(http.StatusOK, validation.List(entries))
 }
 
 func (h *Handler) ResolveHoldingTank(c *gin.Context) {
@@ -101,5 +101,5 @@ func (h *Handler) ListTokens(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toks)
+	c.JSON(http.StatusOK, validation.List(toks))
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"log"
 	"net/http"
 	"strings"
@@ -98,7 +99,7 @@ func (h *Handler) ListRecoveryQuestionCatalog(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Could not load security questions"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"questions": items})
+	c.JSON(http.StatusOK, gin.H{"questions": validation.List(items)})
 }
 
 // GetMySecurityQuestions reports which questions the signed-in user configured.
@@ -533,7 +534,7 @@ func (h *Handler) ListPasswordAssistance(c *gin.Context) {
 			pending++
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"pending": pending, "requests": items})
+	c.JSON(http.StatusOK, gin.H{"pending": pending, "requests": validation.List(items)})
 }
 
 // IssueResetCodeForRequest resolves one queued help request with a one-time code.

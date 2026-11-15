@@ -67,7 +67,7 @@ func (h *Handler) ListKNECRules(c *gin.Context) {
 		}
 		tools = append(tools, t)
 	}
-	c.JSON(http.StatusOK, tools)
+	c.JSON(http.StatusOK, validation.List(tools))
 }
 
 // KNECSubmissionStatus
@@ -121,7 +121,7 @@ func (h *Handler) ListKNECRSubmissionStatus(c *gin.Context) {
 		s.CreatedBy = createdBy.String
 		statuses = append(statuses, s)
 	}
-	c.JSON(http.StatusOK, statuses)
+	c.JSON(http.StatusOK, validation.List(statuses))
 }
 
 // KNECExportBatch
@@ -174,7 +174,7 @@ func (h *Handler) ListKNECRExportBatches(c *gin.Context) {
 		b.CompletedAt = completedAt.String
 		batches = append(batches, b)
 	}
-	c.JSON(http.StatusOK, batches)
+	c.JSON(http.StatusOK, validation.List(batches))
 }
 
 var _ = http.StatusOK

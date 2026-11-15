@@ -79,7 +79,7 @@ func (h *Handler) ListConsentNotices(c *gin.Context) {
 		}
 		notices = append(notices, n)
 	}
-	c.JSON(http.StatusOK, notices)
+	c.JSON(http.StatusOK, validation.List(notices))
 }
 
 // ConsentRecord
@@ -157,7 +157,7 @@ func (h *Handler) ListConsentRecords(c *gin.Context) {
 		r.RevokedAt = revokedAt.String
 		records = append(records, r)
 	}
-	c.JSON(http.StatusOK, records)
+	c.JSON(http.StatusOK, validation.List(records))
 }
 
 // AccessLog
@@ -200,7 +200,7 @@ func (h *Handler) ListAccessLogs(c *gin.Context) {
 		}
 		logs = append(logs, l)
 	}
-	c.JSON(http.StatusOK, logs)
+	c.JSON(http.StatusOK, validation.List(logs))
 }
 
 // DSRRequest
@@ -258,7 +258,7 @@ func (h *Handler) ListDSRRequests(c *gin.Context) {
 		}
 		requests = append(requests, r)
 	}
-	c.JSON(http.StatusOK, requests)
+	c.JSON(http.StatusOK, validation.List(requests))
 }
 
 // BreachRegister
@@ -308,7 +308,7 @@ func (h *Handler) ListBreachRegister(c *gin.Context) {
 		}
 		breaches = append(breaches, b)
 	}
-	c.JSON(http.StatusOK, breaches)
+	c.JSON(http.StatusOK, validation.List(breaches))
 }
 
 var _ = http.StatusOK

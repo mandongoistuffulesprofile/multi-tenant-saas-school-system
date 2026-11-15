@@ -84,7 +84,7 @@ func (h *Handler) ListMessageTemplates(c *gin.Context) {
 		}
 		templates = append(templates, t)
 	}
-	c.JSON(http.StatusOK, templates)
+	c.JSON(http.StatusOK, validation.List(templates))
 }
 
 // OutboundMessage
@@ -141,7 +141,7 @@ func (h *Handler) ListOutboundMessages(c *gin.Context) {
 		}
 		messages = append(messages, m)
 	}
-	c.JSON(http.StatusOK, messages)
+	c.JSON(http.StatusOK, validation.List(messages))
 }
 
 // Broadcast
@@ -200,7 +200,7 @@ func (h *Handler) ListBroadcasts(c *gin.Context) {
 		b.TargetGradeIDs = string(gradeIDs)
 		broadcasts = append(broadcasts, b)
 	}
-	c.JSON(http.StatusOK, broadcasts)
+	c.JSON(http.StatusOK, validation.List(broadcasts))
 }
 
 // OptOut
@@ -244,7 +244,7 @@ func (h *Handler) ListOptOuts(c *gin.Context) {
 		}
 		optOuts = append(optOuts, o)
 	}
-	c.JSON(http.StatusOK, optOuts)
+	c.JSON(http.StatusOK, validation.List(optOuts))
 }
 
 var _ = http.StatusOK
@@ -291,5 +291,5 @@ func (h *Handler) ParentNotices(c *gin.Context) {
 		}
 		notices = append(notices, n)
 	}
-	c.JSON(http.StatusOK, notices)
+	c.JSON(http.StatusOK, validation.List(notices))
 }

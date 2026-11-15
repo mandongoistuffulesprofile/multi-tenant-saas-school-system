@@ -227,7 +227,7 @@ func (h *Handler) ListLearners(c *gin.Context) {
 		}
 		learners = append(learners, l)
 	}
-	c.JSON(http.StatusOK, learners)
+	c.JSON(http.StatusOK, validation.List(learners))
 }
 
 // guardianRow is what a picker needs to choose a guardian by sight rather than
@@ -275,7 +275,7 @@ func (h *Handler) ListGuardians(c *gin.Context) {
 		}
 		guardians = append(guardians, g)
 	}
-	c.JSON(http.StatusOK, guardians)
+	c.JSON(http.StatusOK, validation.List(guardians))
 }
 
 // nullIfEmpty converts an empty string to nil so optional columns (dates in

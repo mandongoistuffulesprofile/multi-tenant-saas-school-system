@@ -66,7 +66,7 @@ func (h *Handler) ListCurriculumVersions(c *gin.Context) {
 		v.EffectiveTo = effectiveTo.String
 		versions = append(versions, v)
 	}
-	c.JSON(http.StatusOK, versions)
+	c.JSON(http.StatusOK, validation.List(versions))
 }
 
 func (h *Handler) GetCurriculumVersion(c *gin.Context) {
@@ -146,7 +146,7 @@ func (h *Handler) ListLearningAreas(c *gin.Context) {
 		a.GradeBand = gradeBand.String
 		areas = append(areas, a)
 	}
-	c.JSON(http.StatusOK, areas)
+	c.JSON(http.StatusOK, validation.List(areas))
 }
 
 // Strand
@@ -198,7 +198,7 @@ func (h *Handler) ListStrands(c *gin.Context) {
 		s.Description = description.String
 		strands = append(strands, s)
 	}
-	c.JSON(http.StatusOK, strands)
+	c.JSON(http.StatusOK, validation.List(strands))
 }
 
 // SubStrand
@@ -250,7 +250,7 @@ func (h *Handler) ListSubStrands(c *gin.Context) {
 		s.Description = description.String
 		subStrands = append(subStrands, s)
 	}
-	c.JSON(http.StatusOK, subStrands)
+	c.JSON(http.StatusOK, validation.List(subStrands))
 }
 
 // TenantCurriculumPin

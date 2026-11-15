@@ -23,7 +23,7 @@ func (h *Handler) ListInKindSettings(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, settings)
+	c.JSON(http.StatusOK, validation.List(settings))
 }
 
 func (h *Handler) UpsertInKindSetting(c *gin.Context) {

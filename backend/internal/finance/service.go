@@ -1458,7 +1458,7 @@ func (h *Handler) ListReceiptSequences(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, sequences)
+	c.JSON(http.StatusOK, validation.List(sequences))
 }
 
 func normalizeReceiptSequence(in *ReceiptSequenceInput) bool {
@@ -1574,7 +1574,7 @@ func (h *Handler) ListMPESASTKRequests(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, requests)
+	c.JSON(http.StatusOK, validation.List(requests))
 }
 
 // PaymentChannel is one M-Pesa paybill/till the school collects through.
@@ -1622,7 +1622,7 @@ func (h *Handler) ListPaymentChannels(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, channels)
+	c.JSON(http.StatusOK, validation.List(channels))
 }
 
 // ============ Capitation Receipts (tenant-scoped) ============
@@ -1757,7 +1757,7 @@ func (h *Handler) ListFeeStructures(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, structures)
+	c.JSON(http.StatusOK, validation.List(structures))
 }
 
 func (h *Handler) ListFeeCategories(c *gin.Context) {
@@ -1769,7 +1769,7 @@ func (h *Handler) ListFeeCategories(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, categories)
+	c.JSON(http.StatusOK, validation.List(categories))
 }
 
 // GetFeeCategoryTemplates returns the standard Kenyan school fee category templates
@@ -1792,7 +1792,7 @@ func (h *Handler) GetFeeCategoryTemplates(c *gin.Context) {
 		{Code: "TRIP", Name: "School Trips", Description: "Educational trips and excursions", IsTuition: false, IsOptional: true, RequiresConsent: true},
 		{Code: "CLUB", Name: "Club Fees", Description: "Club and society membership fees", IsTuition: false, IsOptional: true, RequiresConsent: true},
 	}
-	c.JSON(http.StatusOK, templates)
+	c.JSON(http.StatusOK, validation.List(templates))
 }
 
 // FeeCategoryRequest is the payload for creating or updating a custom fee
@@ -1957,7 +1957,7 @@ func (h *Handler) ListLearnerFeeOptions(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, options)
+	c.JSON(http.StatusOK, validation.List(options))
 }
 
 func (h *Handler) UpsertLearnerFeeOption(c *gin.Context) {
@@ -1993,7 +1993,7 @@ func (h *Handler) ListInvoices(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, invoices)
+	c.JSON(http.StatusOK, validation.List(invoices))
 }
 
 func (h *Handler) CreateInvoice(c *gin.Context) {
@@ -2020,7 +2020,7 @@ func (h *Handler) ListInvoiceLines(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, lines)
+	c.JSON(http.StatusOK, validation.List(lines))
 }
 
 func (h *Handler) CreateInvoiceLine(c *gin.Context) {
@@ -2049,7 +2049,7 @@ func (h *Handler) ListPayments(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, payments)
+	c.JSON(http.StatusOK, validation.List(payments))
 }
 
 // Parent-scoped reads: the same rows as the staff lists, filtered to the
@@ -2063,7 +2063,7 @@ func (h *Handler) ListParentInvoices(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, invoices)
+	c.JSON(http.StatusOK, validation.List(invoices))
 }
 
 func (h *Handler) ListParentPayments(c *gin.Context) {
@@ -2075,7 +2075,7 @@ func (h *Handler) ListParentPayments(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, payments)
+	c.JSON(http.StatusOK, validation.List(payments))
 }
 
 // Payment Allocation handler
@@ -2103,7 +2103,7 @@ func (h *Handler) ListCredits(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, credits)
+	c.JSON(http.StatusOK, validation.List(credits))
 }
 
 func (h *Handler) CreateCredit(c *gin.Context) {
@@ -2130,7 +2130,7 @@ func (h *Handler) ListAdjustments(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, adjustments)
+	c.JSON(http.StatusOK, validation.List(adjustments))
 }
 
 func (h *Handler) CreateAdjustment(c *gin.Context) {
@@ -2157,7 +2157,7 @@ func (h *Handler) ListRefunds(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, refunds)
+	c.JSON(http.StatusOK, validation.List(refunds))
 }
 
 func (h *Handler) CreateRefund(c *gin.Context) {
@@ -2184,7 +2184,7 @@ func (h *Handler) ListMPESATransactions(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, txns)
+	c.JSON(http.StatusOK, validation.List(txns))
 }
 
 func (h *Handler) CreateMPESATransaction(c *gin.Context) {
@@ -2414,7 +2414,7 @@ func (h *Handler) ListCapitationReceipts(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, receipts)
+	c.JSON(http.StatusOK, validation.List(receipts))
 }
 
 // Reconciliation Runs handler
@@ -2425,7 +2425,7 @@ func (h *Handler) ListReconciliationRuns(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, runs)
+	c.JSON(http.StatusOK, validation.List(runs))
 }
 
 // ============ Pagination helper ============

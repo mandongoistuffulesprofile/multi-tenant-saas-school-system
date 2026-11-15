@@ -63,7 +63,7 @@ func (h *Handler) ListAcademicYears(c *gin.Context) {
 		}
 		years = append(years, y)
 	}
-	c.JSON(http.StatusOK, years)
+	c.JSON(http.StatusOK, validation.List(years))
 }
 
 func (h *Handler) CreateAcademicYear(c *gin.Context) {
@@ -151,7 +151,7 @@ func (h *Handler) ListTerms(c *gin.Context) {
 		t.MidtermEnd = midtermEnd.String
 		terms = append(terms, t)
 	}
-	c.JSON(http.StatusOK, terms)
+	c.JSON(http.StatusOK, validation.List(terms))
 }
 
 func (h *Handler) CreateTerm(c *gin.Context) {
@@ -229,7 +229,7 @@ func (h *Handler) ListExamWindows(c *gin.Context) {
 		}
 		windows = append(windows, w)
 	}
-	c.JSON(http.StatusOK, windows)
+	c.JSON(http.StatusOK, validation.List(windows))
 }
 
 func (h *Handler) CreateExamWindow(c *gin.Context) {

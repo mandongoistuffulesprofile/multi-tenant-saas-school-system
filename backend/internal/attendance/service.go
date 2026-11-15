@@ -96,7 +96,7 @@ func (h *Handler) ListAttendanceRegisters(c *gin.Context) {
 		}
 		registers = append(registers, r)
 	}
-	c.JSON(http.StatusOK, registers)
+	c.JSON(http.StatusOK, validation.List(registers))
 }
 
 // AttendanceMark
@@ -219,7 +219,7 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 		m.Notes = notes.String
 		marks = append(marks, m)
 	}
-	c.JSON(http.StatusOK, marks)
+	c.JSON(http.StatusOK, validation.List(marks))
 }
 
 // ParentAttendance returns recent attendance marks for the learners linked to
@@ -275,7 +275,7 @@ func (h *Handler) ParentAttendance(c *gin.Context) {
 		}
 		marks = append(marks, m)
 	}
-	c.JSON(http.StatusOK, marks)
+	c.JSON(http.StatusOK, validation.List(marks))
 }
 
 func (h *Handler) getLinkedLearnerIDs(tx *sqlx.Tx, userID string) (map[string]bool, error) {
@@ -373,7 +373,7 @@ func (h *Handler) ListGateDevices(c *gin.Context) {
 		}
 		devices = append(devices, d)
 	}
-	c.JSON(http.StatusOK, devices)
+	c.JSON(http.StatusOK, validation.List(devices))
 }
 
 // RFIDTag
@@ -441,7 +441,7 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 		}
 		tags = append(tags, t)
 	}
-	c.JSON(http.StatusOK, tags)
+	c.JSON(http.StatusOK, validation.List(tags))
 }
 
 // GateEvent
@@ -513,7 +513,7 @@ func (h *Handler) ListGateEvents(c *gin.Context) {
 		}
 		events = append(events, e)
 	}
-	c.JSON(http.StatusOK, events)
+	c.JSON(http.StatusOK, validation.List(events))
 }
 
 var _ = http.StatusOK

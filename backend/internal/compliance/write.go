@@ -476,7 +476,7 @@ func (h *Handler) ListRetentionPolicies(c *gin.Context) {
 		}
 		policies = append(policies, p)
 	}
-	c.JSON(http.StatusOK, policies)
+	c.JSON(http.StatusOK, validation.List(policies))
 }
 
 // CreateDPIA records a data-protection impact assessment.
@@ -586,7 +586,7 @@ func (h *Handler) ListDPIAs(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, records)
+	c.JSON(http.StatusOK, validation.List(records))
 }
 
 // ComplianceSummary gives the dashboard its coverage figures.

@@ -72,7 +72,7 @@ func (h *Handler) ListTenants(c *gin.Context) {
 		}
 		tenants = append(tenants, t)
 	}
-	c.JSON(http.StatusOK, tenants)
+	c.JSON(http.StatusOK, validation.List(tenants))
 }
 
 // CreateTenant registers a new school and its first administrator.
@@ -633,7 +633,7 @@ func (h *Handler) ListImpersonations(c *gin.Context) {
 		s.RevokedAt = revokedAt.String
 		sessions = append(sessions, s)
 	}
-	c.JSON(http.StatusOK, sessions)
+	c.JSON(http.StatusOK, validation.List(sessions))
 }
 
 // CreatePlan adds a subscription plan.
@@ -976,7 +976,7 @@ func (h *Handler) ListWeightingProfiles(c *gin.Context) {
 		_ = json.Unmarshal(raw, &p.Weights)
 		profiles = append(profiles, p)
 	}
-	c.JSON(http.StatusOK, profiles)
+	c.JSON(http.StatusOK, validation.List(profiles))
 }
 
 // CreateKNECTool registers a KNEC reporting tool.

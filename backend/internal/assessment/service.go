@@ -104,7 +104,7 @@ func (h *Handler) ListAssessmentEvents(c *gin.Context) {
 		}
 		events = append(events, e)
 	}
-	c.JSON(http.StatusOK, events)
+	c.JSON(http.StatusOK, validation.List(events))
 }
 
 func (h *Handler) GetAssessmentEvent(c *gin.Context) {
@@ -213,7 +213,7 @@ func (h *Handler) ListAssessmentResults(c *gin.Context) {
 		}
 		results = append(results, r)
 	}
-	c.JSON(http.StatusOK, results)
+	c.JSON(http.StatusOK, validation.List(results))
 }
 
 func (h *Handler) GetAssessmentResult(c *gin.Context) {
@@ -288,7 +288,7 @@ func (h *Handler) ListWeightingProfiles(c *gin.Context) {
 		p.Weights = string(weights)
 		profiles = append(profiles, p)
 	}
-	c.JSON(http.StatusOK, profiles)
+	c.JSON(http.StatusOK, validation.List(profiles))
 }
 
 var _ = http.StatusOK

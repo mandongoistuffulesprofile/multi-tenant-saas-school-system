@@ -607,7 +607,7 @@ func (h *Handler) ModerationQueue(c *gin.Context) {
 		r.Remarks = remarks.String
 		items = append(items, r)
 	}
-	c.JSON(http.StatusOK, items)
+	c.JSON(http.StatusOK, validation.List(items))
 }
 
 // ModerateResults moves submitted results to MODERATED (or LOCKED).

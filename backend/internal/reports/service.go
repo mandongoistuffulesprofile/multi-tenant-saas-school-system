@@ -81,7 +81,7 @@ func (h *Handler) ListReportTemplates(c *gin.Context) {
 		_ = json.Unmarshal(config, &t.TemplateConfig)
 		templates = append(templates, t)
 	}
-	c.JSON(http.StatusOK, templates)
+	c.JSON(http.StatusOK, validation.List(templates))
 }
 
 // ReportRun
@@ -170,7 +170,7 @@ func (h *Handler) ListReportRuns(c *gin.Context) {
 			CompletedAt:    r.CompletedAt.String,
 		})
 	}
-	c.JSON(http.StatusOK, runs)
+	c.JSON(http.StatusOK, validation.List(runs))
 }
 
 // ReportCard
@@ -362,7 +362,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 		}
 		cards = append(cards, card)
 	}
-	c.JSON(http.StatusOK, cards)
+	c.JSON(http.StatusOK, validation.List(cards))
 }
 
 func (h *Handler) logReportAudit(c *gin.Context, action, targetType, targetID string, meta map[string]any) {
@@ -500,7 +500,7 @@ func (h *Handler) ListReportCardRevisions(c *gin.Context) {
 			"created_at":       createdAt,
 		})
 	}
-	c.JSON(http.StatusOK, revisions)
+	c.JSON(http.StatusOK, validation.List(revisions))
 }
 
 func (h *Handler) GetReportCard(ginCtx *gin.Context) {
@@ -665,7 +665,7 @@ func (h *Handler) ListReportCardComments(c *gin.Context) {
 		}
 		comments = append(comments, comment)
 	}
-	c.JSON(http.StatusOK, comments)
+	c.JSON(http.StatusOK, validation.List(comments))
 }
 
 var _ = http.StatusOK

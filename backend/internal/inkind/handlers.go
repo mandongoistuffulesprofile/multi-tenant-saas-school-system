@@ -27,7 +27,7 @@ func (h *Handler) ListRates(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rates)
+	c.JSON(http.StatusOK, validation.List(rates))
 }
 
 func (h *Handler) CreateRate(c *gin.Context) {
@@ -59,7 +59,7 @@ func (h *Handler) ListItems(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, items)
+	c.JSON(http.StatusOK, validation.List(items))
 }
 
 func (h *Handler) CreateItem(c *gin.Context) {
@@ -101,7 +101,7 @@ func (h *Handler) ListIntakes(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, logs)
+	c.JSON(http.StatusOK, validation.List(logs))
 }
 
 func (h *Handler) GetIntake(c *gin.Context) {
@@ -202,7 +202,7 @@ func (h *Handler) ListAllocations(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, allocs)
+	c.JSON(http.StatusOK, validation.List(allocs))
 }
 
 func (h *Handler) CreateAllocation(c *gin.Context) {

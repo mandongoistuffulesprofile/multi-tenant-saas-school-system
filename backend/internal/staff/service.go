@@ -111,7 +111,7 @@ func (h *Handler) ListStaff(c *gin.Context) {
 		}
 		staff = append(staff, s)
 	}
-	c.JSON(http.StatusOK, staff)
+	c.JSON(http.StatusOK, validation.List(staff))
 }
 
 func (h *Handler) CreateStaff(c *gin.Context) {

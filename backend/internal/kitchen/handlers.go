@@ -26,7 +26,7 @@ func (h *Handler) ListRecipes(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, recipes)
+	c.JSON(http.StatusOK, validation.List(recipes))
 }
 
 func (h *Handler) CreateRecipe(c *gin.Context) {
@@ -67,7 +67,7 @@ func (h *Handler) ListRequisitions(c *gin.Context) {
 		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, reqs)
+	c.JSON(http.StatusOK, validation.List(reqs))
 }
 
 func (h *Handler) CreateRequisition(c *gin.Context) {
