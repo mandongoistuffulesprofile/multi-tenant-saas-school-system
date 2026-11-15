@@ -67,9 +67,10 @@ export default function CBCRubricAssessment({ tenantId, subStrand, learners = []
     // No network call: there is no bulk-sync route to receive these yet. The
     // marks remain in IndexedDB, so nothing is lost by not sending them.
     const pending = await getPendingAssessments(tenantId);
+    const count = pending.length;
     setSyncNotice(
-      `Online sync is not available yet. ${pending.length} change${pending.length === 1 ? '' : 's'} ` +
-        'are saved on this device and will be kept until sync is enabled.',
+      `Online sync is not available yet. ${count} change${count === 1 ? '' : 's'} ` +
+        `${count === 1 ? 'is' : 'are'} saved on this device and will be kept until sync is enabled.`,
     );
   };
 

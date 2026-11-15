@@ -85,6 +85,24 @@ describe("offline CBC rubric marks", () => {
     expect(harness.markAssessmentsSynced).not.toHaveBeenCalled();
   });
 
+  it("uses the singular when one change is waiting", async () => {
+    harness.getPendingAssessments.mockResolvedValue([
+      { id: "local-1", studentId: "learner-1", subStrandId: "ss-1", score: 3, ratingCode: "ME" },
+    ]);
+    await render();
+
+    const button = Array.from(container.querySelectorAll("button")).find((b) =>
+      (b.textContent || "").includes("1 change saved on this device"),
+    );
+    await act(async () => {
+      (button as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent || "").toContain("1 change is saved on this device");
+    expect(container.textContent || "").not.toContain("1 change are saved");
+  });
+
   it("still saves a rubric choice on the device", async () => {
     await render();
 
