@@ -6,6 +6,12 @@
 --
 -- This is a versioned baseline. Schools refine names/codes in the
 -- Curriculum screen; re-running the migration never overwrites edits.
+--
+-- Idempotency uses WHERE NOT EXISTS per row rather than ON CONFLICT (col, col):
+-- learning_areas has never had a unique constraint on (version_id, code), and
+-- databases whose strands table predates 0046 have none either, so a targeted
+-- ON CONFLICT made the whole chain fail on a fresh database. 0046 now creates
+-- the learning_areas index for fresh installs; this file does not depend on it.
 
 INSERT INTO public.curriculum_versions (version_label, description, is_published, effective_from)
 SELECT 'CBC-2024', 'Competency Based Curriculum (KICD baseline, PP1-Grade 9)', true, DATE '2024-01-01'
@@ -47,7 +53,10 @@ FROM (VALUES
     ('CAS_JSS', 'Creative Arts and Sports', 'JSS', 10)
 ) AS s(code, name, band, ord)
 JOIN (SELECT version_id FROM public.curriculum_versions WHERE is_published ORDER BY created_at LIMIT 1) v ON true
-ON CONFLICT (version_id, code) DO NOTHING;
+WHERE NOT EXISTS (
+    SELECT 1 FROM public.learning_areas la
+    WHERE la.version_id = v.version_id AND la.code = s.code
+);
 
 -- Strands (code is unique within its learning area)
 INSERT INTO public.strands (area_id, code, name, sort_order)
@@ -166,7 +175,10 @@ FROM (VALUES
 ) AS s(area_code, code, name, ord)
 JOIN (SELECT version_id FROM public.curriculum_versions WHERE is_published ORDER BY created_at LIMIT 1) v ON true
 JOIN public.learning_areas a ON a.version_id = v.version_id AND a.code = s.area_code
-ON CONFLICT (area_id, code) DO NOTHING;
+WHERE NOT EXISTS (
+    SELECT 1 FROM public.strands st
+    WHERE st.area_id = a.area_id AND st.code = s.code
+);
 
 -- Sub-strands (code is unique within its strand)
 INSERT INTO public.sub_strands (strand_id, code, name, sort_order)
@@ -438,4 +450,7 @@ FROM (VALUES
 JOIN (SELECT version_id FROM public.curriculum_versions WHERE is_published ORDER BY created_at LIMIT 1) v ON true
 JOIN public.learning_areas a ON a.version_id = v.version_id AND a.code = s.area_code
 JOIN public.strands st ON st.area_id = a.area_id AND st.code = s.strand_code
-ON CONFLICT (strand_id, code) DO NOTHING;
+WHERE NOT EXISTS (
+    SELECT 1 FROM public.sub_strands ss
+    WHERE ss.strand_id = st.strand_id AND ss.code = s.code
+);

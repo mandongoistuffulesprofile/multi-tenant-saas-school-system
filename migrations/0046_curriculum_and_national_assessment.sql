@@ -48,6 +48,13 @@ CREATE INDEX IF NOT EXISTS idx_strands_code ON public.strands(code);
 CREATE INDEX IF NOT EXISTS idx_sub_strands_strand ON public.sub_strands(strand_id);
 CREATE INDEX IF NOT EXISTS idx_sub_strands_code ON public.sub_strands(code);
 
+-- learning_areas is created in the baseline with only a primary key, so a
+-- (version_id, code) pair could repeat. Declare the pair the seed and the
+-- Curriculum screen both assume. IF NOT EXISTS keeps this safe on databases
+-- that already carry the index.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_learning_areas_version_code
+    ON public.learning_areas (version_id, code);
+
 -- ---------------------------------------------------------------------------
 -- 2. Official KNEC national assessment results (append-only, band-only)
 -- ---------------------------------------------------------------------------
