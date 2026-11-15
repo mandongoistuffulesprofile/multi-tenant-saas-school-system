@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -127,6 +128,19 @@ func readInvoiceTotals(t *testing.T, f paymentFixture) invoiceTotals {
 	return totals
 }
 
+// allocated_amount is written as a fixed-2dp string so the value stays exact;
+// accept a JSON number too so the assertion survives a representation change.
+func amountOf(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case string:
+		f, _ := strconv.ParseFloat(n, 64)
+		return f
+	}
+	return 0
+}
+
 func TestConcurrentPaymentsToTheSameInvoiceCannotDoubleCount(t *testing.T) {
 	f := newPaymentFixture(t)
 
@@ -163,7 +177,7 @@ func TestConcurrentPaymentsToTheSameInvoiceCannotDoubleCount(t *testing.T) {
 	// up to the invoice — no request silently claims the other's money.
 	var reported float64
 	for i, outcome := range outcomes {
-		allocated, _ := outcome.body["allocated_amount"].(float64)
+		allocated := amountOf(outcome.body["allocated_amount"])
 		if allocated < 0 || allocated > each+0.001 {
 			t.Fatalf("request %d reports %.2f allocated from a %.2f payment", i+1, allocated, each)
 		}
@@ -229,7 +243,7 @@ func TestConcurrentPaymentsWithoutAnInvoiceBothSettleIt(t *testing.T) {
 		if invoiceID, _ := outcome.body["invoice_id"].(string); invoiceID != f.invoiceID {
 			t.Fatalf("request %d allocated to %q, want the fixture invoice %q", i+1, invoiceID, f.invoiceID)
 		}
-		if allocated, _ := outcome.body["allocated_amount"].(float64); allocated != each {
+		if allocated := amountOf(outcome.body["allocated_amount"]); allocated != each {
 			t.Fatalf("request %d allocated %.2f of a %.2f payment", i+1, allocated, each)
 		}
 	}

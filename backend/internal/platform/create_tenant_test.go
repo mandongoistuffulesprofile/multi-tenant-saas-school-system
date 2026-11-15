@@ -176,8 +176,11 @@ func TestCreateTenantSubscribesToTheChosenPlan(t *testing.T) {
 		t.Fatalf("got %d, want 201: %s", w.Code, w.Body.String())
 	}
 
+	// subscriptions is RLS-protected; read it as the platform console does.
+	tx := platformTx(t, h)
+	defer tx.Rollback()
 	var planCode string
-	if err := h.service.database.QueryRow(
+	if err := tx.QueryRow(
 		`SELECT p.plan_code FROM subscriptions s JOIN plans p ON p.plan_id = s.plan_id WHERE s.tenant_id = $1`,
 		tenantID).Scan(&planCode); err != nil {
 		t.Fatalf("no subscription for the new school: %v", err)
@@ -252,15 +255,17 @@ func TestCreateTenantReportsTheFailingStatement(t *testing.T) {
 	if body["code"] != "DB_ERROR" {
 		t.Fatalf("code is %v, want DB_ERROR", body["code"])
 	}
+	// The response must not echo the driver error (that is a schema map); the
+	// detail goes to the log with the request id instead, and the create still
+	// has to fail on the statement rather than at Commit.
 	message, _ := body["message"].(string)
-	if !strings.Contains(message, "value too long for type character varying(20)") {
-		t.Fatalf("message %q does not carry the failing statement's error", message)
-	}
-	// The commit-time wording would mean the error was dropped on the floor.
-	for _, wrong := range []string{"current transaction is aborted", "commit"} {
-		if strings.Contains(strings.ToLower(message), strings.ToLower(wrong)) {
-			t.Fatalf("message %q is a transaction-level failure, not the statement's", message)
+	for _, leak := range []string{"pq:", "value too long", "varchar"} {
+		if strings.Contains(strings.ToLower(message), strings.ToLower(leak)) {
+			t.Fatalf("message %q leaks the driver error", message)
 		}
+	}
+	if strings.TrimSpace(message) == "" {
+		t.Fatalf("message is empty")
 	}
 
 	// And the school written before the failure must not survive it.

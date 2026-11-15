@@ -161,7 +161,10 @@ func recordPayment(t *testing.T, f paymentFixture, inject func(tx *sqlx.Tx) erro
 	return w
 }
 
-func expectDBError(t *testing.T, w *httptest.ResponseRecorder, fragment string) {
+// The response must not echo the driver error: DBError logs the detail with the
+// request id and answers a stable message. These tests still care that the
+// failure is reported at all and that the transaction left nothing behind.
+func expectDBError(t *testing.T, w *httptest.ResponseRecorder) {
 	t.Helper()
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d, want 500: %s", w.Code, w.Body.String())
@@ -174,8 +177,8 @@ func expectDBError(t *testing.T, w *httptest.ResponseRecorder, fragment string) 
 		t.Fatalf("code is %v, want DB_ERROR", body["code"])
 	}
 	message, _ := body["message"].(string)
-	if !strings.Contains(message, fragment) {
-		t.Fatalf("message %q does not mention %q", message, fragment)
+	if message == "" || strings.Contains(strings.ToLower(message), "pq:") {
+		t.Fatalf("message %q should be a stable, non-driver message", message)
 	}
 }
 
@@ -206,7 +209,7 @@ func TestRecordPaymentReportsAFailedIdempotencyLookup(t *testing.T) {
 		return err
 	})
 
-	expectDBError(t, w, "payment_id")
+	expectDBError(t, w)
 	// A failed read is not "no replay": nothing may be recorded on its strength.
 	if got := countPayments(t, f); got != 0 {
 		t.Fatalf("%d payments recorded after a failed replay lookup, want 0", got)
@@ -223,7 +226,7 @@ func TestRecordPaymentReportsAFailedAllocationLookup(t *testing.T) {
 		return err
 	})
 
-	expectDBError(t, w, "invoice_id")
+	expectDBError(t, w)
 	// The payment must not survive as money with nowhere to go.
 	if got := countPayments(t, f); got != 0 {
 		t.Fatalf("%d payments recorded after a failed allocation lookup, want 0", got)
@@ -246,7 +249,7 @@ func TestRecordPaymentRollsBackWhenTheAllocationCannotBeWritten(t *testing.T) {
 		return err
 	})
 
-	expectDBError(t, w, "payment_allocations")
+	expectDBError(t, w)
 	if got := countPayments(t, f); got != 0 {
 		t.Fatalf("%d payments recorded without their allocation, want 0", got)
 	}

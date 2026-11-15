@@ -256,7 +256,7 @@ func (h *Handler) ListExports(c *gin.Context) {
 	rows, err := h.q(c).Query(
 		`SELECT export_id, tenant_id, export_type, status,
 			COALESCE(file_ref, ''), COALESCE(file_name, ''), COALESCE(file_size, 0),
-			record_count, COALESCE(parameters, ''), COALESCE(error_message, ''),
+			record_count, COALESCE(parameters::text, ''), COALESCE(error_message, ''),
 			COALESCE(created_by::text, ''), created_at, COALESCE(completed_at::text, '')
 		 FROM exports ORDER BY created_at DESC`,
 	)
