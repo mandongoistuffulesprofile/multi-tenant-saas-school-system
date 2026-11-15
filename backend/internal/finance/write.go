@@ -734,14 +734,22 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 
 	var collected, outstanding float64
 	var invoiceCount, unmatched int
-	_ = tx.QueryRow(
-		`SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&collected)
-	_ = tx.QueryRow(
-		`SELECT COALESCE(SUM(amount_outstanding), 0) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&outstanding)
-	_ = tx.QueryRow(
-		`SELECT COUNT(*) FROM invoices WHERE tenant_id = $1`, tenantID).Scan(&invoiceCount)
-	_ = tx.QueryRow(
-		`SELECT COUNT(*) FROM mpesa_transactions WHERE tenant_id = $1 AND status = 'UNMATCHED'`, tenantID).Scan(&unmatched)
+	// A failed read must not render as a zero tile: "nothing collected" and
+	// "we could not find out" mean very different things on a bursar's dashboard.
+	for _, stat := range []struct {
+		query string
+		dest  any
+	}{
+		{`SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE tenant_id = $1`, &collected},
+		{`SELECT COALESCE(SUM(amount_outstanding), 0) FROM invoices WHERE tenant_id = $1`, &outstanding},
+		{`SELECT COUNT(*) FROM invoices WHERE tenant_id = $1`, &invoiceCount},
+		{`SELECT COUNT(*) FROM mpesa_transactions WHERE tenant_id = $1 AND status = 'UNMATCHED'`, &unmatched},
+	} {
+		if err := tx.QueryRow(stat.query, tenantID).Scan(stat.dest); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+	}
 
 	byGrade := make([]gin.H, 0)
 	rows, err := tx.Query(
@@ -755,18 +763,26 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 		 LEFT JOIN class_groups cg ON cg.class_group_id = e.class_group_id
 		 LEFT JOIN grades g ON g.grade_id = cg.grade_id
 		 WHERE i.tenant_id = $1 GROUP BY g.grade_label ORDER BY g.grade_label`, tenantID)
-	if err == nil {
-		for rows.Next() {
-			var label string
-			var total, paid, out float64
-			if err := rows.Scan(&label, &total, &paid, &out); err == nil {
-				byGrade = append(byGrade, gin.H{
-					"grade_label": label, "total_amount": total,
-					"amount_paid": paid, "amount_outstanding": out,
-				})
-			}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var label string
+		var total, paid, out float64
+		if err := rows.Scan(&label, &total, &paid, &out); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
 		}
-		rows.Close()
+		byGrade = append(byGrade, gin.H{
+			"grade_label": label, "total_amount": total,
+			"amount_paid": paid, "amount_outstanding": out,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{

@@ -497,7 +497,14 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 				(SELECT year_id FROM academic_years WHERE tenant_id = $1 ORDER BY start_date DESC LIMIT 1))
 			 FROM tenants WHERE tenant_id = $1`,
 			tenantID,
-		).Scan(&yearID); err == nil && yearID != "" {
+		).Scan(&yearID); err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				// The year lookup failing is not "no year yet": reporting the learner as
+				// admitted without the enrolment it should have had hides the fault.
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				return
+			}
+		} else if yearID != "" {
 			var classGroupID string
 			row := tx.QueryRow(
 				`SELECT cg.class_group_id
@@ -509,7 +516,12 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 				 ORDER BY cg.created_at LIMIT 1`,
 				tenantID, strings.TrimSpace(req.GradeLabel), strings.TrimSpace(req.StreamName), yearID,
 			)
-			if err := row.Scan(&classGroupID); err == nil {
+			if err := row.Scan(&classGroupID); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+					return
+				}
+			} else {
 				startedOn := req.AdmittedOn
 				if strings.TrimSpace(startedOn) == "" {
 					startedOn = time.Now().Format("2006-01-02")
