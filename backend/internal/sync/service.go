@@ -9,6 +9,7 @@ package sync
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -71,19 +72,30 @@ func (h *Handler) Push(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	// Enforce tenant status
+	// A failed read must not pass for "active": that is the one answer this check
+	// exists to withhold.
 	var tenantStatus string
-	if err := tx.QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&tenantStatus); err == nil {
-		if strings.ToUpper(tenantStatus) == "SUSPENDED" {
-			c.JSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+	if err := tx.QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&tenantStatus); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+	} else if strings.ToUpper(tenantStatus) == "SUSPENDED" {
+		c.JSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+		return
 	}
 
 	// Enforce device status if devices table exists
 	if req.DeviceID != "" {
 		var devRevoked *time.Time
 		var devTenant string
-		if err := tx.QueryRow(`SELECT tenant_id, revoked_at FROM devices WHERE device_id = $1`, req.DeviceID).Scan(&devTenant, &devRevoked); err == nil {
+		err := tx.QueryRow(`SELECT tenant_id, revoked_at FROM devices WHERE device_id = $1`, req.DeviceID).Scan(&devTenant, &devRevoked)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			// Skipping a failed lookup would let a revoked or foreign device through.
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if err == nil {
 			if devRevoked != nil {
 				c.JSON(http.StatusForbidden, gin.H{"code": "DEVICE_REVOKED", "message": "Device has been revoked"})
 				return
@@ -622,17 +634,16 @@ func statusFor(failed int) string {
 	return "COMPLETED"
 }
 
-
 // DeviceEnrollment represents a device enrolled to a tenant/user
 type DeviceEnrollment struct {
-	DeviceID  string     `json:"device_id"`
-	TenantID  string     `json:"tenant_id"`
-	UserID    string     `json:"user_id"`
-	Label     string     `json:"label"`
-	Fingerprint string   `json:"fingerprint"`
-	RevokedAt *time.Time `json:"revoked_at,omitempty"`
-	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	DeviceID    string     `json:"device_id"`
+	TenantID    string     `json:"tenant_id"`
+	UserID      string     `json:"user_id"`
+	Label       string     `json:"label"`
+	Fingerprint string     `json:"fingerprint"`
+	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
+	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // EnrollDevice enrolls a new device for offline access
@@ -655,12 +666,17 @@ func (h *Handler) EnrollDevice(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	userID := c.GetString("user_id")
 
+	// A failed read must not pass for "active": that is the one answer this check
+	// exists to withhold.
 	var tenantStatus string
-	if err := tx.QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&tenantStatus); err == nil {
-		if strings.ToUpper(tenantStatus) == "SUSPENDED" {
-			c.JSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+	if err := tx.QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&tenantStatus); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+	} else if strings.ToUpper(tenantStatus) == "SUSPENDED" {
+		c.JSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+		return
 	}
 
 	var deviceID string
@@ -724,14 +740,19 @@ func (h *Handler) ListDevices(c *gin.Context) {
 		if err := rows.Scan(&d.DeviceID, &d.TenantID, &uid, &label, &fp, &d.RevokedAt, &d.LastSeenAt, &d.CreatedAt); err != nil {
 			continue
 		}
-		if uid.Valid { d.UserID = uid.String }
-		if label.Valid { d.Label = label.String }
-		if fp.Valid { d.Fingerprint = fp.String }
+		if uid.Valid {
+			d.UserID = uid.String
+		}
+		if label.Valid {
+			d.Label = label.String
+		}
+		if fp.Valid {
+			d.Fingerprint = fp.String
+		}
 		devs = append(devs, d)
 	}
 	c.JSON(http.StatusOK, devs)
 }
-
 
 // ListSyncLog returns recent sync sessions for admin visibility
 func (h *Handler) ListSyncLog(c *gin.Context) {
