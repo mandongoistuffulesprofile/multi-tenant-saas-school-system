@@ -29,16 +29,54 @@ function mergeLocale(locale: Locale): Record<string, unknown> {
   return merged;
 }
 
+const IS_DEV = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
+
+// A missing key renders as the key itself (a tab labelled "parent.child"), which
+// is easy to miss and ships to demos and screenshots unnoticed. In development,
+// report each one once so the next omission is loud instead of invisible. The
+// handler is attached only in development: production keeps rendering the key
+// rather than throwing inside a render pass.
+const reportedMissingKeys = new Set<string>();
+
+function reportMissingKey(languages: readonly string[], key: string) {
+  const id = `${key}@${languages.join(",")}`;
+  if (reportedMissingKeys.has(id)) return;
+  reportedMissingKeys.add(id);
+  console.error(
+    `[i18n] missing translation for "${key}" (${languages.join(", ") || "all languages"}): ` +
+      "add it to src/i18n/translations.ts — this key currently renders as its own name.",
+  );
+}
+
+// The header toggle writes `app_lang`; without reading it back here the choice
+// was lost on every reload and a Kiswahili user always returned to English.
+function initialLanguage(): string {
+  try {
+    const stored = localStorage.getItem("app_lang");
+    if (stored === "sw" || stored === "en") return stored;
+  } catch {
+    /* private mode, or no DOM */
+  }
+  return "en";
+}
+
 i18n.use(initReactI18next).init({
   resources: {
     en: { translation: mergeLocale(translations.en as unknown as Locale) },
     sw: { translation: mergeLocale(translations.sw as unknown as Locale) },
   },
-  lng: "en",
+  lng: initialLanguage(),
   fallbackLng: "en",
   interpolation: {
     escapeValue: false,
   },
+  ...(IS_DEV
+    ? {
+        saveMissing: true,
+        missingKeyHandler: (languages: readonly string[], _namespace: string, key: string) =>
+          reportMissingKey(languages, key),
+      }
+    : {}),
 });
 
 export default i18n;
