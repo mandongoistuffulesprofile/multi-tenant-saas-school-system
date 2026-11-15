@@ -37,19 +37,34 @@ from an explicit allowlist of "deliberately unauthorized" cases). This is the ga
 that would have caught `relation "teaching_assignments" does not exist` and the
 parent-portal 500s.
 
-## C. Tenant isolation is unverified
+## C. Tenant isolation — schema verified, runtime coverage thin
 
-**Evidence.** `scripts/audit/verify_rls.sh` inserts into `tenants` and `students`,
-tables that no longer exist, so it cannot run at all. `migrations/` enables or forces
-RLS on 18 tables; `0057` added five of them (`teaching_assignments`,
-`retention_policies`, `school_finance_settings`, `sync_conflicts`, `tenant_usage`)
-with a policy pair that has never been exercised.
+**Done on `main` while this list was being written.** `scripts/audit/verify_rls.sh`
+(which inserted into the dropped `tenants`/`students` tables) is deleted and replaced
+by `backend/cmd/rlscheck` plus `migrations/0060_rls_on_every_tenant_table.sql`, wired
+into CI as a job that runs under a non-superuser role. Rechecked here on a database
+built from `migrations/` alone (`fresh_rls`):
 
-**Done when.** The script enumerates `pg_class` for every RLS-enabled table (so new
-tables are covered automatically), seeds two tenants, and for each table proves
-tenant A cannot see tenant B's rows — and that the platform role can (the bypass
-policy). It runs in CI against the migrations-only database, skipping tables it
-cannot populate and reporting them rather than silently passing.
+```
+rlscheck: live isolation exercised on 9 tables (... tenant_usage)
+rlscheck: 104 tables with a tenant_id column, 0 static and 0 live failures
+```
+
+**What remains.** Only **9 of those 104 tables** get the live two-tenant probe — the
+ones that can be seeded from `tenant_id` alone. The other 95 are checked statically:
+RLS enabled, forced, a tenant policy exists, a platform bypass exists. That proves the
+policy is declared, not that a cross-tenant read is refused. Tables that need a
+foreign key to seed (invoices, payments, staff, curriculum) are never exercised.
+
+**Done when.** The live probe grows to the money and people tables — the ones whose
+leakage matters most — by seeding their parents first.
+
+**Caveat for anyone running `rlscheck` locally.** Against a long-lived developer
+database it reports five failures (`admin_in_kind_settings`,
+`allocation_reconciliation_findings`, `staff_compensation_profiles`, `sync_log`,
+`tenant_curriculum_pins`) and skips `tenant_usage`. Those tables are not created by
+any migration in the active chain — they are drift in a database patched over months.
+On the fresh database the same binary reports zero failures. Trust the fresh run.
 
 ## D. Visual state of this session's UI changes
 
