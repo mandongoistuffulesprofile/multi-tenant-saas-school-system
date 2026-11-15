@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CBCRubricSelector } from '../components/CBCRubricSelector';
 import { CBCLevel, CBC_RUBRIC_CONFIG } from '../utils/kenyaFormatters';
 // @ts-ignore
@@ -23,6 +24,7 @@ const INITIAL_LEARNERS: LearnerAssessment[] = [
 ];
 
 export const CBCAssessment: React.FC = () => {
+  const { t } = useTranslation();
   const [assessments, setAssessments] = useState<LearnerAssessment[]>(INITIAL_LEARNERS);
   const tenantId = useAuthStore((s) => s.tenantId) || 'demo-school';
 
@@ -36,8 +38,8 @@ export const CBCAssessment: React.FC = () => {
     <div className="space-y-4">
       <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center">
         <div>
-          <h2 className="text-base font-bold text-slate-900">Tathmini ya CBC (Competency-Based Curriculum)</h2>
-          <p className="text-xs text-slate-500">Miongozo ya MoE/KNEC: EE (Kuzidi Matarajio), ME (Kufikia Matarajio), AE (Kukaribia), BE (Chini ya Matarajio)</p>
+          <h2 className="text-base font-bold text-slate-900">{t('cbc.title')}</h2>
+          <p className="text-xs text-slate-500">{t('cbc.guidance')}</p>
         </div>
         <div className="flex gap-2 text-xs">
           {Object.entries(CBC_RUBRIC_CONFIG).map(([key, cfg]) => (
@@ -54,15 +56,15 @@ export const CBCAssessment: React.FC = () => {
             <thead className="bg-slate-100 text-slate-800 uppercase font-semibold border-b border-slate-200">
               <tr>
                 <th className="px-4 py-3 sticky left-0 bg-slate-100 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.05)]">
-                  UPI ya NEMIS
+                  {t('cbc.col_upi')}
                 </th>
                 <th className="px-4 py-3 sticky left-4 bg-slate-100 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.05)]">
-                  Jina la Mwanafunzi
+                  {t('cbc.col_learner')}
                 </th>
-                <th className="px-4 py-3">Darasa</th>
-                <th className="px-4 py-3">Eneo la Kujifunza (Strand)</th>
-                <th className="px-4 py-3">Kipengele (Sub-strand)</th>
-                <th className="px-4 py-3">Kiwango cha Umahiri (Rubric Level)</th>
+                <th className="px-4 py-3">{t('cbc.col_grade')}</th>
+                <th className="px-4 py-3">{t('cbc.col_strand')}</th>
+                <th className="px-4 py-3">{t('cbc.col_substrand')}</th>
+                <th className="px-4 py-3">{t('cbc.col_rubric')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">

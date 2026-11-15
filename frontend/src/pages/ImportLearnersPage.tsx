@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import Card from "../components/atoms/Card";
 import { useToast } from "../components/toast/ToastProvider";
@@ -30,13 +31,14 @@ ADM-102,Brian,,Otieno,Grade 1,West,0723456789`;
  */
 export default function ImportLearnersPage() {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [busy, setBusy] = useState<"preview" | "import" | null>(null);
 
   const submit = async (dryRun: boolean) => {
     if (!csv.trim()) {
-      toast("Paste CSV rows or choose a file first.", { type: "error" });
+      toast(t("import_learners.paste_first"), { type: "error" });
       return;
     }
     setBusy(dryRun ? "preview" : "import");
@@ -44,12 +46,12 @@ export default function ImportLearnersPage() {
       const res = await api.post("/imports/learners", { csv, dry_run: dryRun });
       setPreview(res.data.preview as ImportPreview);
       if (dryRun) {
-        toast("Dry run complete — review the rows below.", { type: "success" });
+        toast(t("import_learners.dry_run_done"), { type: "success" });
       } else {
-        toast(`Imported ${res.data.created ?? 0} learner(s).`, { type: "success" });
+        toast(t("import_learners.imported", { count: res.data.created ?? 0 }), { type: "success" });
       }
     } catch (err: any) {
-      toast(err.response?.data?.message || "Import request failed", { type: "error" });
+      toast(err.response?.data?.message || t("import_learners.request_failed"), { type: "error" });
     } finally {
       setBusy(null);
     }
@@ -65,13 +67,11 @@ export default function ImportLearnersPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-display">Import learners</h1>
-          <p className="text-body">
-            Upload a CSV, dry-run it, then import only the rows that are ready.
-          </p>
+          <h1 className="text-display">{t("import_learners.title")}</h1>
+          <p className="text-body">{t("import_learners.subtitle")}</p>
         </div>
         <Link to="/learners" className="text-sm font-medium text-kenyan-red hover:underline">
-          Back to learners
+          {t("import_learners.back")}
         </Link>
       </div>
 
@@ -88,11 +88,11 @@ export default function ImportLearnersPage() {
             className="text-sm text-kenyan-red hover:underline"
             onClick={() => { setCsv(SAMPLE); setPreview(null); }}
           >
-            Use sample rows
+            {t("import_learners.use_sample")}
           </button>
         </div>
         <div>
-          <label className="label" htmlFor="learner-csv">CSV content</label>
+          <label className="label" htmlFor="learner-csv">{t("import_learners.csv_label")}</label>
           <textarea
             id="learner-csv"
             className="input-field h-56 font-mono text-xs"
@@ -100,10 +100,7 @@ export default function ImportLearnersPage() {
             onChange={(e) => { setCsv(e.target.value); setPreview(null); }}
             placeholder="admission_number,first_name,middle_name,last_name,grade_label,stream_name,guardian_phone"
           />
-          <p className="text-caption mt-1 text-gray-500">
-            Required columns: admission_number, first_name, last_name and grade_label.
-            Stream and guardian phone are optional.
-          </p>
+          <p className="text-caption mt-1 text-gray-500">{t("import_learners.csv_hint")}</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <button
@@ -112,7 +109,7 @@ export default function ImportLearnersPage() {
             disabled={busy !== null}
             onClick={() => void submit(true)}
           >
-            {busy === "preview" ? "Checking…" : "Preview (dry run)"}
+            {busy === "preview" ? t("import_learners.checking") : t("import_learners.preview")}
           </button>
           <button
             type="button"
@@ -120,7 +117,9 @@ export default function ImportLearnersPage() {
             disabled={busy !== null || !preview || preview.importable === 0}
             onClick={() => void submit(false)}
           >
-            {busy === "import" ? "Importing…" : `Import ${preview?.importable ?? 0} row(s)`}
+            {busy === "import"
+              ? t("import_learners.importing")
+              : t("import_learners.import_rows", { count: preview?.importable ?? 0 })}
           </button>
         </div>
       </Card>
@@ -129,10 +128,10 @@ export default function ImportLearnersPage() {
         <Card className="p-4">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              ["Rows", preview.total_rows],
-              ["Ready", preview.importable],
-              ["Duplicates", preview.duplicates],
-              ["Invalid", preview.invalid],
+              [t("import_learners.rows"), preview.total_rows],
+              [t("import_learners.ready"), preview.importable],
+              [t("import_learners.duplicates"), preview.duplicates],
+              [t("import_learners.invalid"), preview.invalid],
             ].map(([label, value]) => (
               <div key={String(label)}>
                 <p className="text-caption uppercase tracking-wide text-gray-500">{label}</p>
@@ -145,10 +144,10 @@ export default function ImportLearnersPage() {
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="border-b border-gray-200 bg-gray-50">
                 <tr>
-                  <th className="px-3 py-2 text-xs font-medium uppercase text-gray-500">Line</th>
-                  <th className="px-3 py-2 text-xs font-medium uppercase text-gray-500">Admission no.</th>
-                  <th className="px-3 py-2 text-xs font-medium uppercase text-gray-500">Status</th>
-                  <th className="px-3 py-2 text-xs font-medium uppercase text-gray-500">Notes</th>
+                  <th className="px-3 py-2 text-xs font-medium uppercase text-gray-500">{t("import_learners.col_line")}</th>
+                  <th className="px-3 py-2 text-xs font-medium uppercase text-gray-500">{t("import_learners.col_admission")}</th>
+                  <th className="px-3 py-2 text-xs font-medium uppercase text-gray-500">{t("import_learners.col_status")}</th>
+                  <th className="px-3 py-2 text-xs font-medium uppercase text-gray-500">{t("import_learners.col_notes")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
