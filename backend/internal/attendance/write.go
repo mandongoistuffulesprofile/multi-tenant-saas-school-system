@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/audit"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 )
@@ -163,7 +164,8 @@ func (h *Handler) UpdateRegister(c *gin.Context) {
 
 // DeleteRegister removes a register and the marks captured against it. Both
 // statements run in the tenant transaction, so a register can never be left
-// half-deleted.
+// half-deleted, and the deletion is recorded in audit_events inside that same
+// transaction — a register with a term of marks cannot disappear unrecorded.
 func (h *Handler) DeleteRegister(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
@@ -173,24 +175,49 @@ func (h *Handler) DeleteRegister(c *gin.Context) {
 	registerID := c.Param("register_id")
 	tenantID := c.GetString("tenant_id")
 
-	if _, err := tx.Exec(
-		`DELETE FROM attendance_marks WHERE register_id = $1 AND tenant_id = $2`,
-		registerID, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+	// Read the register first: it decides 404 and supplies the audit detail. A
+	// register that is not there must not have its marks deleted either.
+	var classGroupID, gradeID, streamID, registerDate, sessionType string
+	err := tx.QueryRow(
+		`SELECT class_group_id::text, grade_id, stream_id::text, register_date::text, session_type
+		 FROM attendance_registers WHERE register_id = $1 AND tenant_id = $2`,
+		registerID, tenantID,
+	).Scan(&classGroupID, &gradeID, &streamID, &registerDate, &sessionType)
+	if err == sql.ErrNoRows {
+		validation.NotFound(c, "Attendance register not found")
 		return
 	}
-	result, err := tx.Exec(
-		`DELETE FROM attendance_registers WHERE register_id = $1 AND tenant_id = $2`,
-		registerID, tenantID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		validation.NotFound(c, "Attendance register not found")
+
+	marksDeleted := 0
+	if result, err := tx.Exec(
+		`DELETE FROM attendance_marks WHERE register_id = $1 AND tenant_id = $2`,
+		registerID, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	} else if affected, err := result.RowsAffected(); err == nil {
+		marksDeleted = int(affected)
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM attendance_registers WHERE register_id = $1 AND tenant_id = $2`,
+		registerID, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"register_id": registerID, "deleted": true})
+
+	audit.TenantAction(tx, c, "ATTENDANCE_REGISTER_DELETED", "attendance_registers", registerID, map[string]any{
+		"class_group_id": classGroupID,
+		"grade_id":       gradeID,
+		"stream_id":      streamID,
+		"register_date":  registerDate,
+		"session_type":   sessionType,
+		"marks_deleted":  marksDeleted,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"register_id": registerID, "deleted": true, "marks_deleted": marksDeleted})
 }
 
 // UpsertMark records one attendance mark. Replaying the same client_uuid
