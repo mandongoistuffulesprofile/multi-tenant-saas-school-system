@@ -46,7 +46,7 @@ interface SchoolTenant {
  * 2547XXXXXXXX / 2541XXXXXXXX form before it submits. Accepts the way a school
  * would write it: 0712 345 678, +254 712 345 678 or 254712345678.
  */
-function normalizeKenyanPhone(raw: string): string | null {
+export function normalizeKenyanPhone(raw: string): string | null {
   const digits = raw.replace(/[^\d]/g, '');
   let national: string;
   if (/^0[17]\d{8}$/.test(digits)) national = digits.slice(1);
