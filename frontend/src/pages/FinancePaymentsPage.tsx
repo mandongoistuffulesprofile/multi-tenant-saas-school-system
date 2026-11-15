@@ -9,6 +9,11 @@ import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
 
+// Shown when another clerk is mid-settlement on the same invoice. Kept next to
+// the form rather than taken from the 409 body, which is English.
+const INVOICE_BUSY_MESSAGE =
+  "Malipo mengine yanawekwa kwenye ankara hii kwa sasa. Jaribu tena baada ya muda mfupi.";
+
 export default function FinancePaymentsPage() {
   const [payModal, setPayModal] = useState(false);
   const [learners, setLearners] = useState<{ id: string; label: string }[]>([]);
@@ -52,10 +57,9 @@ export default function FinancePaymentsPage() {
       if (status === 409 && code === "INVOICE_BUSY") {
         // The payment was refused, not lost: nothing was committed, so repeating
         // the same form cannot double-count. Say so and keep the dialog open.
-        setInvoiceBusy(
-          err.response?.data?.message ||
-            "Another payment is being applied to this invoice. Try again in a moment.",
-        );
+        // The backend's message is English; the desk speaks Swahili, so the text
+        // the clerk reads is ours. The code is what we react to.
+        setInvoiceBusy(INVOICE_BUSY_MESSAGE);
         return;
       }
       const fe = err.response?.data?.field_errors;

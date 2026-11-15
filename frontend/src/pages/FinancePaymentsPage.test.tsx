@@ -116,10 +116,12 @@ describe("payment recording under contention", () => {
     await render();
     const dialog = await fillAndSubmit("2500");
 
-    // The refusal is explained in place, not as a generic toast failure.
+    // The refusal is explained in place, in Swahili like the rest of the desk,
+    // rather than echoing the backend's English message.
     expect(dialog.textContent || "").toContain(
-      "Another payment is being applied to this invoice. Try again in a moment.",
+      "Malipo mengine yanawekwa kwenye ankara hii kwa sasa. Jaribu tena baada ya muda mfupi.",
     );
+    expect(dialog.textContent || "").not.toContain("Another payment is being applied");
     expect(harness.toast).not.toHaveBeenCalled();
     // The dialog stayed open with what the clerk typed.
     expect((dialog.querySelector('input[type="number"]') as HTMLInputElement).value).toBe("2500");
