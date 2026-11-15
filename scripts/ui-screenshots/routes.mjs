@@ -97,6 +97,7 @@ export const routes = [
   { path: "/teacher/remarks", file: "64-teacher-remarks.png", persona: "teacher" },
   { path: "/teacher/evidence", file: "65-teacher-evidence.png", persona: "teacher" },
   { path: "/teacher/sync", file: "66-teacher-sync.png", persona: "teacher" },
+  { path: "/gate", file: "67-teacher-gate-kiosk.png", persona: "teacher", minText: 60 },
 
   // ---------- parent portal ----------
   { path: "/parent", file: "70-parent-home.png", persona: "parent" },
@@ -106,11 +107,13 @@ export const routes = [
   { path: "/parent/notices", file: "74-parent-notices.png", persona: "parent" },
   { path: "/parent/progress", file: "75-parent-progress.png", persona: "parent" },
   { path: "/parent/receipts", file: "76-parent-receipts.png", persona: "parent" },
+  { path: "/parent/child", file: "77-parent-child.png", persona: "parent" },
 
   // ---------- platform owner console ----------
   { path: "/platform/operations", file: "80-saas-operations.png", persona: "platform" },
   { path: "/platform/tenants", file: "81-saas-tenant-registry.png", persona: "platform" },
   { path: "/platform/onboard", file: "82-saas-tenant-onboarding.png", persona: "platform" },
+  { path: "/platform/desk", file: "83-saas-admin-desk.png", persona: "platform" },
   { path: "/platform/curriculum", file: "84-saas-curriculum.png", persona: "platform" },
   { path: "/platform/subscriptions", file: "85-saas-subscriptions.png", persona: "platform" },
   { path: "/platform/integrations", file: "86-saas-integration-health.png", persona: "platform" },

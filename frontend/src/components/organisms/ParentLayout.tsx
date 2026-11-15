@@ -2,7 +2,7 @@ import React, { ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Badge from "../atoms/Badge";
-import { Home, BarChart3, CreditCard, Receipt, Clock, Megaphone, Signature } from "lucide-react";
+import { Home, BarChart3, CreditCard, Receipt, Clock, Megaphone, Signature, UserRound } from "lucide-react";
 import TabBar, { type Tab } from "../organisms/TabBar";
 
 const TABS: Tab[] = [
@@ -13,6 +13,7 @@ const TABS: Tab[] = [
   { path: "/parent/attendance", labelKey: "parent.attendance", icon: Clock },
   { path: "/parent/notices", labelKey: "parent.notices", icon: Megaphone },
   { path: "/parent/consents", labelKey: "parent.consents", icon: Signature },
+  { path: "/parent/child", labelKey: "parent.child", icon: UserRound },
 ] as const;
 
 interface ParentLayoutProps {

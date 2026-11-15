@@ -91,6 +91,10 @@ const ParentFeesPage = lazy(() => import("./pages/parent/ParentFeesPage"));
 const ParentNoticesPage = lazy(() => import("./pages/parent/ParentNoticesPage"));
 const ParentProgressPage = lazy(() => import("./pages/parent/ParentProgressPage"));
 const ParentReceiptsPage = lazy(() => import("./pages/parent/ParentReceiptsPage"));
+const ParentChildPage = lazy(() => import("./pages/parent/ParentChildPage"));
+// The gate terminal is a full-screen kiosk, so it loads outside the school shell.
+const KioskPage = lazy(() => import("./pages/KioskPage"));
+const SaaSAdminDesk = lazy(() => import("./pages/SaaSAdminDesk").then((m) => ({ default: m.SaaSAdminDesk })));
 const MyClassesPage = lazy(() => import("./pages/teacher/MyClassesPage"));
 const GradingGridPage = lazy(() => import("./pages/teacher/GradingGridPage"));
 const AttendanceRegisterPage = lazy(() => import("./pages/teacher/AttendanceRegisterPage"));
@@ -254,7 +258,13 @@ export default function App() {
             <Route path="/parent/notices" element={page(ParentNoticesPage)} />
             <Route path="/parent/progress" element={page(ParentProgressPage)} />
             <Route path="/parent/receipts" element={page(ParentReceiptsPage)} />
+            <Route path="/parent/child" element={page(ParentChildPage)} />
           </Route>
+
+          {/* Gate terminal: full-screen kiosk, outside the school shell so a
+              terminal at the gate is not buried under navigation chrome.
+              Guarded to staff roles to match RoleAllStaff on /gate/scan. */}
+          <Route path="/gate" element={guard(ACADEMIC_ROLES, page(KioskPage))} />
 
           {/* Teacher workspace */}
           <Route
@@ -284,6 +294,7 @@ export default function App() {
             )}
           >
             <Route path="/saas-admin" element={<Navigate to="/platform/operations" replace />} />
+            <Route path="/platform/desk" element={page(SaaSAdminDesk)} />
             <Route path="/platform/tenants" element={page(TenantRegistryPage)} />
             <Route path="/platform/onboard" element={page(TenantOnboardingPage)} />
             <Route path="/platform/tenants/:tenantId/setup" element={page(TenantSetupPage)} />
