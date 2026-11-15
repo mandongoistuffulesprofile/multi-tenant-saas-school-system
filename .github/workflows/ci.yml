@@ -216,6 +216,64 @@ jobs:
           echo "public tables: $count"
           test "$count" -ge 100
 
+  # A backup that has never been restored is a guess. This applies migrations
+  # and the demo seed, takes a real pg_dump, and restores it into a scratch
+  # database, so the dump format, the schema and the RLS policies are proven
+  # recoverable on every push rather than during an incident.
+  restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: skulapp_app
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: skulapp_drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U skulapp_app -d skulapp_drill"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://skulapp_app:test_password@localhost:5432/skulapp_drill?sslmode=disable
+      ADMIN_DATABASE_URL: postgres://skulapp_app:test_password@localhost:5432/skulapp_drill?sslmode=disable
+      BACKUP_DIR: ${{ runner.temp }}/backups
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # The runner's default client can be older than the postgres:18 service,
+      # and pg_dump refuses to dump a newer server.
+      - name: Install PostgreSQL 18 client tools
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+          pg_dump --version
+      - name: Migrate and seed
+        working-directory: backend
+        run: go run ./cmd/migrate -dir ../migrations -seed
+      - name: Take a backup
+        run: |
+          bash scripts/backup.sh
+          dump="$(ls "$BACKUP_DIR"/*.dump | head -1)"
+          echo "dump: $dump"
+          sha256sum -c "$dump.sha256"
+      - name: Restore it into a scratch database
+        run: |
+          dump="$(ls "$BACKUP_DIR"/*.dump | head -1)"
+          bash scripts/verify_backup.sh "$dump"
+
   prod-compose:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -234,6 +292,11 @@ jobs:
           ENCRYPTION_KEY=$(openssl rand -hex 32)
           MPESA_WEBHOOK_TOKEN=$(openssl rand -hex 32)
           METRICS_TOKEN=$(openssl rand -hex 32)
+          BOOTSTRAP_EMAIL=owner@ci.test
+          BOOTSTRAP_PASSWORD=CiBootstrapPassword123!
+          BOOTSTRAP_PHONE=254700000001
+          BOOTSTRAP_ROLE=SAAS_ADMIN
+          BOOTSTRAP_TENANT=platform-ops
           EOF
           COMPOSE=(docker compose -p skulapp-ci -f docker-compose.prod.yml -f docker-compose.ci.yml --env-file "$ENV_FILE")
           "${COMPOSE[@]}" down -v --remove-orphans || true
@@ -256,6 +319,24 @@ jobs:
             exit 1
           fi
           curl -fsS http://127.0.0.1:8080/health/ready
+
+          # A fresh volume has no users, so the documented first step is the
+          # bootstrap account. Signing in with it proves the whole stack wired
+          # together: migrations, the membership self-access policy, JWT
+          # signing and Redis-backed rate limiting.
+          "${COMPOSE[@]}" --profile tools run --rm bootstrap
+          login_status=$(curl -sS -o "$RUNNER_TEMP/login.json" -w '%{http_code}' \
+            -X POST http://127.0.0.1:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"owner@ci.test","password":"CiBootstrapPassword123!"}')
+          cat "$RUNNER_TEMP/login.json"
+          echo
+          if [ "$login_status" != "200" ]; then
+            "${COMPOSE[@]}" logs --no-color --tail=200 api
+            echo "bootstrap login returned HTTP $login_status" >&2
+            exit 1
+          fi
+          grep -q '"tenant_id"' "$RUNNER_TEMP/login.json"
       - name: Tear down the Compose stack
         if: always()
         working-directory: infrastructure/docker

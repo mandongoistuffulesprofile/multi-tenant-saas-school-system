@@ -36,4 +36,12 @@ policies="$(psql "$scratch_url" -tAc "SELECT count(*) FROM pg_policies WHERE sch
 echo "policies=$policies"
 [[ "$policies" -ge 50 ]] || { echo "restore check failed: RLS policies missing" >&2; exit 1; }
 
+# Data, not just schema: a dump that restores the tables but not the rows is
+# still a data-loss event. These counts are reported so a drill can be compared
+# with the source database.
+for table in schools learners invoices ledger_accounts; do
+  count="$(psql "$scratch_url" -tAc "SELECT count(*) FROM $table" 2>/dev/null || echo "error")"
+  echo "$table=$count"
+done
+
 echo "backup verified"
