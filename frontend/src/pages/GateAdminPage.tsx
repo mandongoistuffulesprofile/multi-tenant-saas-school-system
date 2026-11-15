@@ -33,6 +33,7 @@ interface GateEvent {
   tag_id: string | null;
   holder_type: string;
   holder_id: string;
+  holder_name?: string;
   event_type: string;
   event_ts: string;
   verified: boolean;
@@ -484,9 +485,13 @@ export default function GateAdminPage() {
                         <Badge variant={event.verified ? "success" : "default"}>{event.event_type}</Badge>
                       </td>
                       <td className="px-3 py-3 text-sm text-gray-900">
-                        {event.holder_type || "—"}
-                        <span className="block text-xs text-gray-400 font-mono">
-                          {event.holder_id ? event.holder_id.slice(0, 8) : "—"}
+                        {event.holder_name || event.holder_type || "—"}
+                        <span className="block text-xs text-gray-400">
+                          {event.holder_name
+                            ? event.holder_type
+                            : event.holder_id
+                              ? `${event.holder_type} ${event.holder_id.slice(0, 8)}`
+                              : "—"}
                         </span>
                       </td>
                       <td className="px-3 py-3 text-sm font-mono text-gray-600">
