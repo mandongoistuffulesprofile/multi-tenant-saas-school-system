@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 
 type Mode = "questions" | "email" | "code";
@@ -21,6 +22,7 @@ const MIN_PASSWORD_LENGTH = 12;
  * other workflows.
  */
 export default function ForgotPasswordPage() {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<Mode>("questions");
   const [step, setStep] = useState<Step>("request");
   const [identifier, setIdentifier] = useState("");
@@ -51,11 +53,11 @@ export default function ForgotPasswordPage() {
 
   const validateNewPassword = (): boolean => {
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      setError(t("forgot_password_page.err_min_length", { count: MIN_PASSWORD_LENGTH }));
       return false;
     }
     if (newPassword !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError(t("forgot_password_page.err_mismatch"));
       return false;
     }
     return true;
@@ -66,7 +68,7 @@ export default function ForgotPasswordPage() {
     setError("");
     setMessage("");
     if (!identifier.trim()) {
-      setError("Enter the email address or phone number on your account.");
+      setError(t("forgot_password_page.err_identifier_required"));
       return;
     }
     setLoading(true);
@@ -79,11 +81,9 @@ export default function ForgotPasswordPage() {
       setStep("questions");
     } catch (err: any) {
       if (err.response?.status === 404) {
-        setError(
-          "No security questions are set up for this account yet. Ask a platform administrator for a one-time reset code.",
-        );
+        setError(t("forgot_password_page.err_no_questions"));
       } else {
-        setError(err.response?.data?.message || "Could not look up recovery questions.");
+        setError(err.response?.data?.message || t("forgot_password_page.err_lookup"));
       }
     } finally {
       setLoading(false);
@@ -95,7 +95,7 @@ export default function ForgotPasswordPage() {
     setError("");
     if (!validateNewPassword()) return;
     if (questions.some((q) => (answers[q.id] || "").trim().length < 2)) {
-      setError("Answer all three security questions.");
+      setError(t("forgot_password_page.err_answer_all"));
       return;
     }
     setLoading(true);
@@ -105,10 +105,10 @@ export default function ForgotPasswordPage() {
         answers: questions.map((q) => ({ question_id: q.id, answer: answers[q.id] || "" })),
         new_password: newPassword,
       });
-      setMessage("Password reset successful. Sign in with your new password.");
+      setMessage(t("forgot_password_page.reset_success"));
       setStep("done");
     } catch (err: any) {
-      setError(err.response?.data?.message || "One or more answers are incorrect.");
+      setError(err.response?.data?.message || t("forgot_password_page.err_answers"));
     } finally {
       setLoading(false);
     }
@@ -119,7 +119,7 @@ export default function ForgotPasswordPage() {
     setError("");
     setMessage("");
     if (!email.trim()) {
-      setError("Enter the email address on your account.");
+      setError(t("forgot_password_page.err_email_required"));
       return;
     }
     setLoading(true);
@@ -127,13 +127,10 @@ export default function ForgotPasswordPage() {
       const response = await api.post("/auth/password/reset/request", {
         email: email.trim(),
       });
-      setMessage(
-        response.data?.message ||
-          "If an account exists for that email, a reset link has been sent.",
-      );
+      setMessage(response.data?.message || t("forgot_password_page.email_sent"));
       setStep("done");
     } catch (err: any) {
-      setError(err.response?.data?.message || "Could not send the reset link.");
+      setError(err.response?.data?.message || t("forgot_password_page.err_send_link"));
     } finally {
       setLoading(false);
     }
@@ -143,7 +140,7 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setError("");
     if (!identifier.trim() || !code.trim()) {
-      setError("Enter your email or phone number and the support code.");
+      setError(t("forgot_password_page.err_code_required"));
       return;
     }
     if (!validateNewPassword()) return;
@@ -154,10 +151,10 @@ export default function ForgotPasswordPage() {
         code: code.trim(),
         new_password: newPassword,
       });
-      setMessage("Password reset successful. Sign in with your new password.");
+      setMessage(t("forgot_password_page.reset_success"));
       setStep("done");
     } catch (err: any) {
-      setError(err.response?.data?.message || "The support code is invalid or has expired.");
+      setError(err.response?.data?.message || t("forgot_password_page.err_code_invalid"));
     } finally {
       setLoading(false);
     }
@@ -167,7 +164,7 @@ export default function ForgotPasswordPage() {
     setError("");
     const target = identifier.trim() || email.trim();
     if (!target) {
-      setError("Enter your email or phone number first so the administrator can find your account.");
+      setError(t("forgot_password_page.err_assistance_target"));
       return;
     }
     setLoading(true);
@@ -177,12 +174,9 @@ export default function ForgotPasswordPage() {
         note: note.trim(),
       });
       setAssistanceSent(true);
-      setMessage(
-        response.data?.message ||
-          "A platform administrator has been notified. They can issue you a one-time reset code.",
-      );
+      setMessage(response.data?.message || t("forgot_password_page.assistance_sent"));
     } catch (err: any) {
-      setError(err.response?.data?.message || "Could not send the request.");
+      setError(err.response?.data?.message || t("forgot_password_page.err_assistance"));
     } finally {
       setLoading(false);
     }
@@ -192,7 +186,7 @@ export default function ForgotPasswordPage() {
     <>
       <div>
         <label className="label" htmlFor="forgot-new-password">
-          New password
+          {t("forgot_password_page.new_password")}
         </label>
         <input
           id="forgot-new-password"
@@ -204,11 +198,11 @@ export default function ForgotPasswordPage() {
           minLength={MIN_PASSWORD_LENGTH}
           required
         />
-        <p className="text-xs text-gray-500 mt-1">At least {MIN_PASSWORD_LENGTH} characters.</p>
+        <p className="text-xs text-gray-500 mt-1">{t("forgot_password_page.min_length", { count: MIN_PASSWORD_LENGTH })}</p>
       </div>
       <div>
         <label className="label" htmlFor="forgot-confirm-password">
-          Confirm password
+          {t("forgot_password_page.confirm_password")}
         </label>
         <input
           id="forgot-confirm-password"
@@ -228,19 +222,19 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-lg p-6 space-y-6 bg-white rounded-2xl shadow-sm border border-gray-200">
         <div className="text-center">
-          <h1 className="text-xl font-bold text-kenyan-red">Reset password</h1>
+          <h1 className="text-xl font-bold text-kenyan-red">{t("forgot_password_page.title")}</h1>
           <p className="text-gray-600 text-sm">
-            Use your security questions, an email link, or a one-time code from a platform administrator.
+            {t("forgot_password_page.intro")}
           </p>
         </div>
 
         {step === "request" && (
-          <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Reset method">
+          <div className="grid grid-cols-3 gap-2" role="tablist" aria-label={t("forgot_password_page.method_aria")}>
             {(
               [
-                ["questions", "Security questions"],
-                ["email", "Email link"],
-                ["code", "Support code"],
+                ["questions", t("forgot_password_page.tab_questions")],
+                ["email", t("forgot_password_page.tab_email")],
+                ["code", t("forgot_password_page.tab_code")],
               ] as [Mode, string][]
             ).map(([key, label]) => (
               <button
@@ -265,7 +259,7 @@ export default function ForgotPasswordPage() {
           <form onSubmit={handleFindQuestions} className="space-y-4" noValidate>
             <div>
               <label className="label" htmlFor="recovery-identifier">
-                Email or phone number
+                {t("forgot_password_page.identifier_label")}
               </label>
               <input
                 id="recovery-identifier"
@@ -283,7 +277,7 @@ export default function ForgotPasswordPage() {
               </p>
             )}
             <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? "Looking up…" : "Find my questions"}
+              {loading ? t("forgot_password_page.looking_up") : t("forgot_password_page.find_questions")}
             </button>
           </form>
         )}
@@ -291,7 +285,7 @@ export default function ForgotPasswordPage() {
         {mode === "questions" && step === "questions" && (
           <form onSubmit={handleAnswerReset} className="space-y-4" noValidate>
             <p className="text-sm text-gray-600">
-              Answer all three questions exactly as you set them up.
+              {t("forgot_password_page.questions_intro")}
             </p>
             {questions.map((q) => (
               <div key={q.id}>
@@ -316,7 +310,7 @@ export default function ForgotPasswordPage() {
               </p>
             )}
             <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? "Resetting…" : "Reset password"}
+              {loading ? t("forgot_password_page.resetting") : t("forgot_password_page.reset_password")}
             </button>
           </form>
         )}
@@ -325,7 +319,7 @@ export default function ForgotPasswordPage() {
           <form onSubmit={handleEmailRequest} className="space-y-4" noValidate>
             <div>
               <label className="label" htmlFor="forgot-email">
-                Email address
+                {t("forgot_password_page.email_label")}
               </label>
               <input
                 id="forgot-email"
@@ -344,11 +338,10 @@ export default function ForgotPasswordPage() {
               </p>
             )}
             <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? "Sending…" : "Send reset link"}
+              {loading ? t("forgot_password_page.sending") : t("forgot_password_page.send_link")}
             </button>
             <p className="text-xs text-gray-500">
-              The link works once and expires. If email is not configured, use security questions or ask
-              a platform administrator.
+              {t("forgot_password_page.email_help")}
             </p>
           </form>
         )}
@@ -357,7 +350,7 @@ export default function ForgotPasswordPage() {
           <form onSubmit={handleCodeReset} className="space-y-4" noValidate>
             <div>
               <label className="label" htmlFor="code-identifier">
-                Email or phone number
+                {t("forgot_password_page.identifier_label")}
               </label>
               <input
                 id="code-identifier"
@@ -371,7 +364,7 @@ export default function ForgotPasswordPage() {
             </div>
             <div>
               <label className="label" htmlFor="support-code">
-                One-time support code
+                {t("forgot_password_page.support_code")}
               </label>
               <input
                 id="support-code"
@@ -384,8 +377,7 @@ export default function ForgotPasswordPage() {
                 required
               />
               <p className="text-xs text-gray-500 mt-1">
-                Your platform administrator gives you this after verifying your identity. It works once
-                and expires in 30 minutes.
+                {t("forgot_password_page.support_code_hint")}
               </p>
             </div>
             {passwordFields}
@@ -395,18 +387,18 @@ export default function ForgotPasswordPage() {
               </p>
             )}
             <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? "Resetting…" : "Reset with support code"}
+              {loading ? t("forgot_password_page.resetting") : t("forgot_password_page.reset_with_code")}
             </button>
           </form>
         )}
 
         {step === "done" && (
           <div className="text-center py-6 space-y-4" role="status" aria-live="polite">
-            <h2 className="text-kenyan-green font-semibold">Done</h2>
+            <h2 className="text-kenyan-green font-semibold">{t("forgot_password_page.done")}</h2>
             <p className="text-gray-600 text-sm">{message}</p>
             {mode !== "email" && (
               <Link to="/login" className="btn-primary w-full block text-center">
-                Sign in
+                {t("forgot_password_page.sign_in")}
               </Link>
             )}
           </div>
@@ -414,18 +406,17 @@ export default function ForgotPasswordPage() {
 
         {mode === "questions" && (
           <div className="border-t border-gray-200 pt-4 space-y-3">
-            <p className="text-sm font-semibold text-gray-700">Can't use your questions?</p>
+            <p className="text-sm font-semibold text-gray-700">{t("forgot_password_page.cant_use")}</p>
             <p className="text-xs text-gray-500">
-              Ask a platform administrator for a one-time reset code. They will verify your identity
-              before issuing it.
+              {t("forgot_password_page.assistance_hint")}
             </p>
             <input
               type="text"
               className="input-field"
-              placeholder="Optional note (e.g. school name, callback number)"
+              placeholder={t("forgot_password_page.note_placeholder")}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              aria-label="Note for the platform administrator"
+              aria-label={t("forgot_password_page.note_aria")}
             />
             <button
               type="button"
@@ -433,7 +424,7 @@ export default function ForgotPasswordPage() {
               className="btn-secondary w-full"
               disabled={loading || assistanceSent}
             >
-              {assistanceSent ? "Request sent" : "Ask a platform administrator"}
+              {assistanceSent ? t("forgot_password_page.request_sent") : t("forgot_password_page.ask_admin")}
             </button>
             {assistanceSent && message && (
               <p className="text-xs text-kenyan-green" role="status">
@@ -445,7 +436,7 @@ export default function ForgotPasswordPage() {
 
         <div className="text-center text-sm">
           <Link to="/login" className="text-kenyan-red hover:underline">
-            Back to sign in
+            {t("forgot_password_page.back_to_sign_in")}
           </Link>
         </div>
       </div>

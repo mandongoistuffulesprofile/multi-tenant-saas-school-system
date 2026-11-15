@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
 import Skeleton from "../components/atoms/Skeleton";
@@ -48,6 +49,7 @@ const formatDate = (value?: string) => {
 };
 
 export default function AcademicCalendarPage() {
+  const { t } = useTranslation();
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
   const [windows, setWindows] = useState<ExamWindow[]>([]);
@@ -89,7 +91,7 @@ export default function AcademicCalendarPage() {
       setTerms(Array.isArray(tRes.data) ? tRes.data : []);
       setWindows(Array.isArray(wRes.data) ? wRes.data : []);
     } catch (err: any) {
-      toast(err.response?.data?.message || "Failed to load the academic calendar", { type: "error" });
+      toast(err.response?.data?.message || t("calendar_page.load_failed"), { type: "error" });
     } finally {
       setLoading(false);
     }
@@ -105,12 +107,12 @@ export default function AcademicCalendarPage() {
     setSaving("year");
     try {
       await api.post("/calendar/years", yearForm);
-      toast("Academic year added!", { type: "success" });
+      toast(t("calendar_page.added_year"), { type: "success" });
       setYearModal(false);
       setYearForm({ year_label: "", start_date: "", end_date: "", is_current: false });
       await loadCalendar();
     } catch (err: any) {
-      toast(err.response?.data?.message || "Failed to add academic year", { type: "error" });
+      toast(err.response?.data?.message || t("calendar_page.add_year_failed"), { type: "error" });
     } finally {
       setSaving(null);
     }
@@ -118,7 +120,7 @@ export default function AcademicCalendarPage() {
 
   const openTermModal = () => {
     if (years.length === 0) {
-      toast("Add an academic year before adding a term", { type: "error" });
+      toast(t("calendar_page.need_year_first"), { type: "error" });
       setYearModal(true);
       return;
     }
@@ -130,7 +132,7 @@ export default function AcademicCalendarPage() {
   const handleAddTerm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!termForm.year_id) {
-      toast("Select the academic year this term belongs to", { type: "error" });
+      toast(t("calendar_page.select_year_error"), { type: "error" });
       return;
     }
     const termNumber =
@@ -138,12 +140,12 @@ export default function AcademicCalendarPage() {
     setSaving("term");
     try {
       await api.post("/calendar/terms", { ...termForm, term_number: termNumber });
-      toast("Term added to calendar!", { type: "success" });
+      toast(t("calendar_page.added_term"), { type: "success" });
       setTermModal(false);
       setTermForm(emptyTerm());
       await loadCalendar();
     } catch (err: any) {
-      toast(err.response?.data?.message || "Failed to add term", { type: "error" });
+      toast(err.response?.data?.message || t("calendar_page.add_term_failed"), { type: "error" });
     } finally {
       setSaving(null);
     }
@@ -154,12 +156,12 @@ export default function AcademicCalendarPage() {
     setSaving("window");
     try {
       await api.post("/calendar/exam-windows", windowForm);
-      toast("Exam window added!", { type: "success" });
+      toast(t("calendar_page.added_window"), { type: "success" });
       setWindowModal(false);
       setWindowForm({ exam_type: "END_TERM", window_label: "", start_date: "", end_date: "" });
       await loadCalendar();
     } catch (err: any) {
-      toast(err.response?.data?.message || "Failed to add exam window", { type: "error" });
+      toast(err.response?.data?.message || t("calendar_page.add_window_failed"), { type: "error" });
     } finally {
       setSaving(null);
     }
@@ -170,17 +172,17 @@ export default function AcademicCalendarPage() {
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-            <h2 className="text-heading">Academic Calendar</h2>
+            <h2 className="text-heading">{t("calendar_page.title")}</h2>
             {canManageCalendar && (
               <div className="flex flex-wrap gap-2">
                 <button className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50 transition" onClick={() => setYearModal(true)}>
-                  Add Academic Year
+                  {t("calendar_page.add_year")}
                 </button>
                 <button className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50 transition" onClick={() => setWindowModal(true)}>
-                  Add Exam Window
+                  {t("calendar_page.add_exam_window")}
                 </button>
                 <button className="px-4 py-2 rounded-lg bg-kenyan-red text-white text-sm font-medium hover:opacity-90 transition" onClick={openTermModal}>
-                  Add Term
+                  {t("calendar_page.add_term")}
                 </button>
               </div>
             )}
@@ -191,33 +193,33 @@ export default function AcademicCalendarPage() {
             <div className="space-y-6">
               <DataTable
                 data={years}
-                emptyMessage="No academic years found — add one to start the calendar"
+                emptyMessage={t("calendar_page.empty_years")}
                 columns={[
-                  { key: "year_label", header: "Year" },
-                  { key: "start_date", header: "Starts", render: (r) => formatDate(r.start_date) },
-                  { key: "end_date", header: "Ends", render: (r) => formatDate(r.end_date) },
-                  { key: "is_current", header: "Status", render: (r) => (r.is_current ? "Current" : "—") },
+                  { key: "year_label", header: t("calendar_page.year") },
+                  { key: "start_date", header: t("calendar_page.starts"), render: (r) => formatDate(r.start_date) },
+                  { key: "end_date", header: t("calendar_page.ends"), render: (r) => formatDate(r.end_date) },
+                  { key: "is_current", header: t("calendar_page.status"), render: (r) => (r.is_current ? t("calendar_page.current") : "—") },
                 ]}
               />
               <DataTable
                 data={terms}
-                emptyMessage="No terms found"
+                emptyMessage={t("calendar_page.empty_terms")}
                 columns={[
-                  { key: "term_label", header: "Term" },
-                  { key: "term_number", header: "No." },
-                  { key: "start_date", header: "Starts", render: (r) => formatDate(r.start_date) },
-                  { key: "end_date", header: "Ends", render: (r) => formatDate(r.end_date) },
-                  { key: "is_current", header: "Status", render: (r) => (r.is_current ? "Current" : "—") },
+                  { key: "term_label", header: t("calendar_page.term") },
+                  { key: "term_number", header: t("calendar_page.no") },
+                  { key: "start_date", header: t("calendar_page.starts"), render: (r) => formatDate(r.start_date) },
+                  { key: "end_date", header: t("calendar_page.ends"), render: (r) => formatDate(r.end_date) },
+                  { key: "is_current", header: t("calendar_page.status"), render: (r) => (r.is_current ? t("calendar_page.current") : "—") },
                 ]}
               />
               <DataTable
                 data={windows}
-                emptyMessage="No exam windows found"
+                emptyMessage={t("calendar_page.empty_windows")}
                 columns={[
-                  { key: "window_label", header: "Window" },
-                  { key: "exam_type", header: "Exam" },
-                  { key: "start_date", header: "Starts", render: (r) => formatDate(r.start_date) },
-                  { key: "end_date", header: "Ends", render: (r) => formatDate(r.end_date) },
+                  { key: "window_label", header: t("calendar_page.window") },
+                  { key: "exam_type", header: t("calendar_page.exam") },
+                  { key: "start_date", header: t("calendar_page.starts"), render: (r) => formatDate(r.start_date) },
+                  { key: "end_date", header: t("calendar_page.ends"), render: (r) => formatDate(r.end_date) },
                 ]}
               />
             </div>
@@ -226,14 +228,14 @@ export default function AcademicCalendarPage() {
           {yearModal && (
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setYearModal(false)}>
               <div style={{ background: "#fff", borderRadius: 8, padding: "1.5rem", width: "24rem", maxWidth: "90vw" }} onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-heading" style={{ marginBottom: "1rem" }}>Add Academic Year</h3>
+                <h3 className="text-heading" style={{ marginBottom: "1rem" }}>{t("calendar_page.add_year")}</h3>
                 <form onSubmit={handleAddYear}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Year Label *</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.year_label")}</span>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. 2027"
+                      placeholder={t("calendar_page.year_placeholder")}
                       value={yearForm.year_label}
                       onChange={(e) => setYearForm({ ...yearForm, year_label: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
@@ -241,7 +243,7 @@ export default function AcademicCalendarPage() {
                   </label>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                     <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Start Date *</span>
+                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.start_date")}</span>
                       <input
                         type="date"
                         required
@@ -251,7 +253,7 @@ export default function AcademicCalendarPage() {
                       />
                     </label>
                     <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>End Date *</span>
+                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.end_date")}</span>
                       <input
                         type="date"
                         required
@@ -267,12 +269,12 @@ export default function AcademicCalendarPage() {
                       checked={yearForm.is_current}
                       onChange={(e) => setYearForm({ ...yearForm, is_current: e.target.checked })}
                     />
-                    <span style={{ fontSize: "0.85rem" }}>Make this the current academic year</span>
+                    <span style={{ fontSize: "0.85rem" }}>{t("calendar_page.make_current_year")}</span>
                   </label>
                   <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "0.5rem" }}>
-                    <button type="button" onClick={() => setYearModal(false)} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
+                    <button type="button" onClick={() => setYearModal(false)} style={{ padding: "0.5rem 1rem" }}>{t("calendar_page.cancel")}</button>
                     <button type="submit" className="btn-primary" disabled={saving === "year"}>
-                      {saving === "year" ? "Adding…" : "Add Year"}
+                      {saving === "year" ? t("calendar_page.adding") : t("calendar_page.add_year_submit")}
                     </button>
                   </div>
                 </form>
@@ -283,28 +285,28 @@ export default function AcademicCalendarPage() {
           {termModal && (
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setTermModal(false)}>
               <div style={{ background: "#fff", borderRadius: 8, padding: "1.5rem", width: "24rem", maxWidth: "90vw" }} onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-heading" style={{ marginBottom: "1rem" }}>Add Term</h3>
+                <h3 className="text-heading" style={{ marginBottom: "1rem" }}>{t("calendar_page.add_term")}</h3>
                 <form onSubmit={handleAddTerm}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Academic Year *</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.academic_year")}</span>
                     <select
                       required
                       value={termForm.year_id}
                       onChange={(e) => setTermForm({ ...termForm, year_id: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     >
-                      <option value="">Select year…</option>
+                      <option value="">{t("calendar_page.select_year")}</option>
                       {years.map((y) => (
                         <option key={y.year_id} value={y.year_id}>{y.year_label}</option>
                       ))}
                     </select>
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Term Name *</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.term_name")}</span>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Term 2"
+                      placeholder={t("calendar_page.term_placeholder")}
                       value={termForm.term_label}
                       onChange={(e) => setTermForm({ ...termForm, term_label: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
@@ -312,7 +314,7 @@ export default function AcademicCalendarPage() {
                   </label>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                     <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Start Date *</span>
+                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.start_date")}</span>
                       <input
                         type="date"
                         required
@@ -322,7 +324,7 @@ export default function AcademicCalendarPage() {
                       />
                     </label>
                     <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>End Date *</span>
+                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.end_date")}</span>
                       <input
                         type="date"
                         required
@@ -338,12 +340,12 @@ export default function AcademicCalendarPage() {
                       checked={termForm.is_current}
                       onChange={(e) => setTermForm({ ...termForm, is_current: e.target.checked })}
                     />
-                    <span style={{ fontSize: "0.85rem" }}>Make this the current term</span>
+                    <span style={{ fontSize: "0.85rem" }}>{t("calendar_page.make_current_term")}</span>
                   </label>
                   <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "0.5rem" }}>
-                    <button type="button" onClick={() => setTermModal(false)} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
+                    <button type="button" onClick={() => setTermModal(false)} style={{ padding: "0.5rem 1rem" }}>{t("calendar_page.cancel")}</button>
                     <button type="submit" className="btn-primary" disabled={saving === "term"}>
-                      {saving === "term" ? "Adding…" : "Add Term"}
+                      {saving === "term" ? t("calendar_page.adding") : t("calendar_page.add_term_submit")}
                     </button>
                   </div>
                 </form>
@@ -354,29 +356,29 @@ export default function AcademicCalendarPage() {
           {windowModal && (
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setWindowModal(false)}>
               <div style={{ background: "#fff", borderRadius: 8, padding: "1.5rem", width: "24rem", maxWidth: "90vw" }} onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-heading" style={{ marginBottom: "1rem" }}>Add Exam Window</h3>
+                <h3 className="text-heading" style={{ marginBottom: "1rem" }}>{t("calendar_page.add_exam_window")}</h3>
                 <form onSubmit={handleAddWindow}>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Exam Type *</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.exam_type")}</span>
                     <select
                       required
                       value={windowForm.exam_type}
                       onChange={(e) => setWindowForm({ ...windowForm, exam_type: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                     >
-                      <option value="END_TERM">End of Term</option>
-                      <option value="MID_TERM">Mid Term</option>
+                      <option value="END_TERM">{t("calendar_page.exam_end_term")}</option>
+                      <option value="MID_TERM">{t("calendar_page.exam_mid_term")}</option>
                       <option value="KPSEA">KPSEA</option>
                       <option value="KJSEA">KJSEA</option>
-                      <option value="MOCK">Mock</option>
+                      <option value="MOCK">{t("calendar_page.exam_mock")}</option>
                     </select>
                   </label>
                   <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Window Label *</span>
+                    <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.window_label")}</span>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Term 2 End of Term"
+                      placeholder={t("calendar_page.window_placeholder")}
                       value={windowForm.window_label}
                       onChange={(e) => setWindowForm({ ...windowForm, window_label: e.target.value })}
                       style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
@@ -384,7 +386,7 @@ export default function AcademicCalendarPage() {
                   </label>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                     <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Start Date *</span>
+                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.start_date")}</span>
                       <input
                         type="date"
                         required
@@ -394,7 +396,7 @@ export default function AcademicCalendarPage() {
                       />
                     </label>
                     <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>End Date *</span>
+                      <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("calendar_page.end_date")}</span>
                       <input
                         type="date"
                         required
@@ -405,9 +407,9 @@ export default function AcademicCalendarPage() {
                     </label>
                   </div>
                   <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "0.5rem" }}>
-                    <button type="button" onClick={() => setWindowModal(false)} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
+                    <button type="button" onClick={() => setWindowModal(false)} style={{ padding: "0.5rem 1rem" }}>{t("calendar_page.cancel")}</button>
                     <button type="submit" className="btn-primary" disabled={saving === "window"}>
-                      {saving === "window" ? "Adding…" : "Add Window"}
+                      {saving === "window" ? t("calendar_page.adding") : t("calendar_page.add_window_submit")}
                     </button>
                   </div>
                 </form>
