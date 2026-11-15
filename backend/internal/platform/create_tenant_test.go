@@ -155,6 +155,37 @@ func TestCreateTenantReportsDuplicateAdministrator(t *testing.T) {
 	})
 }
 
+func TestCreateTenantSubscribesToTheChosenPlan(t *testing.T) {
+	h := newOnboardingHandler(t)
+	token := fmt.Sprintf("%d", time.Now().UnixNano())
+	tenantID := "dup-plan-" + token
+	email := "admin-" + token + "@dup-test.example"
+	cleanupTenant(t, h, tenantID, email)
+
+	// A plan code used to fail here: the subscription insert pointed at a table
+	// that only existed in the archived migration chain.
+	w := postCreateTenant(t, h, map[string]any{
+		"school_name": "Plan Test Primary",
+		"subdomain":   tenantID,
+		"admin_email": email,
+		"admin_phone": "2547" + token[len(token)-8:],
+		"plan_code":   "STANDARD",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("got %d, want 201: %s", w.Code, w.Body.String())
+	}
+
+	var planCode string
+	if err := h.service.database.QueryRow(
+		`SELECT p.plan_code FROM subscriptions s JOIN plans p ON p.plan_id = s.plan_id WHERE s.tenant_id = $1`,
+		tenantID).Scan(&planCode); err != nil {
+		t.Fatalf("no subscription for the new school: %v", err)
+	}
+	if planCode != "STANDARD" {
+		t.Fatalf("subscribed to %q, want STANDARD", planCode)
+	}
+}
+
 func TestCreateTenantStoresLoginLookupFields(t *testing.T) {
 	h := newOnboardingHandler(t)
 	token := fmt.Sprintf("%d", time.Now().UnixNano())
