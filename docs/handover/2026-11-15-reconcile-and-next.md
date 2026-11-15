@@ -53,6 +53,10 @@ once nobody is working on them.
 | `e7219a3` | Screenshot manifest prefix `83` no longer duplicated (`83-saas-tenant-setup` → `89-…`); `check-routes.mjs` now fails on a repeated two-digit prefix. |
 | `4038d52` | `list_scope_estate_test.go`: two-tenant coverage for `ListPlatformInvoices`, `ListTenantUsage` and `ListExports`. |
 | `9f49e58` | The reconciliation above. |
+| `54182fc` | Invoice, invoice-line and capitation read DTOs are `money.Decimal` (exact strings on the wire) instead of `float64`; SPA types accept `number \| string`; JSON shape pinned by tests. |
+| `ef58ee2` | Not-found and reset-password screens translated; `keyCoverage.test.ts` walks every literal `t()` key in the source and requires it in both locales. |
+| `d4f1534` | Learner import and the CBC assessment grid translated (CBC previously hardcoded Kiswahili headings in English mode). |
+| `02cea30` | Curriculum viewer translated. |
 
 ## 3. What was actually verified — and what was not
 
@@ -132,9 +136,9 @@ payments dialog and `INVOICE_BUSY` retry at `/finance/payments`).
 | # | Item | Evidence / where | Done when |
 | --- | --- | --- | --- |
 | 1 | RLS live probe covers 9 of 104 tenant tables | `backend/cmd/rlscheck` `probes()` seeds only tables fillable from `tenant_id` alone. Invoices, payments, staff and memberships are static-checked only. | Probes seed parents first (`learners`, `academic_years`, `tenant_memberships`) and cover the money/people tables. Highest-value table: `tenant_memberships` — the devuser login bug lived there. |
-| 2 | Read DTOs still carry money as `float64` | `backend/internal/finance/service.go:371-373,484-485,1637` (`total_amount`, `amount_paid`, `amount_outstanding`, `unit_amount`, `line_amount`, `TotalAmount`). The write path is decimal now; reads round-trip through float64. | DTOs use `money.Decimal` (or `json.Number`), verified by an API test that reads back `0.1 + 0.2`-style values. |
+| 2 | ~~Read DTOs carried money as `float64`~~ **Done 2026-11-15** (`54182fc`) | Invoice, invoice-line and capitation read DTOs now use `money.Decimal` and serialise as exact strings; `invoice_json_test.go` pins the wire shape and the SPA types accept `number \| string`. | — |
 | 3 | `RecordPayment` issues no durable receipt number | No `payments.receipt_number` column; `payment_ledger` requires `receipt_number`, `balance_before/after`. | `payment_ledger` row written inside the payment transaction; number taken from `receipt_sequences` under a row lock and returned. |
-| 4 | Twelve pages are still hardcoded English (payments is the only one translated) | `AcademicCalendarPage`, `CurriculumPage`, `FinanceMpesaPage`, `FinanceReconciliationPage`, `ForgotPasswordPage`, `ImportLearnersPage`, `NotFoundPage`, `ReportCardPrint`, `SaaSAdminDesk`, `SchoolProfilePage` | each renders from keys present in both locales |
+| 4 | Seven pages are still hardcoded English | Translated so far: payments, `NotFoundPage`, `ResetPasswordPage`, `ImportLearnersPage`, `CBCAssessment`, `CurriculumPage`. Remaining: `AcademicCalendarPage`, `FinanceMpesaPage`, `FinanceReconciliationPage`, `ForgotPasswordPage`, `ReportCardPrint`, `SaaSAdminDesk`, `SchoolProfilePage` | `frontend/src/i18n/keyCoverage.test.ts` fails on any literal `t()` key missing from `en` or `sw`, so add the keys and it proves the page |
 | 5 | `kitchen`, `inkind`, `valueledger` still have no test files | `backend/internal/{kitchen,inkind,valueledger}` | each handler has one success and one failure test against `TEST_DATABASE_URL` |
 | 6 | CBC rubric sync is disabled, not implemented | no rubric-score table/endpoint; the UI labels its queue local | rubric score model + endpoint and the UI posts again, or the queue is removed |
 | 7 | Three declared screenshots never captured | `33-admin-cbc-assessment.png`, `36-admin-report-card-print.png`, `40-admin-bom-oversight.png` absent from `docs/ui-design/training/` (prefix duplication is fixed now) | captured and asserted, reviewed before promoting |
@@ -143,9 +147,10 @@ payments dialog and `INVOICE_BUSY` retry at `/finance/payments`).
 
 ## 6. Suggested next slice
 
-`#1` and `#2` together, because they are the same kind of blind spot: the money
-tables are neither live-probed for isolation nor guaranteed decimal on read.
-Start by adding `tenant_memberships` and `invoices` probes to `rlscheck`
-(membership needs a `users` row first — clean it up in `cleanup()`), then change
-the finance read DTOs to `money.Decimal` and run the API against a fresh
-migrated database.
+`#1` and `#3`: the money and people tables are neither live-probed for
+isolation nor attached to a durable receipt number. Add `tenant_memberships`,
+`invoices`, `payments` and `staff_profiles` probes to `rlscheck` (membership
+needs a `users` row first — clean it up in `cleanup()`), then write the
+`payment_ledger` row inside `RecordPayment` so a receipt number is durable.
+Both need a migrated database, so run them against a fresh `migrate -seed`
+database before merging.
