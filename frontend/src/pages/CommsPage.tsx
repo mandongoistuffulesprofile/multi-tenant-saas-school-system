@@ -74,6 +74,11 @@ type OptOut = {
   is_active: boolean;
 };
 
+type Grade = {
+  grade_id: string;
+  grade_label: string;
+};
+
 const CHANNEL_OPTIONS = ["SMS", "WHATSAPP", "EMAIL"];
 const AUDIENCE_OPTIONS = [
   { value: "ALL", label: "All Parents" },
@@ -84,6 +89,7 @@ const AUDIENCE_OPTIONS = [
 
 export default function CommsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [grades, setGrades] = useState<Grade[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [optOuts, setOptOuts] = useState<OptOut[]>([]);
@@ -138,8 +144,12 @@ export default function CommsPage() {
       api.get("/comms/messages"),
       api.get("/comms/broadcasts"),
       api.get("/comms/opt-outs"),
-    ]).then(([tRes, mRes, bRes, oRes]) => {
+      // The grade picker needs the school's real grades; templates only look
+      // like grades because both are named lists.
+      api.get("/structure/grades").catch(() => ({ data: [] })),
+    ]).then(([tRes, mRes, bRes, oRes, gRes]) => {
       setTemplates(Array.isArray(tRes.data) ? tRes.data : []);
+      setGrades(Array.isArray(gRes.data) ? gRes.data : []);
       setMessages(Array.isArray(mRes.data) ? mRes.data : []);
       setBroadcasts(Array.isArray(bRes.data) ? bRes.data : []);
       setOptOuts(Array.isArray(oRes.data) ? oRes.data : []);
@@ -321,8 +331,6 @@ export default function CommsPage() {
     const dt = new Date(d);
     return isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
   };
-
-  const grades = templates.map(t => ({ grade_id: t.template_id, grade_label: t.template_name })); // placeholder for grade picker
 
   return (
     <ErrorBoundary>
@@ -574,6 +582,9 @@ export default function CommsPage() {
                     <div>
                       <label className="label">Grades/Streams</label>
                       <div className="flex flex-wrap gap-2 mt-1">
+                        {grades.length === 0 && (
+                          <p className="text-xs text-gray-500">No grades configured yet.</p>
+                        )}
                         {grades.map((g) => (
                           <button
                             key={g.grade_id}
