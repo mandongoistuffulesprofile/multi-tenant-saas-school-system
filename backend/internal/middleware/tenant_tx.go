@@ -188,7 +188,7 @@ func TenantTxMiddleware(db *sqlx.DB, redisClient *redis.Client) gin.HandlerFunc 
 			}
 		}
 
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), txKey{}, tx))
+		c.Request = c.Request.WithContext(WithTx(c.Request.Context(), tx))
 		c.Set("tx", tx)
 
 		c.Next()
@@ -220,6 +220,12 @@ func isPlatformAdmin(c *gin.Context) bool {
 		return true
 	}
 	return false
+}
+
+// WithTx attaches tx to ctx so the handler chain — and a test driving a handler
+// directly — can retrieve it with TxFromContext.
+func WithTx(ctx context.Context, tx *sqlx.Tx) context.Context {
+	return context.WithValue(ctx, txKey{}, tx)
 }
 
 // TxFromContext returns the request-scoped transaction if present.
