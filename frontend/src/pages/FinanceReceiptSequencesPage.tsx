@@ -56,7 +56,7 @@ export default function FinanceReceiptSequencesPage() {
     setSaving(true);
     try {
       if (editing) {
-        await api.put(`/finance/receipt-sequences/${editing.sequence_id}`, {
+        await api.patch(`/finance/receipt-sequences/${editing.sequence_id}`, {
           prefix: form.prefix.trim(),
           last_number: form.last_number,
           reset_frequency: form.reset_frequency,

@@ -36,7 +36,7 @@ export default function FinanceLearnerStatementPage() {
   const loadStatement = async (learnerId: string) => {
     setLoading(true);
     try {
-      const res = await api.get(`/finance/statement/${learnerId}`);
+      const res = await api.get(`/finance/learners/${learnerId}/statement`);
       setStatement(res.data);
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to load statement", { type: "error" });

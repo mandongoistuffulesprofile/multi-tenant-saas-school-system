@@ -525,6 +525,70 @@ func (h *Handler) CreateDPIA(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"dpia_id": dpiaID})
 }
 
+// ListDPIAs returns the school's data-protection impact assessments, newest
+// first. The page lists what CreateDPIA records, so both live together.
+func (h *Handler) ListDPIAs(c *gin.Context) {
+	tx := h.tx(c)
+	if tx == nil {
+		return
+	}
+	tenantID := c.GetString("tenant_id")
+	rows, err := tx.Query(
+		`SELECT dpia_id, tenant_id, processing_activity, description, risk_level,
+			mitigation_measures, status, assessed_by, review_date::text,
+			created_at::text, updated_at::text
+		 FROM dpia_records WHERE tenant_id = $1 ORDER BY created_at DESC`,
+		tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type dpiaRecord struct {
+		DPIAID             string  `json:"dpia_id"`
+		TenantID           string  `json:"tenant_id"`
+		ProcessingActivity string  `json:"processing_activity"`
+		Description        string  `json:"description"`
+		RiskLevel          string  `json:"risk_level"`
+		MitigationMeasures *string `json:"mitigation_measures"`
+		Status             string  `json:"status"`
+		AssessedBy         *string `json:"assessed_by"`
+		ReviewDate         *string `json:"review_date"`
+		CreatedAt          string  `json:"created_at"`
+		UpdatedAt          string  `json:"updated_at"`
+	}
+
+	records := make([]dpiaRecord, 0)
+	for rows.Next() {
+		var rec dpiaRecord
+		var mitigation, assessedBy, reviewDate sql.NullString
+		if err := rows.Scan(
+			&rec.DPIAID, &rec.TenantID, &rec.ProcessingActivity, &rec.Description,
+			&rec.RiskLevel, &mitigation, &rec.Status, &assessedBy, &reviewDate,
+			&rec.CreatedAt, &rec.UpdatedAt,
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if mitigation.Valid {
+			rec.MitigationMeasures = &mitigation.String
+		}
+		if assessedBy.Valid {
+			rec.AssessedBy = &assessedBy.String
+		}
+		if reviewDate.Valid {
+			rec.ReviewDate = &reviewDate.String
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, records)
+}
+
 // ComplianceSummary gives the dashboard its coverage figures.
 func (h *Handler) ComplianceSummary(c *gin.Context) {
 	tx := h.tx(c)

@@ -34,8 +34,8 @@ export default function FinanceCapitationPage() {
   }>(receiptFormInit());
 
   useEffect(() => {
-    api.get("/finance/capitation").then((res) => {
-      setReceipts(res.data?.receipts || []);
+    api.get("/finance/capitation/receipts").then((res) => {
+      setReceipts(Array.isArray(res.data) ? res.data : []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -52,7 +52,7 @@ export default function FinanceCapitationPage() {
     }
     setCreating(true);
     try {
-      await api.post("/finance/capitation", {
+      await api.post("/finance/capitation/receipts", {
         receipt_number: receiptForm.receipt_number.trim(),
         capitation_period: receiptForm.capitation_period.trim(),
         learner_count: learnerCount,
@@ -63,7 +63,7 @@ export default function FinanceCapitationPage() {
       toast("Capitation receipt recorded", { type: "success" });
       setModalOpen(false);
       setReceiptForm(receiptFormInit());
-      api.get("/finance/capitation").then((r) => setReceipts(r.data?.receipts || []));
+      api.get("/finance/capitation/receipts").then((r) => setReceipts(Array.isArray(r.data) ? r.data : []));
     } catch (err: any) {
       toast(err.response?.data?.message || "Failed to record receipt", { type: "error" });
     } finally {

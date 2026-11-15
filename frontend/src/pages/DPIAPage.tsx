@@ -47,7 +47,6 @@ export default function DPIAPage() {
   }, []);
 
   const loadDPIAs = () => {
-    // There's no ListDPIA endpoint yet, so we'll handle the error gracefully
     api.get<DPIA[]>("/compliance/dpia")
       .then((res) => setDPIAs(res.data || []))
       .catch(() => setDPIAs([]))

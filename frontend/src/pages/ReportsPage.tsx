@@ -145,7 +145,7 @@ export default function ReportsPage() {
     setSavingTemplate(true);
     try {
       if (editingTemplate) {
-        await api.put(`/reports/templates/${editingTemplate.template_id}`, {
+        await api.patch(`/reports/templates/${editingTemplate.template_id}`, {
           template_name: templateForm.template_name.trim(),
           grade_band: templateForm.grade_band,
           template_config: templateForm.template_config,
@@ -186,7 +186,7 @@ export default function ReportsPage() {
 
   const handleSetDefault = async (id: string) => {
     try {
-      await api.put(`/reports/templates/${id}`, { is_default: true });
+      await api.patch(`/reports/templates/${id}`, { is_default: true });
       toast("Default template set", { type: "success" });
       await loadTemplates();
     } catch (err: any) {

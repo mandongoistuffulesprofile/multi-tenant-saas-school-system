@@ -104,7 +104,7 @@ export default function AttendancePage() {
     setSavingRegister(true);
     try {
       if (editingRegister) {
-        await api.put(`/attendance/registers/${editingRegister.register_id}`, { status: registerForm.session_type });
+        await api.patch(`/attendance/registers/${editingRegister.register_id}`, { session_type: registerForm.session_type });
         toast("Register updated", { type: "success" });
       } else {
         await api.post("/attendance/registers", {
@@ -141,7 +141,7 @@ export default function AttendancePage() {
 
   const handleCloseRegister = async (id: string) => {
     try {
-      await api.put(`/attendance/registers/${id}`, { status: "CLOSED" });
+      await api.patch(`/attendance/registers/${id}`, { status: "CLOSED" });
       toast("Register closed", { type: "success" });
       const rRes = await api.get("/attendance/registers");
       setRegisters(Array.isArray(rRes.data) ? rRes.data : []);

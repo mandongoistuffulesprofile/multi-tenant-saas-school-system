@@ -64,7 +64,7 @@ export default function FinanceSTKPage() {
     }
     setCreating(true);
     try {
-      await api.post("/finance/mpesa/stk-push", {
+      await api.post("/finance/mpesa/stk-requests", {
         channel_id: stkForm.channel_id,
         phone_number: stkForm.phone_number.trim(),
         amount,
@@ -86,7 +86,7 @@ export default function FinanceSTKPage() {
   const checkStatus = async (stkId: string) => {
     setChecking(stkId);
     try {
-      const res = await api.get(`/finance/mpesa/stk-requests/${stkId}/status`);
+      const res = await api.get(`/finance/mpesa/stk-requests/${stkId}`);
       toast(`Status: ${res.data?.status || "Unknown"}`, { type: "success" });
       api.get("/finance/mpesa/stk-requests").then((r) => setStkRequests(Array.isArray(r.data) ? r.data : []));
     } catch (err: any) {
