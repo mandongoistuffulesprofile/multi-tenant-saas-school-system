@@ -2,6 +2,24 @@ import { api } from "../lib/api";
 import React, { useState, useEffect } from 'react';
 import { formatKES } from '../utils/kenyaFormatters';
 
+type WizardField = 'name' | 'slug' | 'email' | 'phone';
+type WizardErrors = Partial<Record<WizardField, string>>;
+
+// Mirrors what POST /platform/tenants insists on: the school name, the
+// subdomain (which becomes the tenant_id, a varchar(50)), a unique
+// administrator email and a phone number for that account.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Same normalisation the API applies, so the previewed host matches what is stored. */
+function normalizeSubdomain(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
 interface SchoolTenant {
   id: string;
   name: string;
@@ -107,7 +125,7 @@ export const SaaSAdminDesk: React.FC = () => {
     term_fee: 30000,
   });
 
-  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<WizardErrors>({});
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -116,25 +134,40 @@ export const SaaSAdminDesk: React.FC = () => {
 
   const handleCreateTenant = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!wizardData.name.trim() || !wizardData.slug.trim() || !wizardData.admin_email.trim()) {
-      showToast('Jina la shule, subdomain na barua pepe ya msimamizi ni lazima.');
-      return;
-    }
-    // The API requires a phone number for the head teacher's account, so refuse
-    // an empty or malformed one here rather than after a round trip.
+    // Check everything the API requires before sending it, so a missing field
+    // reports next to its input instead of coming back as a server error.
+    const schoolName = wizardData.name.trim();
+    const subdomain = normalizeSubdomain(wizardData.slug);
+    const adminEmail = wizardData.admin_email.trim().toLowerCase();
     const adminPhone = normalizeKenyanPhone(wizardData.headteacher_phone);
-    if (!adminPhone) {
-      setPhoneError('Weka nambari ya simu halali ya Mwalimu Mkuu, mfano 0712345678.');
+
+    const nextErrors: WizardErrors = {};
+    if (!schoolName) nextErrors.name = 'Jina la shule ni lazima.';
+    if (!subdomain) nextErrors.slug = 'Subdomain ni lazima.';
+    else if (subdomain.length > 50) {
+      nextErrors.slug = 'Subdomain lazima iwe herufi 50 au chini — inatumika kama kitambulisho cha shule.';
+    }
+    if (!adminEmail) nextErrors.email = 'Barua pepe ya msimamizi ni lazima.';
+    else if (!EMAIL_PATTERN.test(adminEmail)) nextErrors.email = 'Barua pepe si sahihi, mfano admin@shule.ac.ke.';
+    if (!adminPhone) nextErrors.phone = 'Weka nambari ya simu halali ya Mwalimu Mkuu, mfano 0712345678.';
+
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
       return;
     }
-    setPhoneError(null);
+    setErrors({});
     try {
       const res = await api.post('/platform/tenants', {
-        school_name: wizardData.name.trim(),
-        subdomain: wizardData.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-        admin_email: wizardData.admin_email.toLowerCase().trim(),
+        school_name: schoolName,
+        subdomain,
+        admin_email: adminEmail,
         admin_phone: adminPhone,
-        plan: 'STANDARD',
+        // The form's "school type" choice decides both fields the API stores;
+        // sending neither would have registered every school as PRIVATE/CUSTOM.
+        school_type: wizardData.category === 'PUBLIC_COMPREHENSIVE' ? 'PUBLIC' : 'PRIVATE',
+        funding_mode: wizardData.category === 'PUBLIC_COMPREHENSIVE' ? 'CAPITATION' : 'CUSTOM',
+        admin_full_name: wizardData.headteacher_name.trim(),
+        plan_code: 'STANDARD',
         county: wizardData.county || '',
       });
       const created = res.data || {};
@@ -151,7 +184,7 @@ export const SaaSAdminDesk: React.FC = () => {
       setIsOnboardingOpen(false);
       showToast(`✓ '${created.school_name || wizardData.name}' imesajiliwa. Msimamizi: ${created.admin_email} · Password ya muda (iona mara moja): ${created.temp_password}`);
       setWizardData({ name: '', slug: '', moe_code: '', county: 'Kitui', sub_county: '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_AND_BOARDING', paybill: '', admin_email: '', headteacher_name: '', headteacher_phone: '', term_fee: 30000 });
-      setPhoneError(null);
+      setErrors({});
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Usajili umeshindikana.');
     }
@@ -355,11 +388,13 @@ export const SaaSAdminDesk: React.FC = () => {
                   <label className="block font-bold text-slate-700 mb-1">Jina Kamili la Shule (Official School Name):</label>
                   <input
                     required
+                    aria-invalid={errors.name ? true : undefined}
                     value={wizardData.name}
                     onChange={(e) => setWizardData({ ...wizardData, name: e.target.value, slug: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-') })}
                     placeholder="Mfano: MANDONGOI COMPREHENSIVE SCHOOL"
-                    className="w-full p-2 border border-slate-300 rounded-lg uppercase font-semibold"
+                    className={`w-full p-2 border rounded-lg uppercase font-semibold ${errors.name ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                   />
+                  {errors.name && <p className="text-[11px] text-red-600 mt-1">{errors.name}</p>}
                 </div>
 
                 <div>
@@ -367,19 +402,23 @@ export const SaaSAdminDesk: React.FC = () => {
                   <div className="flex items-center">
                     <input
                       required
+                      aria-invalid={errors.slug ? true : undefined}
                       value={wizardData.slug}
-                      onChange={(e) => setWizardData({ ...wizardData, slug: e.target.value })}
+                      onChange={(e) => {
+                        setWizardData({ ...wizardData, slug: e.target.value });
+                        if (errors.slug) setErrors({ ...errors, slug: undefined });
+                      }}
                       placeholder="mandongoi"
-                      className="w-full p-2 border border-slate-300 rounded-l-lg font-mono text-emerald-700 font-bold"
+                      className={`w-full p-2 border rounded-l-lg font-mono text-emerald-700 font-bold ${errors.slug ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                     />
                     <span className="bg-slate-100 border border-l-0 border-slate-300 p-2 rounded-r-lg text-slate-500 font-mono">.eduke.co.ke</span>
                   </div>
+                  {errors.slug && <p className="text-[11px] text-red-600 mt-1">{errors.slug}</p>}
                 </div>
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Nambari ya Usajili wa MoE:</label>
                   <input
-                    required
                     value={wizardData.moe_code}
                     onChange={(e) => setWizardData({ ...wizardData, moe_code: e.target.value })}
                     placeholder="MoE/PRI/2026/..."
@@ -405,7 +444,6 @@ export const SaaSAdminDesk: React.FC = () => {
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Sub-County / Wilaya:</label>
                   <input
-                    required
                     value={wizardData.sub_county}
                     onChange={(e) => setWizardData({ ...wizardData, sub_county: e.target.value })}
                     placeholder="Mfano: Mwingi North"
@@ -440,7 +478,6 @@ export const SaaSAdminDesk: React.FC = () => {
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Safaricom Paybill / Till:</label>
                   <input
-                    required
                     value={wizardData.paybill}
                     onChange={(e) => setWizardData({ ...wizardData, paybill: e.target.value })}
                     placeholder="522123"
@@ -475,17 +512,17 @@ export const SaaSAdminDesk: React.FC = () => {
                     required
                     type="tel"
                     inputMode="tel"
-                    aria-invalid={phoneError ? true : undefined}
+                    aria-invalid={errors.phone ? true : undefined}
                     value={wizardData.headteacher_phone}
                     onChange={(e) => {
                       setWizardData({ ...wizardData, headteacher_phone: e.target.value });
-                      if (phoneError) setPhoneError(null);
+                      if (errors.phone) setErrors({ ...errors, phone: undefined });
                     }}
                     placeholder="0712345678"
-                    className={`w-full p-2 border rounded-lg font-mono ${phoneError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+                    className={`w-full p-2 border rounded-lg font-mono ${errors.phone ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                   />
-                  {phoneError && (
-                    <p className="text-[11px] text-red-600 mt-1">{phoneError}</p>
+                  {errors.phone && (
+                    <p className="text-[11px] text-red-600 mt-1">{errors.phone}</p>
                   )}
                 </div>
               </div>
@@ -496,11 +533,16 @@ export const SaaSAdminDesk: React.FC = () => {
               <input
                 type="email"
                 required
+                aria-invalid={errors.email ? true : undefined}
                 value={wizardData.admin_email}
-                onChange={(e) => setWizardData({ ...wizardData, admin_email: e.target.value })}
+                onChange={(e) => {
+                  setWizardData({ ...wizardData, admin_email: e.target.value });
+                  if (errors.email) setErrors({ ...errors, email: undefined });
+                }}
                 placeholder="admin@newschool.ac.ke"
-                className="w-full p-2 mb-3 border border-slate-300 rounded-lg font-mono"
+                className={`w-full p-2 border rounded-lg font-mono ${errors.email ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
               />
+              {errors.email && <p className="text-[11px] text-red-600 mt-1 mb-3">{errors.email}</p>}
               <p className="text-[10px] text-slate-400 mb-3">
                 A temporary password is generated server-side and shown exactly once after onboarding.
               </p>

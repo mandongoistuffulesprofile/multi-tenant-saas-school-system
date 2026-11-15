@@ -91,6 +91,76 @@ describe("platform admin desk", () => {
     expect(text).toContain("Imesimamishwa");
   });
 
+  it("refuses to submit until the fields CreateTenant requires are filled", async () => {
+    await render();
+
+    await act(async () => {
+      container.querySelector('button')?.click();
+    });
+    const form = container.querySelector('form');
+    expect(form).not.toBeNull();
+
+    // Dispatch the submit directly: the browser's own `required` check would
+    // stop the event before our handler runs, which is not what is under test.
+    await act(async () => {
+      form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    expect(harness.post).not.toHaveBeenCalled();
+    const text = container.textContent || '';
+    expect(text).toContain('Jina la shule ni lazima.');
+    expect(text).toContain('Subdomain ni lazima.');
+    expect(text).toContain('Barua pepe ya msimamizi ni lazima.');
+    expect(text).toContain('Weka nambari ya simu halali');
+  });
+
+  it("sends the school type and head teacher the form collected", async () => {
+    await render();
+
+    await act(async () => {
+      container.querySelector('button')?.click();
+    });
+
+    const type = (placeholder: string, value: string) => {
+      const input = container.querySelector(`input[placeholder="${placeholder}"]`) as HTMLInputElement;
+      expect(input).not.toBeNull();
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )!.set!;
+      setter.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    await act(async () => {
+      type('Mfano: MANDONGOI COMPREHENSIVE SCHOOL', 'Mandongo I Primary');
+      type('Mfano: Joel Maundu', 'Joel Maundu');
+      type('0712345678', '0712 345 678');
+      type('admin@newschool.ac.ke', 'Admin@MandongoI.ac.ke');
+    });
+
+    await act(async () => {
+      const form = container.querySelector('form')!;
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    expect(harness.post).toHaveBeenCalledTimes(1);
+    const [url, body] = harness.post.mock.calls[0];
+    expect(url).toBe('/platform/tenants');
+    expect(body).toMatchObject({
+      school_name: 'Mandongo I Primary',
+      subdomain: 'mandongo-i-primary',
+      admin_email: 'admin@mandongoi.ac.ke',
+      admin_phone: '254712345678',
+      // The "Public Comprehensive" default has to reach the API, otherwise the
+      // school is stored as PRIVATE/CUSTOM regardless of the choice.
+      school_type: 'PUBLIC',
+      funding_mode: 'CAPITATION',
+      admin_full_name: 'Joel Maundu',
+      plan_code: 'STANDARD',
+    });
+  });
+
   it("does not pretend a failed registry read is an empty one", async () => {
     harness.get.mockRejectedValue(new Error("Network Error"));
 
