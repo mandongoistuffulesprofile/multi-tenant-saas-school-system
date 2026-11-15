@@ -92,12 +92,35 @@ wait_for "http://127.0.0.1:$PREVIEW_PORT/" "frontend preview"
 
 # The browser talks to the preview origin, which proxies /api to the API. Prove
 # that path works before spending time on screenshots.
-login_status=$(curl -sS -o "$TMP/login.json" -w '%{http_code}' \
+login_status=$(curl -sS -D "$TMP/login.headers" -o "$TMP/login.json" -w '%{http_code}' \
   -X POST "http://127.0.0.1:$PREVIEW_PORT/api/v1/auth/login" \
   -H 'Content-Type: application/json' \
   -d "{\"email\":\"$DEMO_EMAIL\",\"password\":\"$DEMO_PASSWORD\"}")
+
+# Summarise the probe for the uploaded artifact. The response body carries a
+# real access token, so the token itself never leaves this directory.
+{
+  echo "login as $DEMO_EMAIL via the preview proxy"
+  echo "status: $login_status"
+  if grep -qi 'set-cookie: access_token=' "$TMP/login.headers"; then
+    echo "access_token cookie: set"
+  else
+    echo "access_token cookie: MISSING"
+  fi
+  node -e '
+    const fs = require("node:fs");
+    try {
+      const b = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      if (b.tenant_id) console.log("tenant_id:", b.tenant_id);
+      if (Array.isArray(b.roles)) console.log("roles:", b.roles.join(","));
+      if (b.error) console.log("error:", b.error);
+    } catch { /* non-JSON body: status line above is enough */ }
+  ' "$TMP/login.json"
+} > "$TMP/login-summary.txt" 2>&1 || true
+rm -f "$TMP/login.json" "$TMP/login.headers"
+
 if [ "$login_status" != "200" ]; then
-  cat "$TMP/login.json" >&2 || true
+  cat "$TMP/login-summary.txt" >&2 || true
   fail "login through the preview proxy returned HTTP $login_status"
 fi
 echo "   login through the preview proxy works"

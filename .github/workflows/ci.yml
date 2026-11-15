@@ -145,12 +145,18 @@ jobs:
         run: npm install --prefix "$RUNNER_TEMP/shots" puppeteer-core@24 --no-audit --no-fund
       - name: Seed a tenant, serve, and capture critical routes
         run: bash scripts/ci/screenshot-smoke.sh
-      - name: Upload screenshots
+      # Includes the server logs and the login probe response so a failed
+      # capture can be diagnosed from the artifact alone, without rerunning.
+      - name: Upload screenshots and run logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-screenshots
-          path: ${{ runner.temp }}/screenshots
+          path: |
+            ${{ runner.temp }}/screenshots
+            ${{ runner.temp }}/api.log
+            ${{ runner.temp }}/preview.log
+            ${{ runner.temp }}/login-summary.txt
           if-no-files-found: ignore
 
   migrations:
