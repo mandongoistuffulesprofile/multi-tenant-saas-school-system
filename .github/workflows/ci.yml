@@ -77,6 +77,10 @@ jobs:
       # docs/ui-design/screenshots/coverable rather than silently partial.
       - name: Screenshot manifest matches App.tsx
         run: node scripts/ui-screenshots/check-routes.mjs
+      # Pure Node: fails when a page calls an API path the server does not
+      # register, which is how `/assessments/cbc/bulk-sync` reached main.
+      - name: SPA calls match registered API routes
+        run: node scripts/check-api-contract.mjs
       - name: Install
         working-directory: frontend
         run: npm ci --no-audit --no-fund
