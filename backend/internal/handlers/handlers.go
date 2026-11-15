@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +16,7 @@ import (
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/cbc"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/daraja"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/mpesa"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/sms"
 )
 
@@ -184,28 +184,12 @@ func (h *APIHandlers) InitiateSTKPushHandler(w http.ResponseWriter, r *http.Requ
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// webhookAuthorised delegates to the one callback gate in the mpesa package, so
+// this route and the gin callback route cannot diverge.
 func webhookAuthorised(r *http.Request) bool {
-	want := strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN"))
-	allow := strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS"))
-	if want == "" && allow == "" {
-		return false
-	}
-	if want != "" && r.Header.Get("X-Webhook-Token") != want {
-		return false
-	}
-	if allow != "" {
-		client := r.RemoteAddr
-		if i := strings.LastIndex(client, ":"); i >= 0 && strings.Count(client, ":") == 1 {
-			client = client[:i]
-		}
-		for _, ip := range strings.Split(allow, ",") {
-			if strings.TrimSpace(ip) == client {
-				return true
-			}
-		}
-		return false
-	}
-	return true
+	return mpesa.CallbackAuthorised(
+		mpesa.ClientIPFromRemoteAddr(r.RemoteAddr),
+		r.Header.Get("X-Webhook-Token"))
 }
 
 // STKCallbackHandler processes incoming Daraja STK Push callbacks

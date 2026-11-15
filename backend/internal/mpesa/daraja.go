@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -90,7 +91,7 @@ func (s *Service) HandleC2B(c *gin.Context) {
 		return
 	}
 
-	if !s.authorised(c) {
+	if !CallbackAuthorised(c.ClientIP(), c.GetHeader("X-Webhook-Token")) {
 		c.JSON(http.StatusUnauthorized, gin.H{"ResultCode": 1, "ResultDesc": "Unauthorized"})
 		return
 	}
@@ -147,11 +148,16 @@ func (s *Service) HandleC2B(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ResultCode": 0, "ResultDesc": "Accepted"})
 }
 
-// authorised requires at least one of MPESA_WEBHOOK_TOKEN or
-// MPESA_ALLOWED_IPS to be configured. If neither is set, every callback is
-// rejected: Daraja callbacks have no cryptographic signature, so an empty
-// configuration must fail closed rather than silently accept fake callbacks.
-func (s *Service) authorised(c *gin.Context) bool {
+// CallbackAuthorised reports whether an incoming Daraja callback may be
+// processed. It is the single implementation used by every callback route,
+// whatever HTTP framework fronts it.
+//
+// At least one of MPESA_WEBHOOK_TOKEN or MPESA_ALLOWED_IPS must be configured:
+// Daraja callbacks have no cryptographic signature, so an empty configuration
+// must fail closed rather than silently accept fake callbacks. When both are
+// set, both must match. clientIP is the caller's address as resolved by the
+// caller (after proxy handling), and token is the X-Webhook-Token header.
+func CallbackAuthorised(clientIP, token string) bool {
 	want := strings.TrimSpace(os.Getenv("MPESA_WEBHOOK_TOKEN"))
 	allow := strings.TrimSpace(os.Getenv("MPESA_ALLOWED_IPS"))
 
@@ -159,16 +165,13 @@ func (s *Service) authorised(c *gin.Context) bool {
 		return false
 	}
 
-	if want != "" {
-		if c.GetHeader("X-Webhook-Token") != want {
-			return false
-		}
+	if want != "" && token != want {
+		return false
 	}
 
 	if allow != "" {
-		client := c.ClientIP()
 		for _, ip := range strings.Split(allow, ",") {
-			if strings.TrimSpace(ip) == client {
+			if strings.TrimSpace(ip) == clientIP {
 				return true
 			}
 		}
@@ -176,6 +179,15 @@ func (s *Service) authorised(c *gin.Context) bool {
 	}
 
 	return true
+}
+
+// ClientIPFromRemoteAddr strips the port from a net/http RemoteAddr, which is
+// what the IP allowlist compares against.
+func ClientIPFromRemoteAddr(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	return remoteAddr
 }
 
 func (s *Service) resolveTenant(ctx context.Context, shortcode, billRefNumber string) (string, error) {
