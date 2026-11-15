@@ -129,6 +129,14 @@ describe("platform admin desk", () => {
     // County is shown from the registry payload rather than left blank.
     expect(text).toContain("Machakos");
 
+    // The type column reflects the stored school_type instead of labelling every
+    // school "Comprehensive" and inventing a boarding arrangement.
+    const rows = Array.from(container.querySelectorAll("tbody tr")).map((r) => r.textContent || "");
+    expect(rows[0]).toContain("Comprehensive");
+    expect(rows[1]).toContain("Private");
+    expect(text).not.toContain("Kutwa Pekee");
+    expect(text).not.toContain("Bweni na Kutwa");
+
     // Each row offers the setup wizard, which owns the details this table and
     // the create form cannot write themselves.
     const setupLinks = Array.from(container.querySelectorAll("a")).map((a) =>
@@ -159,8 +167,16 @@ describe("platform admin desk", () => {
     expect(modal.textContent || "").not.toContain("Sub-County");
     expect(modal.textContent || "").not.toContain("Safaricom Paybill");
 
-    // The workflow is still reachable, and the form points at it.
+    // Neither the boarding arrangement nor a per-school fee is stored by the
+    // endpoint, so the form no longer pretends to set them.
+    expect(modal.textContent || "").not.toContain("Makazi ya Wanafunzi");
+    expect(modal.textContent || "").not.toContain("Ada ya SaaS kwa Muhula");
+    expect(modal.querySelector('input[type="number"]')).toBeNull();
+
+    // The workflow is still reachable, and the form says where the rest lives.
     expect(modal.textContent || "").toContain("Setup ya shule");
+    expect(modal.textContent || "").toContain("STANDARD");
+    expect(modal.textContent || "").toContain("Plans");
   });
 
   it("refuses to submit until the fields CreateTenant requires are filled", async () => {

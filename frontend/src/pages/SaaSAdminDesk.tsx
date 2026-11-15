@@ -35,7 +35,6 @@ interface SchoolTenant {
   slug: string;
   county: string;
   category: 'PUBLIC_COMPREHENSIVE' | 'PRIVATE_ACADEMY';
-  residency: 'DAY_AND_BOARDING' | 'DAY_ONLY';
   learner_count: number;
   staff_count?: number;
   license_status: 'ACTIVE' | 'GRACE_PERIOD' | 'SUSPENDED';
@@ -56,8 +55,12 @@ function toSchoolTenant(r: any): SchoolTenant {
     name: r.school_name || r.subdomain,
     slug: r.subdomain || '',
     county: r.county || '',
-    category: 'PUBLIC_COMPREHENSIVE',
-    residency: 'DAY_ONLY',
+    // The registry reports school_type ('PUBLIC' / 'PRIVATE'); the row used to
+    // claim "comprehensive" for every school regardless of what was stored.
+    category:
+      String(r.school_type ?? '').toUpperCase() === 'PUBLIC'
+        ? 'PUBLIC_COMPREHENSIVE'
+        : 'PRIVATE_ACADEMY',
     learner_count: Number(r.learners ?? r.student_count ?? 0),
     license_status: (r.status || (r.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
     term_subscription_fee: PLAN_FEE[r.plan_code] ?? 0,
@@ -117,11 +120,9 @@ export const SaaSAdminDesk: React.FC = () => {
     slug: '',
     county: 'Kitui',
     category: 'PUBLIC_COMPREHENSIVE' as const,
-    residency: 'DAY_AND_BOARDING' as const,
     admin_email: '',
     headteacher_name: '',
     headteacher_phone: '',
-    term_fee: 30000,
   });
 
   const [errors, setErrors] = useState<WizardErrors>({});
@@ -172,7 +173,7 @@ export const SaaSAdminDesk: React.FC = () => {
       const created = res.data || {};
       await loadTenants();
       setIsOnboardingOpen(false);
-      setWizardData({ name: '', slug: '', county: 'Kitui', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_AND_BOARDING', admin_email: '', headteacher_name: '', headteacher_phone: '', term_fee: 30000 });
+      setWizardData({ name: '', slug: '', county: 'Kitui', category: 'PUBLIC_COMPREHENSIVE', admin_email: '', headteacher_name: '', headteacher_phone: '' });
       setErrors({});
       // The temporary password is only ever returned here, so it is handed over on
       // screen with the way into setup — a toast would vanish with the navigation.
@@ -313,7 +314,7 @@ export const SaaSAdminDesk: React.FC = () => {
             <tr>
               <th className="p-3.5">Shule & Tovuti (Slug)</th>
               <th className="p-3.5">Kaunti (County)</th>
-              <th className="p-3.5">Aina & Makazi</th>
+              <th className="p-3.5">Aina (Type)</th>
               <th className="p-3.5">Wanafunzi</th>
               <th className="p-3.5">Leseni (License)</th>
               <th className="p-3.5 text-center">Hatua</th>
@@ -331,7 +332,6 @@ export const SaaSAdminDesk: React.FC = () => {
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
                     {t.category === 'PUBLIC_COMPREHENSIVE' ? 'Comprehensive' : 'Private'}
                   </span>
-                  <div className="text-[10px] text-slate-500 mt-0.5">{t.residency === 'DAY_AND_BOARDING' ? 'Bweni na Kutwa' : 'Kutwa Pekee'}</div>
                 </td>
                 <td className="p-3.5 font-mono font-semibold">{t.learner_count}</td>
                 <td className="p-3.5">
@@ -450,31 +450,16 @@ export const SaaSAdminDesk: React.FC = () => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Makazi ya Wanafunzi:</label>
-                  <select
-                    value={wizardData.residency}
-                    onChange={(e) => setWizardData({ ...wizardData, residency: e.target.value as any })}
-                    className="w-full p-2 border border-slate-300 rounded-lg bg-white"
-                  >
-                    <option value="DAY_AND_BOARDING">Bweni na Kutwa (Day & Boarding)</option>
-                    <option value="DAY_ONLY">Kutwa Pekee (Day Only)</option>
-                  </select>
-                </div>
-
-                <div className="col-span-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600">
-                  Nambari za MoE/NEMIS, wilaya na M-Pesa Paybill hurekodiwa kwenye{' '}
-                  <span className="font-bold">Setup ya shule</span> baada ya kusajiliwa, si hapa.
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Ada ya SaaS kwa Muhula (KES):</label>
-                  <input
-                    type="number"
-                    value={wizardData.term_fee}
-                    onChange={(e) => setWizardData({ ...wizardData, term_fee: Number(e.target.value) })}
-                    className="w-full p-2 border border-slate-300 rounded-lg font-mono font-bold"
-                  />
+                <div className="col-span-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600 space-y-1">
+                  <p>
+                    Nambari za MoE/NEMIS, wilaya na M-Pesa Paybill hurekodiwa kwenye{' '}
+                    <span className="font-bold">Setup ya shule</span> baada ya kusajiliwa, si hapa.
+                  </p>
+                  <p>
+                    Ada hufuata mpango wa usajili (<span className="font-bold">STANDARD</span>) na
+                    hurekebishwa kwenye Plans, si kwa shule moja. Makazi (bweni/kutwa)
+                    hurekodiwa kwa kila mwanafunzi anaposajiliwa.
+                  </p>
                 </div>
 
                 <div>
