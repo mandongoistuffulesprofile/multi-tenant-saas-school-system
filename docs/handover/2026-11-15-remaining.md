@@ -1,5 +1,13 @@
 # What is still unattended — 2026-11-15
 
+> **Later state (second pass, same day):** see
+> `docs/handover/2026-11-15-reconcile-and-next.md`. Since this list was written,
+> the devuser RLS bootstrap (F), the comms grade picker (F), the duplicate
+> screenshot prefix (E, item half) and the platform list tests (I) are done and
+> `integration/kitui-final` was reconciled into `main`. The three missing
+> screenshots, the RLS live-probe coverage and the twelve untranslated pages
+> remain.
+
 Everything here was re-checked against the tree at `e4f7abf`, not copied from the
 audit. Each item names the evidence, why it matters, and what "done" means, so it
 can be picked up without re-deriving the problem.
