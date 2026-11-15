@@ -3,11 +3,15 @@
 // `tenants` and `students` — tables the current schema does not have — so it
 // could never run, and which covered none of the tables added since.
 //
-// Two layers:
+// Three layers:
 //
 //	static  every table carrying a tenant_id column must have RLS enabled, RLS
 //	        forced (without FORCE the owning role bypasses its own policies), a
 //	        policy scoping rows by tenant_id, and a platform-admin bypass policy.
+//	parent  a table with no tenant_id that is reachable only through a parent
+//	        table with one is tenant data too, and none of the tenant_id checks
+//	        can see it. It must scope itself (RLS enabled, forced, with a
+//	        policy); staff_profiles before 0062 was exactly this gap.
 //	live    for the tables that can be seeded from tenant_id alone, two probe
 //	        tenants are created and every cross-tenant path is exercised:
 //	        reading, updating, deleting and inserting another tenant's rows.
@@ -77,12 +81,22 @@ func main() {
 		os.Exit(2)
 	}
 
+	scoped := make(map[string]bool, len(tables))
+	for _, t := range tables {
+		scoped[t.name] = true
+	}
+
 	failures := staticCheck(tables)
+	parentFailures, err := parentOnlyCheck(db, scoped)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "rlscheck: check parent-scoped tables: %v\n", err)
+		os.Exit(2)
+	}
 	liveFailures := liveCheck(db)
 
-	fmt.Printf("rlscheck: %d tables with a tenant_id column, %d static and %d live failures\n",
-		len(tables), failures, liveFailures)
-	if failures+liveFailures > 0 {
+	fmt.Printf("rlscheck: %d tables with a tenant_id column, %d static, %d parent-only and %d live failures\n",
+		len(tables), failures, parentFailures, liveFailures)
+	if failures+parentFailures+liveFailures > 0 {
 		os.Exit(1)
 	}
 }
@@ -176,6 +190,96 @@ func staticCheck(tables []table) int {
 		}
 	}
 	return failures
+}
+
+// parentOnlyCheck flags tables that are tenant data but carry no tenant_id of
+// their own, so the tenant_id checks cannot see them at all.
+//
+// staff_profiles before 0062 was exactly this: its only tenant link was
+// membership_id -> tenant_memberships, it had no policies, and TSC numbers and
+// national IDs were readable by every tenant connection. Because such a table
+// never appears in the tenant_id list, the static and live checks are silent
+// about it; this closes that blind spot.
+//
+// A table is reported when it has a foreign key into a tenant-scoped table, has
+// no tenant_id column, and is not protected itself: RLS off, or RLS on with no
+// policy (which would make it useless rather than safe). A table that scopes
+// itself through its parent with its own policy is accepted.
+func parentOnlyCheck(db *sql.DB, tenantScoped map[string]bool) (int, error) {
+	rows, err := db.Query(`
+		SELECT c.relname AS child, p.relname AS parent
+		FROM pg_constraint con
+		JOIN pg_class c ON c.oid = con.conrelid
+		JOIN pg_class p ON p.oid = con.confrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE con.contype = 'f'
+		  AND n.nspname = 'public'
+		  AND p.relnamespace = n.oid
+		ORDER BY c.relname, p.relname`)
+	if err != nil {
+		return 0, err
+	}
+	type link struct {
+		child  string
+		parent string
+	}
+	var links []link
+	for rows.Next() {
+		var l link
+		if err := rows.Scan(&l.child, &l.parent); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		links = append(links, l)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	checked := map[string]bool{}
+	failures := 0
+	for _, l := range links {
+		if tenantScoped[l.child] || checked[l.child] {
+			continue
+		}
+		if !tenantScoped[l.parent] {
+			continue
+		}
+		checked[l.child] = true
+
+		var rls, forced bool
+		if err := db.QueryRow(`
+			SELECT c.relrowsecurity, c.relforcerowsecurity
+			FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public' AND c.relname = $1`, l.child).Scan(&rls, &forced); err != nil {
+			return 0, fmt.Errorf("inspect %s: %w", l.child, err)
+		}
+		var policyCount int
+		if err := db.QueryRow(`SELECT count(*) FROM pg_policy WHERE polrelid = $1::regclass`, l.child).
+			Scan(&policyCount); err != nil {
+			return 0, fmt.Errorf("policies for %s: %w", l.child, err)
+		}
+
+		var problems []string
+		if !rls {
+			problems = append(problems, "row-level security is not enabled")
+		} else if policyCount == 0 {
+			problems = append(problems, "row-level security is enabled but no policy scopes it")
+		} else if !forced {
+			problems = append(problems, "row-level security is not forced, so the owning role bypasses it")
+		}
+		if len(problems) == 0 {
+			continue
+		}
+
+		failures++
+		fmt.Printf("FAIL %s: reachable only through %s with no tenant_id of its own (%s); "+
+			"give it a tenant_id and policies, or scope it through the parent\n",
+			l.child, l.parent, strings.Join(problems, "; "))
+	}
+	return failures, nil
 }
 
 // probe is a table the live check can seed from tenant_id alone.
