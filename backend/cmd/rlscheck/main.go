@@ -212,6 +212,14 @@ func probes() []probe {
 			INSERT INTO tenant_memberships (user_id, tenant_id, role)
 			SELECT user_id, $1, 'TEACHER' FROM u`,
 			args: func(t string) []any { return []any{t} }},
+		// staff_profiles hangs off the membership, not the tenant: the row is only
+		// reachable through its parent, and the parent supplies the tenant. Before
+		// 0062 the table had no tenant_id at all, so it could not be probed — or
+		// scoped — at all.
+		{table: "staff_profiles", stmt: `INSERT INTO staff_profiles (tenant_id, membership_id, tsc_number)
+			SELECT $1::varchar, membership_id, 'TSC-' || $1::varchar
+			  FROM tenant_memberships WHERE tenant_id = $1::varchar LIMIT 1`,
+			args: func(t string) []any { return []any{t} }},
 		// The money tables need their parents first: an invoice needs a learner and
 		// a year, a payment needs a learner.
 		{table: "invoices", stmt: `INSERT INTO invoices (tenant_id, invoice_number, learner_id, academic_year_id,

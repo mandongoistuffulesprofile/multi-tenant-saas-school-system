@@ -214,9 +214,11 @@ func (h *Handler) CreateStaff(c *gin.Context) {
 		return
 	}
 	_, err = tx.Exec(
-		`INSERT INTO staff_profiles (membership_id, tsc_number, subjects, employment_date)
-		 VALUES ($1, $2, $3, $4)`,
-		membershipID, nullIfEmpty(req.TSCNumber), string(subjectsJSON), nullIfEmpty(req.EmploymentDate),
+		// tenant_id is what RLS scopes the profile by; the membership alone does
+		// not carry it into the row.
+		`INSERT INTO staff_profiles (tenant_id, membership_id, tsc_number, subjects, employment_date)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		tenantID, membershipID, nullIfEmpty(req.TSCNumber), string(subjectsJSON), nullIfEmpty(req.EmploymentDate),
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to create staff profile"})
