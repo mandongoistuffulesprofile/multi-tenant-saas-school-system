@@ -508,6 +508,44 @@ describe("platform admin desk", () => {
     });
   });
 
+  it("shows how old the registry copy is, and marks it when refreshes stop", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-15T09:00:00Z"));
+      await render();
+      expect(container.textContent || "").toContain("Imesomwa sasa hivi");
+
+      // Refreshes stop landing — the clerk is looking at a copy that is ageing.
+      harness.get.mockRejectedValue(new Error("offline"));
+      await act(async () => {
+        vi.advanceTimersByTime(65_000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.textContent || "").toContain("dakika 1 iliyopita");
+      expect(container.textContent || "").toContain("inaweza kuwa ya zamani");
+
+      // Reading it again puts the copy back in the present.
+      harness.get.mockResolvedValue({ data: tenants });
+      const refresh = Array.from(container.querySelectorAll("button")).find((b) =>
+        (b.textContent || "").includes("Sasisha"),
+      ) as HTMLButtonElement;
+      await act(async () => {
+        refresh.click();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.textContent || "").toContain("Imesomwa sasa hivi");
+      expect(container.textContent || "").not.toContain("inaweza kuwa ya zamani");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("re-applies a refused licence change to the state the platform now shows", async () => {
     // The clerk saw GRACE_PERIOD and reinstates; another operator suspended the
     // school first, so the platform answers 409 and the row refreshes as SUSPENDED.

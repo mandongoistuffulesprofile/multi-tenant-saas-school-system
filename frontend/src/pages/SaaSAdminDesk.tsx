@@ -86,6 +86,19 @@ export function normalizeKenyanPhone(raw: string): string | null {
   return `254${national}`;
 }
 
+/**
+ * How old the registry copy on screen is. A clerk deciding on a licence change
+ * needs to know whether they are looking at the last second or the last minute —
+ * the 409 panel can only explain a stale read after the fact.
+ */
+export function describeRegistryAge(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 5) return 'sasa hivi';
+  if (seconds < 60) return `sekunde ${seconds} zilizopita`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes === 1 ? 'dakika 1 iliyopita' : `dakika ${minutes} zilizopita`;
+}
+
 export const SaaSAdminDesk: React.FC = () => {
   const [tenants, setTenants] = useState<SchoolTenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,6 +119,8 @@ export const SaaSAdminDesk: React.FC = () => {
     desired: 'ACTIVE' | 'SUSPENDED';
     message: string;
   } | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const navigate = useNavigate();
 
   // The registry is read in four places — first paint, the poll, after a create
@@ -114,6 +129,14 @@ export const SaaSAdminDesk: React.FC = () => {
     const res = await api.get("/platform/tenants");
     const rows = Array.isArray(res.data) ? res.data : [];
     setTenants(rows.map(toSchoolTenant));
+    setLastLoadedAt(Date.now());
+  }, []);
+
+  // Keep the age label moving between reads; the registry itself refreshes every
+  // 30 seconds, so this only renders the number.
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(tick);
   }, []);
 
   useEffect(() => {
@@ -421,6 +444,26 @@ export const SaaSAdminDesk: React.FC = () => {
           <div className="flex items-center gap-2">
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tafuta shule..." className="px-2 py-1 border border-slate-300 rounded-lg text-xs" />
             <span className="text-slate-500">Inaonyesha shule {filteredTenants.length}</span>
+            {lastLoadedAt !== null && (
+              <span
+                title={`Mara ya mwisho kusoma orodha: ${new Date(lastLoadedAt).toLocaleTimeString()}`}
+                className={`text-[11px] font-bold ${
+                  now - lastLoadedAt > 60_000 ? 'text-amber-700' : 'text-slate-500'
+                }`}
+              >
+                Imesomwa {describeRegistryAge(now - lastLoadedAt)}
+                {now - lastLoadedAt > 60_000 && ' — inaweza kuwa ya zamani'}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                loadTenants().catch(() => showToast('Imeshindikana kusoma orodha ya shule. Jaribu tena.'));
+              }}
+              className="px-2 py-1 border border-slate-300 rounded-lg text-[11px] font-bold bg-white hover:border-slate-400 cursor-pointer"
+            >
+              Sasisha
+            </button>
           </div>
         </div>
 
