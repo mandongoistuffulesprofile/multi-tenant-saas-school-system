@@ -61,6 +61,23 @@ jobs:
         working-directory: backend
         run: go run ./cmd/migrate -dir ../migrations
 
+      - name: Create a non-superuser role for the isolation check
+        run: |
+          PGPASSWORD=test_password psql "postgres://skulapp_app@localhost:5432/skulapp_ci?sslmode=disable" -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE skulapp_isolated LOGIN PASSWORD 'isolated_password'" \
+            -c "GRANT USAGE ON SCHEMA public TO skulapp_isolated" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO skulapp_isolated" \
+            -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO skulapp_isolated"
+
+      # The service container's bootstrap role is a superuser, and a superuser
+      # bypasses RLS, so isolation asserts nothing through it. Run the check
+      # through a role that is subject to the policies.
+      - name: Tenant isolation on every RLS table
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://skulapp_isolated:isolated_password@localhost:5432/skulapp_ci?sslmode=disable
+        run: go run ./cmd/rlscheck
+
       - name: Tenant isolation, unit and integration tests
         working-directory: backend
         run: go test ./... -count=1
