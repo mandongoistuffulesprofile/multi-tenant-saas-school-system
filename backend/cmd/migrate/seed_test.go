@@ -82,13 +82,15 @@ func lookedUpLedgerCodes(t *testing.T) map[string]bool {
 		if err != nil {
 			return err
 		}
-		// Only files that touch the ledger: `code` columns exist on fee
-		// categories too (TUITION, TRANSPORT), which are not accounts.
-		if !strings.Contains(string(body), "ledger_accounts") {
-			return nil
-		}
-		for _, m := range ledgerLookup.FindAllStringSubmatch(string(body), -1) {
-			codes[m[1]] = true
+		// Only lookups issued against ledger_accounts: `code` columns exist on
+		// fee categories too (TUITION, TRANSPORT), which are not accounts.
+		for _, query := range goStringLiterals(string(body)) {
+			if !strings.Contains(query, "ledger_accounts") {
+				continue
+			}
+			for _, m := range ledgerLookup.FindAllStringSubmatch(query, -1) {
+				codes[m[1]] = true
+			}
 		}
 		return nil
 	})
@@ -103,7 +105,14 @@ var (
 	ledgerInsert    = regexp.MustCompile(`(?is)INSERT\s+INTO\s+(?:public\.)?ledger_accounts\b.*?;`)
 	ledgerCodeValue = regexp.MustCompile(`'([A-Z][A-Z0-9_]{2,})'`)
 	ledgerLookup    = regexp.MustCompile(`\bcode\s*=\s*'([A-Z][A-Z0-9_]{2,})'`)
+	goStringLiteral = regexp.MustCompile("(?s)`[^`]*`")
 )
+
+// goStringLiterals returns the raw strings in a Go file, which is where the SQL
+// lives.
+func goStringLiterals(body string) []string {
+	return goStringLiteral.FindAllString(body, -1)
+}
 
 func ledgerAccountStatements(sqlBody string) []string {
 	return ledgerInsert.FindAllString(sqlBody, -1)
