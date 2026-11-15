@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import { useToast } from "../components/toast/ToastProvider";
 
@@ -14,6 +15,7 @@ export default function ResetPasswordPage() {
   const [params] = useSearchParams();
   const token = (params.get("token") || "").trim();
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -26,15 +28,15 @@ export default function ResetPasswordPage() {
     setError("");
 
     if (!token) {
-      setError("This reset link is invalid. Request a new one.");
+      setError(t("reset_password_page.invalid_link"));
       return;
     }
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      setError(t("reset_password_page.too_short", { count: MIN_PASSWORD_LENGTH }));
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError(t("reset_password_page.mismatch"));
       return;
     }
 
@@ -45,15 +47,12 @@ export default function ResetPasswordPage() {
         new_password: newPassword,
       });
       setDone(true);
-      toast("Password reset. Sign in with your new password.", {
+      toast(t("reset_password_page.success_toast"), {
         type: "success",
-        title: "Success",
+        title: t("success"),
       });
     } catch (err: any) {
-      setError(
-        err.response?.data?.message ||
-          "Could not reset the password. The link may be invalid or expired.",
-      );
+      setError(err.response?.data?.message || t("reset_password_page.failed"));
     } finally {
       setLoading(false);
     }
@@ -63,29 +62,25 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-md p-6 space-y-6 bg-white rounded-2xl shadow-sm border border-gray-200">
         <div className="text-center">
-          <h1 className="text-xl font-bold text-kenyan-red">Reset password</h1>
-          <p className="text-gray-600 text-sm">Choose a new password for your account.</p>
+          <h1 className="text-xl font-bold text-kenyan-red">{t("reset_password_page.title")}</h1>
+          <p className="text-gray-600 text-sm">{t("reset_password_page.subtitle")}</p>
         </div>
 
         {!token && (
           <div className="space-y-4" role="alert">
-            <p className="text-sm text-red-600">
-              This reset link is missing its token. Request a new link to continue.
-            </p>
+            <p className="text-sm text-red-600">{t("reset_password_page.missing_token")}</p>
             <Link to="/forgot-password" className="btn-primary w-full block text-center">
-              Request a new link
+              {t("reset_password_page.request_new_link")}
             </Link>
           </div>
         )}
 
         {token && done && (
           <div className="text-center space-y-4" role="status" aria-live="polite">
-            <h2 className="text-kenyan-green font-semibold">Password updated</h2>
-            <p className="text-gray-600 text-sm">
-              Your password has been changed. All other sessions were signed out.
-            </p>
+            <h2 className="text-kenyan-green font-semibold">{t("reset_password_page.updated_title")}</h2>
+            <p className="text-gray-600 text-sm">{t("reset_password_page.updated_body")}</p>
             <Link to="/login" className="btn-primary w-full block text-center">
-              Sign in
+              {t("reset_password_page.sign_in")}
             </Link>
           </div>
         )}
@@ -94,7 +89,7 @@ export default function ResetPasswordPage() {
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div>
               <label className="label" htmlFor="reset-new-password">
-                New password
+                {t("reset_password_page.new_password")}
               </label>
               <input
                 id="reset-new-password"
@@ -107,12 +102,12 @@ export default function ResetPasswordPage() {
                 required
               />
               <p className="text-xs text-gray-500 mt-1">
-                At least {MIN_PASSWORD_LENGTH} characters.
+                {t("reset_password_page.min_length", { count: MIN_PASSWORD_LENGTH })}
               </p>
             </div>
             <div>
               <label className="label" htmlFor="reset-confirm-password">
-                Confirm password
+                {t("reset_password_page.confirm_password")}
               </label>
               <input
                 id="reset-confirm-password"
@@ -133,14 +128,14 @@ export default function ResetPasswordPage() {
             )}
 
             <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? "Saving…" : "Reset password"}
+              {loading ? t("reset_password_page.saving") : t("reset_password_page.submit")}
             </button>
           </form>
         )}
 
         <div className="text-center text-sm">
           <Link to="/login" className="text-kenyan-red hover:underline">
-            Back to sign in
+            {t("reset_password_page.back_to_sign_in")}
           </Link>
         </div>
       </div>
