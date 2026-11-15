@@ -12,6 +12,7 @@ const harness = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() })
 vi.mock("../lib/api", () => ({ api: harness }));
 
 import { SaaSAdminDesk } from "./SaaSAdminDesk";
+import i18n from "../i18n";
 
 const tenants = [
   {
@@ -43,7 +44,11 @@ const tenants = [
 let container: HTMLDivElement;
 let root: Root;
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The desk is the platform operator console and its assertions have always
+  // been written in the Kiswahili copy. Pin the locale so the test checks the
+  // translations rather than the English default.
+  await i18n.changeLanguage("sw");
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   harness.get.mockResolvedValue({ data: tenants });
   harness.post.mockResolvedValue({ data: {} });
@@ -58,6 +63,7 @@ afterEach(async () => {
     root.unmount();
   });
   container.remove();
+  await i18n.changeLanguage("en");
 });
 
 function setValue(container: HTMLDivElement, placeholder: string, value: string) {
@@ -781,6 +787,6 @@ describe("platform admin desk", () => {
     expect(text).not.toContain("Kitui Central Primary");
     // The desk keeps its shell and targets above the table, so the screen is
     // still usable rather than replaced wholesale.
-    expect(text).toContain("SaaS Admin Desk");
+    expect(text).toContain("Dawati la Msimamizi");
   });
 });

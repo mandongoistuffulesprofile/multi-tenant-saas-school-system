@@ -1,5 +1,6 @@
 import { api } from "../lib/api";
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatKES } from '../utils/kenyaFormatters';
 
@@ -91,15 +92,16 @@ export function normalizeKenyanPhone(raw: string): string | null {
  * needs to know whether they are looking at the last second or the last minute —
  * the 409 panel can only explain a stale read after the fact.
  */
-export function describeRegistryAge(ms: number): string {
+export function describeRegistryAge(ms: number, t: (key: string, options?: any) => string): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
-  if (seconds < 5) return 'sasa hivi';
-  if (seconds < 60) return `sekunde ${seconds} zilizopita`;
+  if (seconds < 5) return t('saas_desk.read_now');
+  if (seconds < 60) return t('saas_desk.read_seconds', { count: seconds });
   const minutes = Math.floor(seconds / 60);
-  return minutes === 1 ? 'dakika 1 iliyopita' : `dakika ${minutes} zilizopita`;
+  return minutes === 1 ? t('saas_desk.read_minute') : t('saas_desk.read_minutes', { count: minutes });
 }
 
 export const SaaSAdminDesk: React.FC = () => {
+  const { t } = useTranslation();
   const [tenants, setTenants] = useState<SchoolTenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -178,14 +180,14 @@ export const SaaSAdminDesk: React.FC = () => {
     const adminPhone = normalizeKenyanPhone(wizardData.headteacher_phone);
 
     const nextErrors: WizardErrors = {};
-    if (!schoolName) nextErrors.name = 'Jina la shule ni lazima.';
-    if (!subdomain) nextErrors.slug = 'Subdomain ni lazima.';
+    if (!schoolName) nextErrors.name = t('saas_desk.err_name');
+    if (!subdomain) nextErrors.slug = t('saas_desk.err_slug');
     else if (subdomain.length > 50) {
-      nextErrors.slug = 'Subdomain lazima iwe herufi 50 au chini — inatumika kama kitambulisho cha shule.';
+      nextErrors.slug = t('saas_desk.err_slug_long');
     }
-    if (!adminEmail) nextErrors.email = 'Barua pepe ya msimamizi ni lazima.';
-    else if (!EMAIL_PATTERN.test(adminEmail)) nextErrors.email = 'Barua pepe si sahihi, mfano admin@shule.ac.ke.';
-    if (!adminPhone) nextErrors.phone = 'Weka nambari ya simu halali ya Mwalimu Mkuu, mfano 0712345678.';
+    if (!adminEmail) nextErrors.email = t('saas_desk.err_email');
+    else if (!EMAIL_PATTERN.test(adminEmail)) nextErrors.email = t('saas_desk.err_email_invalid');
+    if (!adminPhone) nextErrors.phone = t('saas_desk.err_phone');
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
@@ -221,10 +223,10 @@ export const SaaSAdminDesk: React.FC = () => {
           tempPassword: created.temp_password || '',
         });
       } else {
-        showToast(`✓ '${created.school_name || schoolName}' imesajiliwa.`);
+        showToast(t('saas_desk.registered', { name: created.school_name || schoolName }));
       }
     } catch (err: any) {
-      showToast(err.response?.data?.message || 'Usajili umeshindikana.');
+      showToast(err.response?.data?.message || t('saas_desk.register_failed'));
     }
   };
 
@@ -251,7 +253,7 @@ export const SaaSAdminDesk: React.FC = () => {
       setTenants((prev) =>
         prev.map((t) => (t.id === id ? { ...t, license_status: next } : t)),
       );
-      showToast(next === 'ACTIVE' ? `✓ '${t0.name}' imehudumiwa tena (ACTIVE).` : `⚠ '${t0.name}' imesimamishwa (SUSPENDED). Watumiaji hawawezi kuingia.`);
+      showToast(next === 'ACTIVE' ? t('saas_desk.activated', { name: t0.name }) : t('saas_desk.suspended', { name: t0.name }));
       await loadTenants().catch(() => { /* keep the local value if the reload fails */ });
     } catch (err: any) {
       const status = err?.response?.status;
@@ -264,7 +266,7 @@ export const SaaSAdminDesk: React.FC = () => {
         setLicenseConflict({ id, name: t0.name, desired: next, message: reason });
         return;
       }
-      showToast('Imeshindikana kubadilisha hali ya shule. Jaribu tena.');
+      showToast(t('saas_desk.licence_failed'));
     }
   };
 
@@ -287,7 +289,7 @@ export const SaaSAdminDesk: React.FC = () => {
     }
     if (fresh.license_status === licenseConflict.desired) {
       // The change the clerk wanted is already in force; nothing left to send.
-      showToast(`✓ '${fresh.name}' is already ${licenseConflict.desired}.`);
+      showToast(t('saas_desk.already', { name: fresh.name, status: licenseConflict.desired }));
       setLicenseConflict(null);
       return;
     }
@@ -318,9 +320,7 @@ export const SaaSAdminDesk: React.FC = () => {
     const reason = impReason.trim();
     if (reason.length < 10) {
       setImpError(
-        reason
-          ? 'Sababu ni lazima iwe herufi 10 au zaidi — itaonekana kwenye Platform Audit.'
-          : 'Sababu ya kuingia ni lazima — itaonekana kwenye Platform Audit.',
+        reason ? t('saas_desk.reason_too_short') : t('saas_desk.reason_required'),
       );
       return;
     }
@@ -332,12 +332,12 @@ export const SaaSAdminDesk: React.FC = () => {
       sessionStorage.setItem("imp_school", res.data.school_name || t0.name);
       sessionStorage.setItem("imp_session_id", res.data.session_id);
       sessionStorage.setItem("imp_expires_at", res.data.expires_at);
-      showToast(`⚠ Session ya ukaguzi: ${res.data.school_name || t0.name} (hadi ${res.data.expires_at || "60 min"}).`);
+      showToast(t('saas_desk.session_toast', { name: res.data.school_name || t0.name, expires: res.data.expires_at || '60 min' }));
       window.location.href = "/dashboard";
     } catch (err: any) {
       // The form stays open with the reason intact, so it can be corrected or
       // retried without typing the audit note again.
-      setImpError(err.response?.data?.message || "Impersonation imeshindikana.");
+      setImpError(err.response?.data?.message || t('saas_desk.impersonation_failed'));
       setImpBusy(false);
     }
   };
@@ -351,7 +351,7 @@ export const SaaSAdminDesk: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <nav className="text-xs text-slate-500">Platform / SaaS Admin Desk</nav>
+      <nav className="text-xs text-slate-500">{t('saas_desk.breadcrumb')}</nav>
       {/* SaaS Executive Metrics Bar */}
       <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-md border border-slate-800">
         <div className="flex flex-wrap justify-between items-center gap-4 border-b border-slate-800 pb-4">
@@ -361,11 +361,11 @@ export const SaaSAdminDesk: React.FC = () => {
                 EduKe Multi-Tenant SaaS
               </span>
               <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
-                Platform Owner Console
+                {t('saas_desk.owner_console')}
               </span>
             </div>
             <h1 className="text-xl font-black tracking-tight text-white mt-1">
-              Usimamizi wa Shule Zote (SaaS Multi-School Directory)
+              {t('saas_desk.title')}
             </h1>
           </div>
 
@@ -373,31 +373,31 @@ export const SaaSAdminDesk: React.FC = () => {
             onClick={() => setIsOnboardingOpen(true)}
             className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
           >
-            <span>+ Sajili Shule Mpya (Onboard School)</span>
+            <span>+ {t('saas_desk.onboard')}</span>
           </button>
         </div>
 
         {/* Global SaaS Platform Metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 text-xs">
           <div>
-            <span className="text-slate-400">Shule Zinazotumia Mfumo:</span>
-            <div className="text-2xl font-black text-white font-mono mt-0.5">{tenants.length} Shule</div>
-            <p className="text-[10px] text-emerald-400">100% PostgreSQL RLS Isolated</p>
+            <span className="text-slate-400">{t('saas_desk.metric_schools')}</span>
+            <div className="text-2xl font-black text-white font-mono mt-0.5">{t('saas_desk.metric_schools_value', { count: tenants.length })}</div>
+            <p className="text-[10px] text-emerald-400">{t('saas_desk.rls_note')}</p>
           </div>
           <div>
-            <span className="text-slate-400">Jumla ya Wanafunzi (Active):</span>
+            <span className="text-slate-400">{t('saas_desk.metric_learners')}</span>
             <div className="text-2xl font-black text-emerald-400 font-mono mt-0.5">{totalLearners.toLocaleString()}</div>
-            <p className="text-[10px] text-slate-400">Wenye NEMIS UPI na KPSEA</p>
+            <p className="text-[10px] text-slate-400">{t('saas_desk.learners_note')}</p>
           </div>
           <div>
-            <span className="text-slate-400">Ada ya Mfumo (Termly MRR):</span>
+            <span className="text-slate-400">{t('saas_desk.metric_mrr')}</span>
             <div className="text-2xl font-black text-blue-400 font-mono mt-0.5">{formatKES(totalProjectedRevenue)}</div>
-            <p className="text-[10px] text-slate-400">Makadirio ya Mapato ya SaaS</p>
+            <p className="text-[10px] text-slate-400">{t('saas_desk.mrr_note')}</p>
           </div>
           <div>
-            <span className="text-slate-400">Jumla ya Walimu na Wafanyakazi:</span>
+            <span className="text-slate-400">{t('saas_desk.metric_staff')}</span>
             <div className="text-2xl font-black text-blue-400 font-mono mt-0.5">{totalStaff.toLocaleString()}</div>
-            <p className="text-[10px] text-slate-400">Across all tenant schools</p>
+            <p className="text-[10px] text-slate-400">{t('saas_desk.staff_note')}</p>
           </div>
         </div>
       </div>
@@ -422,14 +422,14 @@ export const SaaSAdminDesk: React.FC = () => {
               className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold cursor-pointer"
             >
               {licenseConflict.desired === 'SUSPENDED'
-                ? 'Jaribu tena: Simamisha (SUSPENDED)'
-                : 'Jaribu tena: Hudumia (ACTIVE)'}
+                ? t('saas_desk.retry_suspend')
+                : t('saas_desk.retry_reinstate')}
             </button>
             <button
               onClick={() => setLicenseConflict(null)}
               className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 hover:border-amber-400 text-amber-900 font-bold cursor-pointer"
             >
-              Ondoa
+              {t('saas_desk.dismiss')}
             </button>
           </div>
         </div>
@@ -439,30 +439,30 @@ export const SaaSAdminDesk: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center text-xs">
           <span className="font-bold text-slate-800 uppercase tracking-wide">
-            Orodha ya Shule Zilizosajiliwa (Tenant Registry)
+            {t('saas_desk.registry_title')}
           </span>
           <div className="flex items-center gap-2">
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tafuta shule..." className="px-2 py-1 border border-slate-300 rounded-lg text-xs" />
-            <span className="text-slate-500">Inaonyesha shule {filteredTenants.length}</span>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('saas_desk.search_placeholder')} className="px-2 py-1 border border-slate-300 rounded-lg text-xs" />
+            <span className="text-slate-500">{t('saas_desk.showing', { count: filteredTenants.length })}</span>
             {lastLoadedAt !== null && (
               <span
-                title={`Mara ya mwisho kusoma orodha: ${new Date(lastLoadedAt).toLocaleTimeString()}`}
+                title={t('saas_desk.read_at', { time: new Date(lastLoadedAt).toLocaleTimeString() })}
                 className={`text-[11px] font-bold ${
                   now - lastLoadedAt > 60_000 ? 'text-amber-700' : 'text-slate-500'
                 }`}
               >
-                Imesomwa {describeRegistryAge(now - lastLoadedAt)}
-                {now - lastLoadedAt > 60_000 && ' — inaweza kuwa ya zamani'}
+                {t('saas_desk.read_prefix')} {describeRegistryAge(now - lastLoadedAt, t)}
+                {now - lastLoadedAt > 60_000 && ` ${t('saas_desk.stale')}`}
               </span>
             )}
             <button
               type="button"
               onClick={() => {
-                loadTenants().catch(() => showToast('Imeshindikana kusoma orodha ya shule. Jaribu tena.'));
+                loadTenants().catch(() => showToast(t('saas_desk.refresh_failed')));
               }}
               className="px-2 py-1 border border-slate-300 rounded-lg text-[11px] font-bold bg-white hover:border-slate-400 cursor-pointer"
             >
-              Sasisha
+              {t('saas_desk.refresh')}
             </button>
           </div>
         </div>
@@ -470,54 +470,54 @@ export const SaaSAdminDesk: React.FC = () => {
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-100 text-slate-800 uppercase font-bold border-b border-slate-200 text-[11px]">
             <tr>
-              <th className="p-3.5">Shule & Tovuti (Slug)</th>
-              <th className="p-3.5">Kaunti (County)</th>
-              <th className="p-3.5">Aina (Type)</th>
-              <th className="p-3.5">Wanafunzi</th>
-              <th className="p-3.5">Leseni (License)</th>
-              <th className="p-3.5 text-center">Hatua</th>
+              <th className="p-3.5">{t('saas_desk.col_school')}</th>
+              <th className="p-3.5">{t('saas_desk.col_county')}</th>
+              <th className="p-3.5">{t('saas_desk.col_type')}</th>
+              <th className="p-3.5">{t('saas_desk.col_learners')}</th>
+              <th className="p-3.5">{t('saas_desk.col_licence')}</th>
+              <th className="p-3.5 text-center">{t('saas_desk.col_actions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredTenants.map(t => (
-              <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+            {filteredTenants.map(tenant => (
+              <tr key={tenant.id} className="hover:bg-slate-50 transition-colors">
                 <td className="p-3.5">
-                  <div className="font-bold text-slate-900">{t.name}</div>
-                  <div className="text-[11px] font-mono text-emerald-600">{t.slug}.eduke.co.ke</div>
+                  <div className="font-bold text-slate-900">{tenant.name}</div>
+                  <div className="text-[11px] font-mono text-emerald-600">{tenant.slug}.eduke.co.ke</div>
                 </td>
-                <td className="p-3.5 font-mono text-slate-700">{t.county || '—'}</td>
+                <td className="p-3.5 font-mono text-slate-700">{tenant.county || '—'}</td>
                 <td className="p-3.5">
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                    {t.category === 'PUBLIC_COMPREHENSIVE' ? 'Comprehensive' : 'Private'}
+                    {tenant.category === 'PUBLIC_COMPREHENSIVE' ? t('saas_desk.type_public') : t('saas_desk.type_private')}
                   </span>
                 </td>
-                <td className="p-3.5 font-mono font-semibold">{t.learner_count}</td>
+                <td className="p-3.5 font-mono font-semibold">{tenant.learner_count}</td>
                 <td className="p-3.5">
                   <button
-                    onClick={() => toggleLicenseStatus(t.id)}
+                    onClick={() => toggleLicenseStatus(tenant.id)}
                     className={`px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer border ${
-                      t.license_status === 'ACTIVE'
+                      tenant.license_status === 'ACTIVE'
                         ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                        : t.license_status === 'GRACE_PERIOD'
+                        : tenant.license_status === 'GRACE_PERIOD'
                         ? 'bg-amber-50 text-amber-800 border-amber-300'
                         : 'bg-rose-50 text-rose-800 border-rose-300'
                     }`}
                   >
-                    {t.license_status === 'ACTIVE' ? '● Leseni Hai' : t.license_status === 'GRACE_PERIOD' ? '◐ Grace Period' : '✕ Imesimamishwa'}
+                    {tenant.license_status === 'ACTIVE' ? t('saas_desk.licence_active') : tenant.license_status === 'GRACE_PERIOD' ? t('saas_desk.licence_grace') : t('saas_desk.licence_suspended')}
                   </button>
                 </td>
                 <td className="p-3.5 text-center whitespace-nowrap space-x-1">
                   <Link
-                    to={`/platform/tenants/${encodeURIComponent(t.id)}/setup`}
+                    to={`/platform/tenants/${encodeURIComponent(tenant.id)}/setup`}
                     className="inline-block px-2.5 py-1 text-[11px] font-bold bg-white border border-slate-300 hover:border-slate-400 text-slate-800 rounded-lg"
                   >
-                    Setup
+                    {t('saas_desk.setup')}
                   </Link>
                   <button
-                    onClick={() => openImpersonation(t)}
+                    onClick={() => openImpersonation(tenant)}
                     className="px-2.5 py-1 text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg cursor-pointer"
                   >
-                    Fungua Shule (Login As)
+                    {t('saas_desk.login_as')}
                   </button>
                 </td>
               </tr>
@@ -533,16 +533,16 @@ export const SaaSAdminDesk: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
             <div className="bg-slate-900 text-white p-5">
               <h3 className="text-base font-black uppercase tracking-wide">
-                Fungua Shule kwa Ukaguzi (Login As)
+                {t('saas_desk.impersonation_title')}
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                {impTarget.name} — session ya dakika 60, read-only, itarekodiwa kwenye Platform Audit.
+                {t('saas_desk.impersonation_scope', { name: impTarget.name })}
               </p>
             </div>
 
             <form onSubmit={handleLoginAs} className="p-5 space-y-3 text-xs">
               <label htmlFor="imp-reason" className="block font-bold text-slate-700">
-                Sababu ya kuingia (itahifadhiwa kwenye Platform Audit):
+                {t('saas_desk.reason_label')}
               </label>
               <textarea
                 id="imp-reason"
@@ -556,13 +556,13 @@ export const SaaSAdminDesk: React.FC = () => {
                 aria-invalid={impError ? true : undefined}
                 aria-describedby="imp-reason-help"
                 disabled={impBusy}
-                placeholder="Mfano: TICKET-431 — mzazi haoni salio la ada"
+                placeholder={t('saas_desk.reason_placeholder')}
                 className={`w-full p-2 border rounded-lg resize-y ${
                   impError ? 'border-red-400 bg-red-50' : 'border-slate-300'
                 }`}
               />
               <p id="imp-reason-help" className="text-[10px] text-slate-500">
-                Herufi 10 au zaidi. Andika tiketi au ombi lililofungua ukaguzi huu.
+                {t('saas_desk.reason_help')}
               </p>
               {impError && (
                 <p role="alert" className="text-[11px] font-bold text-red-600">
@@ -577,14 +577,14 @@ export const SaaSAdminDesk: React.FC = () => {
                   disabled={impBusy}
                   className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold disabled:opacity-60"
                 >
-                  Ghairi
+                  {t('saas_desk.cancel')}
                 </button>
                 <button
                   type="submit"
                   disabled={impBusy}
                   className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black shadow-md cursor-pointer disabled:opacity-60"
                 >
-                  {impBusy ? 'Inaanza…' : 'Anza Kikao cha Ukaguzi'}
+                  {impBusy ? t('saas_desk.starting') : t('saas_desk.start_session')}
                 </button>
               </div>
             </form>
@@ -599,10 +599,10 @@ export const SaaSAdminDesk: React.FC = () => {
             <div className="bg-slate-900 text-white p-5 flex justify-between items-center">
               <div>
                 <h3 className="text-base font-black uppercase tracking-wide">
-                  Sajili Shule Mpya (New Tenant Onboarding)
+                  {t('saas_desk.wizard_title')}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Itapandikiza kiotomatiki Mitaala ya KICD, Akaunti 1 & 2, na M-Pesa Paybill.
+                  {t('saas_desk.wizard_subtitle')}
                 </p>
               </div>
               <button
@@ -616,20 +616,20 @@ export const SaaSAdminDesk: React.FC = () => {
             <form onSubmit={handleCreateTenant} className="p-5 space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">Jina Kamili la Shule (Official School Name):</label>
+                  <label className="block font-bold text-slate-700 mb-1">{t('saas_desk.field_name')}</label>
                   <input
                     required
                     aria-invalid={errors.name ? true : undefined}
                     value={wizardData.name}
                     onChange={(e) => setWizardData({ ...wizardData, name: e.target.value, slug: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '-') })}
-                    placeholder="Mfano: MANDONGOI COMPREHENSIVE SCHOOL"
+                    placeholder={t('saas_desk.name_placeholder')}
                     className={`w-full p-2 border rounded-lg uppercase font-semibold ${errors.name ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                   />
                   {errors.name && <p className="text-[11px] text-red-600 mt-1">{errors.name}</p>}
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Subdomain Slug:</label>
+                  <label className="block font-bold text-slate-700 mb-1">{t('saas_desk.field_slug')}</label>
                   <div className="flex items-center">
                     <input
                       required
@@ -648,7 +648,7 @@ export const SaaSAdminDesk: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Kaunti (County):</label>
+                  <label className="block font-bold text-slate-700 mb-1">{t('saas_desk.field_county')}</label>
                   <select
                     value={wizardData.county}
                     onChange={(e) => setWizardData({ ...wizardData, county: e.target.value })}
@@ -663,42 +663,35 @@ export const SaaSAdminDesk: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Aina ya Shule:</label>
+                  <label className="block font-bold text-slate-700 mb-1">{t('saas_desk.field_type')}</label>
                   <select
                     value={wizardData.category}
                     onChange={(e) => setWizardData({ ...wizardData, category: e.target.value as any })}
                     className="w-full p-2 border border-slate-300 rounded-lg bg-white"
                   >
-                    <option value="PUBLIC_COMPREHENSIVE">Public Comprehensive (Primary + Junior)</option>
-                    <option value="PRIVATE_ACADEMY">Private Academy</option>
+                    <option value="PUBLIC_COMPREHENSIVE">{t('saas_desk.type_option_public')}</option>
+                    <option value="PRIVATE_ACADEMY">{t('saas_desk.type_option_private')}</option>
                   </select>
                 </div>
 
                 <div className="col-span-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600 space-y-1">
-                  <p>
-                    Nambari za MoE/NEMIS, wilaya na M-Pesa Paybill hurekodiwa kwenye{' '}
-                    <span className="font-bold">Setup ya shule</span> baada ya kusajiliwa, si hapa.
-                  </p>
-                  <p>
-                    Ada hufuata mpango wa usajili (<span className="font-bold">STANDARD</span>) na
-                    hurekebishwa kwenye Plans, si kwa shule moja. Makazi (bweni/kutwa)
-                    hurekodiwa kwa kila mwanafunzi anaposajiliwa.
-                  </p>
+                  <p>{t('saas_desk.setup_note_1')}</p>
+                  <p>{t('saas_desk.setup_note_2')}</p>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Jina la Mwalimu Mkuu:</label>
+                  <label className="block font-bold text-slate-700 mb-1">{t('saas_desk.field_headteacher')}</label>
                   <input
                     required
                     value={wizardData.headteacher_name}
                     onChange={(e) => setWizardData({ ...wizardData, headteacher_name: e.target.value })}
-                    placeholder="Mfano: Joel Maundu"
+                    placeholder={t('saas_desk.headteacher_placeholder')}
                     className="w-full p-2 border border-slate-300 rounded-lg"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Nambari ya Simu ya Mwalimu Mkuu:</label>
+                  <label className="block font-bold text-slate-700 mb-1">{t('saas_desk.field_phone')}</label>
                   <input
                     required
                     type="tel"
@@ -719,7 +712,7 @@ export const SaaSAdminDesk: React.FC = () => {
               </div>
 
               <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-1">
-                Admin Email (School Administrator Login) *
+                {t('saas_desk.field_email')}
               </label>
               <input
                 type="email"
@@ -735,7 +728,7 @@ export const SaaSAdminDesk: React.FC = () => {
               />
               {errors.email && <p className="text-[11px] text-red-600 mt-1 mb-3">{errors.email}</p>}
               <p className="text-[10px] text-slate-400 mb-3">
-                A temporary password is generated server-side and shown exactly once after onboarding.
+                {t('saas_desk.email_help')}
               </p>
 
               <div className="flex justify-end gap-2 pt-3 border-t">
@@ -744,13 +737,13 @@ export const SaaSAdminDesk: React.FC = () => {
                   onClick={() => setIsOnboardingOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
                 >
-                  Ghairi
+                  {t('saas_desk.cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black shadow-md cursor-pointer"
                 >
-                  Tekeleza Usajili (Provision Tenant)
+                  {t('saas_desk.provision')}
                 </button>
               </div>
             </form>
@@ -766,28 +759,28 @@ export const SaaSAdminDesk: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
             <div className="bg-slate-900 text-white p-5">
               <h3 className="text-base font-black uppercase tracking-wide">
-                Shule imesajiliwa (Tenant provisioned)
+                {t('saas_desk.created_title')}
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">{createdTenant.schoolName}</p>
             </div>
             <div className="p-5 space-y-3 text-xs">
               <div>
-                <span className="block font-bold text-slate-700 mb-1">Msimamizi (Administrator):</span>
+                <span className="block font-bold text-slate-700 mb-1">{t('saas_desk.administrator')}</span>
                 <div className="font-mono text-slate-800">{createdTenant.adminEmail}</div>
               </div>
               <div>
                 <span className="block font-bold text-slate-700 mb-1">
-                  Password ya muda — inaonyeshwa mara moja:
+                  {t('saas_desk.temp_password_label')}
                 </span>
                 <div className="font-mono text-base font-black text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3 select-all">
                   {createdTenant.tempPassword || '—'}
                 </div>
                 <p className="text-[10px] text-slate-500 mt-1">
-                  Mpe msimamizi sasa; haitaonyeshwa tena na ataombwa kuibadilisha.
+                  {t('saas_desk.temp_password_help')}
                 </p>
               </div>
               <p className="text-[11px] text-slate-600">
-                Hatua inayofuata ni Setup: mitaala, kalenda, madarasa na njia za malipo.
+                {t('saas_desk.next_step')}
               </p>
               <div className="flex justify-end gap-2 pt-3 border-t">
                 <button
@@ -795,7 +788,7 @@ export const SaaSAdminDesk: React.FC = () => {
                   onClick={() => setCreatedTenant(null)}
                   className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
                 >
-                  Baadaye
+                  {t('saas_desk.later')}
                 </button>
                 <button
                   type="button"
@@ -806,7 +799,7 @@ export const SaaSAdminDesk: React.FC = () => {
                   }}
                   className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black shadow-md cursor-pointer"
                 >
-                  Nenda kwenye Setup →
+                  {t('saas_desk.go_to_setup')} →
                 </button>
               </div>
             </div>
