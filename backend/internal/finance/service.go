@@ -1325,7 +1325,7 @@ func (s *Service) GetReceiptSequence(ctx context.Context, tenantID, period strin
 	var seq ReceiptSequence
 	err := q.QueryRow(
 		`SELECT sequence_id, tenant_id, prefix, last_number, reset_frequency,
-			current_period, created_at, updated_at
+			current_period, created_at::text, updated_at::text
 		 FROM receipt_sequences WHERE tenant_id = $1 AND current_period = $2`,
 		tenantID, period,
 	).Scan(
@@ -1334,22 +1334,31 @@ func (s *Service) GetReceiptSequence(ctx context.Context, tenantID, period strin
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// Create default sequence
-			err = q.QueryRow(
+			// Create the period's default sequence, unless a concurrent request
+			// created it between the read and this write. The unique constraint
+			// on (tenant_id, current_period) settles that race, and the follow-up
+			// read returns whichever row won.
+			if _, insErr := q.Exec(
 				`INSERT INTO receipt_sequences (tenant_id, prefix, last_number,
 					reset_frequency, current_period)
 				 VALUES ($1, $2, 0, $3, $4)
-				 RETURNING sequence_id, created_at`,
+				 ON CONFLICT (tenant_id, current_period) DO NOTHING`,
 				tenantID, "RCP", "YEARLY", period,
-			).Scan(&seq.SequenceID, &seq.CreatedAt)
+			); insErr != nil {
+				return nil, insErr
+			}
+			err = q.QueryRow(
+				`SELECT sequence_id, tenant_id, prefix, last_number, reset_frequency,
+					current_period, created_at::text, updated_at::text
+				 FROM receipt_sequences WHERE tenant_id = $1 AND current_period = $2`,
+				tenantID, period,
+			).Scan(
+				&seq.SequenceID, &seq.TenantID, &seq.Prefix, &seq.LastNumber,
+				&seq.ResetFrequency, &seq.CurrentPeriod, &seq.CreatedAt, &seq.UpdatedAt,
+			)
 			if err != nil {
 				return nil, err
 			}
-			seq.TenantID = tenantID
-			seq.Prefix = "RCP"
-			seq.LastNumber = 0
-			seq.ResetFrequency = "YEARLY"
-			seq.CurrentPeriod = period
 			return &seq, nil
 		}
 		return nil, err
