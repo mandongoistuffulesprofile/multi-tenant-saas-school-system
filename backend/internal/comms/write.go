@@ -52,7 +52,7 @@ func (h *Handler) CreateMessageTemplate(c *gin.Context) {
 			validation.Conflict(c, "A template with that name already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"template_id": templateID})
@@ -98,7 +98,7 @@ func (h *Handler) UpdateMessageTemplate(c *gin.Context) {
 		`UPDATE message_templates SET `+strings.Join(sets, ", ")+
 			` WHERE template_id = $`+itoa(len(args)-1)+` AND tenant_id = $`+itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -119,7 +119,7 @@ func (h *Handler) DeleteMessageTemplate(c *gin.Context) {
 		`UPDATE message_templates SET is_active = false, updated_at = now()
 		 WHERE template_id = $1 AND tenant_id = $2`, templateID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -181,7 +181,7 @@ func (h *Handler) CreateBroadcast(c *gin.Context) {
 		nullableString(req.Subject), req.BodyText, "DRAFT", scheduledAt, nullableString(userID),
 	).Scan(&broadcastID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -191,14 +191,14 @@ func (h *Handler) CreateBroadcast(c *gin.Context) {
 			`INSERT INTO broadcast_recipients (tenant_id, broadcast_id, recipient_type, recipient_id_ref, channel, recipient_address)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
 			tenantID, broadcastID, r.recipientType, r.recipientID, channel, r.address); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
 
 	if _, err := tx.Exec(
 		`UPDATE broadcasts SET total_recipients = $1 WHERE broadcast_id = $2`, len(recipients), broadcastID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -229,7 +229,7 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if status.String == "SENT" {
@@ -242,7 +242,7 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 		`SELECT recipient_type, recipient_id_ref, recipient_address
 		 FROM broadcast_recipients WHERE broadcast_id = $1`, broadcastID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	type recipient struct {
@@ -255,7 +255,7 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 		var r recipient
 		if err := rows.Scan(&r.recipientType, &r.recipientID, &r.address); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		recipients = append(recipients, r)
@@ -278,7 +278,7 @@ func (h *Handler) SendBroadcast(c *gin.Context) {
 
 	if _, err := tx.Exec(
 		`UPDATE broadcasts SET status = 'SENT', sent_at = now(), sent_count = $1 WHERE broadcast_id = $2`, queued, broadcastID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -413,7 +413,7 @@ func (h *Handler) RetryMessage(c *gin.Context) {
 		`UPDATE outbound_messages SET status = 'QUEUED', error_message = NULL, updated_at = now()
 		 WHERE message_id = $1 AND tenant_id = $2 AND status IN ('FAILED', 'PENDING')`, messageID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -450,7 +450,7 @@ func (h *Handler) SetOptOut(c *gin.Context) {
 			 DO UPDATE SET is_active = true, opted_out_at = now(), reason = EXCLUDED.reason, opted_back_in_at = NULL`,
 			tenantID, req.UserID, channel, nullableString(req.Reason))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"user_id": req.UserID, "channel": channel, "is_active": true})
@@ -461,7 +461,7 @@ func (h *Handler) SetOptOut(c *gin.Context) {
 		`UPDATE opt_outs SET is_active = false, opted_back_in_at = now()
 		 WHERE tenant_id = $1 AND user_id = $2 AND channel = $3`, tenantID, req.UserID, channel)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {

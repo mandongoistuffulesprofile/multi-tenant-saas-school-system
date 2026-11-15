@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"database/sql"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -82,7 +83,7 @@ func (h *Handler) ListPlans(c *gin.Context) {
 		 FROM plans WHERE is_active = TRUE ORDER BY price_monthly`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -94,7 +95,7 @@ func (h *Handler) ListPlans(c *gin.Context) {
 		if err := rows.Scan(&p.PlanID, &p.PlanCode, &p.Name, &p.Description, &p.PriceMonthly,
 			&p.PriceYearly, &p.Currency, &p.MaxLearners, &p.MaxStaff, &features, &p.IsActive,
 			&p.CreatedAt, &p.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		p.Features = string(features)
@@ -127,7 +128,7 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 		 FROM subscriptions ORDER BY created_at DESC`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -137,7 +138,7 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 		var s Subscription
 		if err := rows.Scan(&s.SubscriptionID, &s.TenantID, &s.PlanID, &s.Status,
 			&s.StartedAt, &s.EndsAt, &s.AutoRenew, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		subs = append(subs, s)
@@ -171,7 +172,7 @@ func (h *Handler) ListPlatformInvoices(c *gin.Context) {
 		 FROM platform_invoices ORDER BY issue_date DESC`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -182,7 +183,7 @@ func (h *Handler) ListPlatformInvoices(c *gin.Context) {
 		if err := rows.Scan(&inv.InvoiceID, &inv.TenantID, &inv.InvoiceNumber, &inv.Amount,
 			&inv.Currency, &inv.Status, &inv.IssueDate, &inv.DueDate, &inv.PaidAt,
 			&inv.CreatedBy, &inv.CreatedAt, &inv.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		invoices = append(invoices, inv)
@@ -215,7 +216,7 @@ func (h *Handler) ListTenantUsage(c *gin.Context) {
 		 FROM tenant_usage ORDER BY period_month DESC`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -226,7 +227,7 @@ func (h *Handler) ListTenantUsage(c *gin.Context) {
 		if err := rows.Scan(&u.UsageID, &u.TenantID, &u.PeriodMonth, &u.ActiveLearners,
 			&u.ActiveStaff, &u.SMSSent, &u.ReportsGenerated, &u.AssessmentsRecorded,
 			&u.PaymentsProcessed, &u.GateTaps, &u.StorageMB, &u.CreatedAt, &u.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		usage = append(usage, u)
@@ -260,7 +261,7 @@ func (h *Handler) ListExports(c *gin.Context) {
 		 FROM exports ORDER BY created_at DESC`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -272,7 +273,7 @@ func (h *Handler) ListExports(c *gin.Context) {
 		if err := rows.Scan(&e.ExportID, &e.TenantID, &e.ExportType, &e.Status,
 			&e.FileRef, &e.FileName, &e.FileSize, &e.RecordCount, &params,
 			&e.ErrorMessage, &e.CreatedBy, &e.CreatedAt, &e.CompletedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		e.Parameters = string(params)
@@ -316,7 +317,7 @@ func (h *Handler) ListPlatformAudit(c *gin.Context) {
 		  ORDER BY e.created_at DESC
 		  LIMIT 200`)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -338,7 +339,7 @@ func (h *Handler) ListPlatformAudit(c *gin.Context) {
 		var l log
 		if err := rows.Scan(&l.LogID, &l.TenantID, &l.TenantCode, &l.UserID, &l.Action,
 			&l.ResourceType, &l.ResourceID, &l.IPAddress, &l.AccessedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		l.SchoolCode = l.TenantCode

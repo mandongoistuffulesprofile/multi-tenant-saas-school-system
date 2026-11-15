@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"io"
 	"net/http"
 	"os"
@@ -175,7 +176,7 @@ func (h *APIHandlers) InitiateSTKPushHandler(w http.ResponseWriter, r *http.Requ
 
 	resp, err := h.MpesaService.InitiateSTKPush(r.Context(), tenantID, req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		validation.ServerErrorHTTP(w, r, err)
 		return
 	}
 
@@ -278,7 +279,7 @@ func (h *APIHandlers) RegisterC2BHandler(w http.ResponseWriter, r *http.Request)
 
 	res, err := daraja.RegisterC2BURLs(consumerKey, consumerSecret, shortcode, valURL, confURL, isSandbox)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		validation.ServerErrorHTTP(w, r, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -309,7 +310,7 @@ func (h *APIHandlers) CBCSyncHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.CBCService.RecordAssessmentBatch(r.Context(), tx, tenantID, teacherID, payload.Events); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		validation.ServerErrorHTTP(w, r, err)
 		return
 	}
 

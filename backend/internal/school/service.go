@@ -425,7 +425,7 @@ func (h *Handler) ListPaymentChannels(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	channels, err := h.service.ListPaymentChannels(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, channels)
@@ -440,7 +440,7 @@ func (h *Handler) CreatePaymentChannel(c *gin.Context) {
 	}
 	created, err := h.service.CreatePaymentChannel(c.Request.Context(), tenantID, ch)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -450,7 +450,7 @@ func (h *Handler) GetFinanceSettings(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	fs, err := h.service.GetFinanceSettings(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, fs)
@@ -464,7 +464,7 @@ func (h *Handler) UpdateFinanceSettings(c *gin.Context) {
 		return
 	}
 	if err := h.service.UpdateFinanceSettings(c.Request.Context(), tenantID, fs); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": "UPDATED", "message": "Finance settings updated"})

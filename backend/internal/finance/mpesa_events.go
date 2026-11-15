@@ -108,7 +108,7 @@ func (s *Service) ListMPESAEvents(ctx context.Context, tenantID string) ([]MPESA
 func (h *Handler) ListMPESAEvents(c *gin.Context) {
 	events, stats, err := h.service.ListMPESAEvents(c.Request.Context(), c.GetString("tenant_id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"events": events, "stats": stats})

@@ -47,7 +47,7 @@ func (h *Handler) ListCurriculumVersions(c *gin.Context) {
 		 FROM curriculum_versions ORDER BY created_at DESC`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -58,7 +58,7 @@ func (h *Handler) ListCurriculumVersions(c *gin.Context) {
 		var description, effectiveFrom, effectiveTo sql.NullString
 		if err := rows.Scan(&v.VersionID, &v.VersionLabel, &description, &v.IsPublished,
 			&effectiveFrom, &effectiveTo, &v.CreatedAt, &v.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		v.Description = description.String
@@ -89,7 +89,7 @@ func (h *Handler) GetCurriculumVersion(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Curriculum version not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, v)
@@ -128,7 +128,7 @@ func (h *Handler) ListLearningAreas(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -139,7 +139,7 @@ func (h *Handler) ListLearningAreas(c *gin.Context) {
 		var description, gradeBand sql.NullString
 		if err := rows.Scan(&a.AreaID, &a.VersionID, &a.Code, &a.Name, &description,
 			&gradeBand, &a.SortOrder, &a.CreatedAt, &a.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		a.Description = description.String
@@ -181,7 +181,7 @@ func (h *Handler) ListStrands(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -192,7 +192,7 @@ func (h *Handler) ListStrands(c *gin.Context) {
 		var description sql.NullString
 		if err := rows.Scan(&s.StrandID, &s.AreaID, &s.Code, &s.Name, &description,
 			&s.SortOrder, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		s.Description = description.String
@@ -233,7 +233,7 @@ func (h *Handler) ListSubStrands(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -244,7 +244,7 @@ func (h *Handler) ListSubStrands(c *gin.Context) {
 		var description sql.NullString
 		if err := rows.Scan(&s.SubStrandID, &s.StrandID, &s.Code, &s.Name, &description,
 			&s.SortOrder, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		s.Description = description.String
@@ -280,7 +280,7 @@ func (h *Handler) GetTenantCurriculumPin(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "No curriculum pin found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, pin)
@@ -307,7 +307,7 @@ func (h *Handler) SetTenantCurriculumPin(c *gin.Context) {
 		tenantID, pin.VersionID,
 	).Scan(&pin.PinID, &pin.PinnedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	pin.TenantID = tenantID

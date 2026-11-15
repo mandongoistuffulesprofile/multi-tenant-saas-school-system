@@ -77,7 +77,7 @@ func (h *Handler) Push(c *gin.Context) {
 	var tenantStatus string
 	if err := tx.QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&tenantStatus); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	} else if strings.ToUpper(tenantStatus) == "SUSPENDED" {
@@ -92,7 +92,7 @@ func (h *Handler) Push(c *gin.Context) {
 		err := tx.QueryRow(`SELECT tenant_id, revoked_at FROM devices WHERE device_id = $1`, req.DeviceID).Scan(&devTenant, &devRevoked)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			// Skipping a failed lookup would let a revoked or foreign device through.
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if err == nil {
@@ -105,7 +105,7 @@ func (h *Handler) Push(c *gin.Context) {
 				return
 			}
 			if _, err := tx.Exec(`UPDATE devices SET last_seen_at = now() WHERE device_id = $1`, req.DeviceID); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 		}
@@ -118,7 +118,7 @@ func (h *Handler) Push(c *gin.Context) {
 		tenantID, req.DeviceID, defaultString(strings.ToUpper(req.SyncType), "PUSH"), len(req.Items),
 	).Scan(&syncID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -151,7 +151,7 @@ func (h *Handler) Push(c *gin.Context) {
 	if _, err := tx.Exec(
 		`UPDATE sync_log SET items_sent = $1, conflicts = $2, status = $3, completed_at = now()
 		 WHERE sync_id = $4`, applied, conflicts, statusFor(failed), syncID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -373,7 +373,7 @@ func (h *Handler) Pull(c *gin.Context) {
 		query += " ORDER BY server_ts LIMIT 500"
 		rows, err := tx.Query(query, args...)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		for rows.Next() {
@@ -383,7 +383,7 @@ func (h *Handler) Pull(c *gin.Context) {
 			if err := rows.Scan(&id, &eventID, &learnerID, &subStrand, &levelCode, &points,
 				&rawScore, &maxScore, &remarks, &state, &version, &changedAt); err != nil {
 				rows.Close()
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 			changes = append(changes, change{
@@ -418,14 +418,14 @@ func (h *Handler) Pull(c *gin.Context) {
 		query += " ORDER BY updated_at LIMIT 500"
 		rows, err := tx.Query(query, args...)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		for rows.Next() {
 			var id, registerID, learnerID, status, notes, changedAt string
 			if err := rows.Scan(&id, &registerID, &learnerID, &status, &notes, &changedAt); err != nil {
 				rows.Close()
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 			changes = append(changes, change{
@@ -467,7 +467,7 @@ func (h *Handler) ListConflicts(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -489,7 +489,7 @@ func (h *Handler) ListConflicts(c *gin.Context) {
 		var clientRaw, serverRaw []byte
 		if err := rows.Scan(&cf.ConflictID, &cf.EntityType, &cf.EntityID, &cf.ClientVersion,
 			&cf.ServerVersion, &clientRaw, &serverRaw, &cf.Resolved, &cf.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		cf.ClientValues = map[string]any{}
@@ -542,7 +542,7 @@ func (h *Handler) ResolveConflict(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if resolved {
@@ -565,7 +565,7 @@ func (h *Handler) ResolveConflict(c *gin.Context) {
 		`UPDATE sync_conflicts SET resolved = true, resolution_values = $1::jsonb, resolved_by = $2, resolved_at = now()
 		 WHERE conflict_id = $3 AND tenant_id = $4`, string(raw), nullableString(userID), conflictID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -671,7 +671,7 @@ func (h *Handler) EnrollDevice(c *gin.Context) {
 	var tenantStatus string
 	if err := tx.QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&tenantStatus); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	} else if strings.ToUpper(tenantStatus) == "SUSPENDED" {
@@ -690,7 +690,7 @@ func (h *Handler) EnrollDevice(c *gin.Context) {
 	if err != nil {
 		// If device exists, return existing
 		if err := tx.QueryRow(`SELECT device_id FROM devices WHERE tenant_id = $1 AND fingerprint = $2`, tenantID, req.Fingerprint).Scan(&deviceID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -709,7 +709,7 @@ func (h *Handler) RevokeDevice(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	res, err := tx.Exec(`UPDATE devices SET revoked_at = now() WHERE device_id = $1 AND tenant_id = $2 AND revoked_at IS NULL`, deviceID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
@@ -729,7 +729,7 @@ func (h *Handler) ListDevices(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	rows, err := tx.Query(`SELECT device_id, tenant_id, user_id, label, fingerprint, revoked_at, last_seen_at, created_at FROM devices WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -764,7 +764,7 @@ func (h *Handler) ListSyncLog(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	rows, err := tx.Query(`SELECT sync_id, tenant_id, device_id, sync_type, items_sent, conflicts, status, started_at, completed_at FROM sync_log WHERE tenant_id = $1 ORDER BY started_at DESC LIMIT 50`, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()

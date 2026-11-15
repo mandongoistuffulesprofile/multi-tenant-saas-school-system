@@ -24,7 +24,7 @@ func (h *Handler) ListRates(c *gin.Context) {
 
 	rates, err := h.service.ListRates(c.Request.Context(), tenantID, includeInactive)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, rates)
@@ -42,7 +42,7 @@ func (h *Handler) CreateRate(c *gin.Context) {
 
 	rate, err := h.service.CreateRate(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, rate)
@@ -56,7 +56,7 @@ func (h *Handler) ListItems(c *gin.Context) {
 
 	items, err := h.service.ListItems(c.Request.Context(), tenantID, itemType)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, items)
@@ -74,7 +74,7 @@ func (h *Handler) CreateItem(c *gin.Context) {
 
 	item, err := h.service.CreateItem(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, item)
@@ -98,7 +98,7 @@ func (h *Handler) ListIntakes(c *gin.Context) {
 
 	logs, err := h.service.ListIntakes(c.Request.Context(), tenantID, studentID, status, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, logs)
@@ -110,7 +110,7 @@ func (h *Handler) GetIntake(c *gin.Context) {
 
 	log, err := h.service.GetIntake(c.Request.Context(), tenantID, logID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if log == nil {
@@ -132,7 +132,7 @@ func (h *Handler) CreateIntake(c *gin.Context) {
 
 	log, err := h.service.CreateIntake(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, log)
@@ -153,7 +153,7 @@ func (h *Handler) VoidIntake(c *gin.Context) {
 
 	intake, err := h.service.VoidIntake(c.Request.Context(), tenantID, userID, logID, req.Reason)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, intake)
@@ -172,7 +172,7 @@ func (h *Handler) VerifyIntake(c *gin.Context) {
 
 	log, err := h.service.VerifyIntake(c.Request.Context(), tenantID, userID, logID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if log == nil {
@@ -199,7 +199,7 @@ func (h *Handler) ListAllocations(c *gin.Context) {
 
 	allocs, err := h.service.ListAllocations(c.Request.Context(), tenantID, studentID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, allocs)
@@ -217,7 +217,7 @@ func (h *Handler) CreateAllocation(c *gin.Context) {
 
 	alloc, err := h.service.CreateAllocation(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, alloc)

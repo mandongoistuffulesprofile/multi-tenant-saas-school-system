@@ -198,7 +198,7 @@ func (h *Handler) ListLearners(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -210,7 +210,7 @@ func (h *Handler) ListLearners(c *gin.Context) {
 		var l Learner
 		var classGroupID, gradeLabel, streamName, guardianPhone sql.NullString
 		if err := scanLearner(rows, &l, &classGroupID, &gradeLabel, &streamName, &guardianPhone); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if classGroupID.Valid {
@@ -260,7 +260,7 @@ func (h *Handler) ListGuardians(c *gin.Context) {
 		c.GetString("tenant_id"),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -270,7 +270,7 @@ func (h *Handler) ListGuardians(c *gin.Context) {
 	for rows.Next() {
 		var g guardianRow
 		if err := rows.Scan(&g.GuardianID, &g.FullName, &g.PhoneNumber, &g.Email, &g.LearnerCount); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		guardians = append(guardians, g)
@@ -449,7 +449,7 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 		nullIfEmpty(req.KNECAssessmentNo), sne, nullIfEmpty(transportZoneID), trip,
 	).Scan(&learnerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -470,7 +470,7 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 			).Scan(&guardianID)
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		_, err = tx.Exec(
@@ -481,7 +481,7 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 			i == 0, g.Relationship != "",
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -501,7 +501,7 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 			if !errors.Is(err, sql.ErrNoRows) {
 				// The year lookup failing is not "no year yet": reporting the learner as
 				// admitted without the enrolment it should have had hides the fault.
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 		} else if yearID != "" {
@@ -518,7 +518,7 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 			)
 			if err := row.Scan(&classGroupID); err != nil {
 				if !errors.Is(err, sql.ErrNoRows) {
-					c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+					validation.DBError(c, err)
 					return
 				}
 			} else {
@@ -532,7 +532,7 @@ func (h *Handler) CreateLearner(c *gin.Context) {
 					tenantID, learnerID, classGroupID, yearID, startedOn,
 				)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+					validation.DBError(c, err)
 					return
 				}
 			}
@@ -643,7 +643,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -652,7 +652,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 			`UPDATE learners SET residence_type = $1, boarding_type = $2, updated_at = now()
 			 WHERE learner_id = $3 AND tenant_id = $4`,
 			residence, boardingFromResidence(residence), learnerID, tenantID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -660,7 +660,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 		if _, err := tx.Exec(
 			`UPDATE learners SET sne_category = $1, updated_at = now()
 			 WHERE learner_id = $2 AND tenant_id = $3`, sne, learnerID, tenantID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -673,7 +673,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 			 WHERE learner_id = $3 AND tenant_id = $4`,
 			strings.TrimSpace(req.KEMISUPI), strings.TrimSpace(req.KNECAssessmentNo),
 			learnerID, tenantID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -685,7 +685,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 			   updated_at = now()
 			 WHERE learner_id = $3 AND tenant_id = $4`,
 			nullIfEmpty(transportZoneID), trip, learnerID, tenantID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -693,7 +693,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 		if _, err := tx.Exec(
 			`UPDATE learners SET status = $1 WHERE learner_id = $2 AND tenant_id = $3`,
 			status, learnerID, tenantID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -723,7 +723,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 					(SELECT year_id FROM academic_years WHERE tenant_id = $1 AND is_current = true),
 					(SELECT year_id FROM academic_years WHERE tenant_id = $1 ORDER BY start_date DESC LIMIT 1))`,
 				tenantID).Scan(&y); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 			if !y.Valid || y.String == "" {
@@ -744,7 +744,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 				})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 
@@ -759,7 +759,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 				tenantID, streamName).Scan(&streamID)
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 
@@ -775,7 +775,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 				tenantID, yearID, gradeID, streamID).Scan(&classGroupID)
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 
@@ -795,7 +795,7 @@ func (h *Handler) UpdateLearner(c *gin.Context) {
 				classGroupID, yearID, enrolmentID)
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}

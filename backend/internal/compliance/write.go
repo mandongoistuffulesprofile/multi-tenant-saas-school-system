@@ -52,7 +52,7 @@ func (h *Handler) CreateConsentNotice(c *gin.Context) {
 			validation.Conflict(c, "That notice version already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"notice_id": noticeID})
@@ -94,7 +94,7 @@ func (h *Handler) UpdateConsentNotice(c *gin.Context) {
 	result, err := tx.Exec(
 		`UPDATE consent_notices SET `+strings.Join(sets, ", ")+` WHERE notice_id = $`+itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -131,7 +131,7 @@ func (h *Handler) RecordConsent(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -146,7 +146,7 @@ func (h *Handler) RecordConsent(c *gin.Context) {
 		 RETURNING consent_id`,
 		tenantID, req.UserID, req.NoticeID, noticeVersion, req.Granted).Scan(&consentID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"consent_id": consentID, "granted": req.Granted})
@@ -164,7 +164,7 @@ func (h *Handler) RevokeConsent(c *gin.Context) {
 		`UPDATE consent_records SET granted = false, revoked_at = now(), updated_at = now()
 		 WHERE consent_id = $1 AND tenant_id = $2`, consentID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -203,7 +203,7 @@ func (h *Handler) UpdateConsentRecord(c *gin.Context) {
 	}
 	result, err := tx.Exec(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -238,7 +238,7 @@ func (h *Handler) CreateDSRRequest(c *gin.Context) {
 		tenantID, req.UserID, strings.ToUpper(strings.TrimSpace(req.RequestType)),
 		nullableString(req.Description), nullableString(req.DueDate)).Scan(&requestID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"request_id": requestID})
@@ -283,7 +283,7 @@ func (h *Handler) UpdateDSRRequest(c *gin.Context) {
 		 WHERE request_id = $4::uuid AND tenant_id = $5::varchar`,
 		status, string(raw), nullableString(userID), requestID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -333,7 +333,7 @@ func (h *Handler) CreateBreach(c *gin.Context) {
 		tenantID, req.BreachTitle, req.Description, req.DiscoveredAt, severity,
 		req.AffectedDataSubjects, nullableString(userID)).Scan(&breachID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"breach_id": breachID})
@@ -389,7 +389,7 @@ func (h *Handler) UpdateBreach(c *gin.Context) {
 		`UPDATE breach_register SET `+strings.Join(sets, ", ")+
 			` WHERE breach_id = $`+itoa(len(args)-1)+` AND tenant_id = $`+itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -436,7 +436,7 @@ func (h *Handler) UpsertRetentionPolicy(c *gin.Context) {
 		tenantID, strings.TrimSpace(req.ResourceType), req.RetentionDays,
 		strings.ToUpper(strings.TrimSpace(req.ActionAfterRetention)), req.IsActive, nullableString(userID)).Scan(&policyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"policy_id": policyID})
@@ -453,7 +453,7 @@ func (h *Handler) ListRetentionPolicies(c *gin.Context) {
 		`SELECT policy_id, tenant_id, resource_type, retention_days, action_after_retention, is_active
 		 FROM retention_policies WHERE tenant_id = $1 ORDER BY resource_type`, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -471,7 +471,7 @@ func (h *Handler) ListRetentionPolicies(c *gin.Context) {
 		var p policy
 		if err := rows.Scan(&p.PolicyID, &p.TenantID, &p.ResourceType, &p.RetentionDays,
 			&p.ActionAfterRetention, &p.IsActive); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		policies = append(policies, p)
@@ -519,7 +519,7 @@ func (h *Handler) CreateDPIA(c *gin.Context) {
 		tenantID, req.ProcessingActivity, req.Description, risk,
 		nullableString(req.MitigationMeasures), nullableString(userID), nullableString(req.ReviewDate)).Scan(&dpiaID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"dpia_id": dpiaID})
@@ -540,7 +540,7 @@ func (h *Handler) ListDPIAs(c *gin.Context) {
 		 FROM dpia_records WHERE tenant_id = $1 ORDER BY created_at DESC`,
 		tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -568,7 +568,7 @@ func (h *Handler) ListDPIAs(c *gin.Context) {
 			&rec.RiskLevel, &mitigation, &rec.Status, &assessedBy, &reviewDate,
 			&rec.CreatedAt, &rec.UpdatedAt,
 		); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if mitigation.Valid {
@@ -583,7 +583,7 @@ func (h *Handler) ListDPIAs(c *gin.Context) {
 		records = append(records, rec)
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, records)
@@ -601,7 +601,7 @@ func (h *Handler) ComplianceSummary(c *gin.Context) {
 	// A failed count must not be reported as a reassuring zero.
 	count := func(query string, dst *int) bool {
 		if err := tx.QueryRow(query, tenantID).Scan(dst); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return false
 		}
 		return true

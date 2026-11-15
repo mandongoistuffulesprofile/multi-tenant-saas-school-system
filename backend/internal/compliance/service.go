@@ -3,6 +3,7 @@ package compliance
 import (
 	"database/sql"
 	"encoding/json"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -62,7 +63,7 @@ func (h *Handler) ListConsentNotices(c *gin.Context) {
 		 FROM consent_notices WHERE is_active = TRUE ORDER BY notice_code`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -73,7 +74,7 @@ func (h *Handler) ListConsentNotices(c *gin.Context) {
 		if err := rows.Scan(&n.NoticeID, &n.NoticeCode, &n.Title, &n.ContentText,
 			&n.Version, &n.IsActive, &n.RequiresRenewal, &n.RenewalPeriodDays,
 			&n.CreatedBy, &n.CreatedAt, &n.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		notices = append(notices, n)
@@ -137,7 +138,7 @@ func (h *Handler) ListConsentRecords(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -149,7 +150,7 @@ func (h *Handler) ListConsentRecords(c *gin.Context) {
 		if err := rows.Scan(&r.ConsentID, &r.TenantID, &r.UserID, &r.NoticeID,
 			&r.NoticeVersion, &r.Granted, &grantedAt, &revokedAt,
 			&r.CreatedAt, &r.UpdatedAt, &r.Purpose); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		r.GrantedAt = grantedAt.String
@@ -184,7 +185,7 @@ func (h *Handler) ListAccessLogs(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -194,7 +195,7 @@ func (h *Handler) ListAccessLogs(c *gin.Context) {
 		var l AccessLog
 		if err := rows.Scan(&l.LogID, &l.TenantID, &l.UserID, &l.Action,
 			&l.ResourceType, &l.ResourceID, &l.IPAddress, &l.AccessedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		logs = append(logs, l)
@@ -231,7 +232,7 @@ func (h *Handler) ListDSRRequests(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -245,7 +246,7 @@ func (h *Handler) ListDSRRequests(c *gin.Context) {
 		if err := rows.Scan(&r.RequestID, &r.TenantID, &r.UserID, &r.RequestType,
 			&r.Status, &description, &responseData, &respondedBy, &respondedAt, &dueDate,
 			&r.CreatedAt, &r.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		r.Description = description.String
@@ -291,7 +292,7 @@ func (h *Handler) ListBreachRegister(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -302,7 +303,7 @@ func (h *Handler) ListBreachRegister(c *gin.Context) {
 		if err := rows.Scan(&b.BreachID, &b.TenantID, &b.BreachTitle, &b.Description,
 			&b.DiscoveredAt, &b.ReportedToAuthority, &b.AffectedCount, &b.Severity,
 			&b.Status, &b.ResolutionNotes, &b.ReportedBy, &b.CreatedAt, &b.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		breaches = append(breaches, b)

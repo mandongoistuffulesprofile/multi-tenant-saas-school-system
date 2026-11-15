@@ -103,10 +103,7 @@ func BindJSON(c *gin.Context, obj any) []FieldError {
 
 // JSONError writes a standard error response and aborts the request.
 func JSONError(c *gin.Context, code, message string, status int, fieldErrors []FieldError) {
-	requestID := c.GetString("X-Request-ID")
-	if requestID == "" {
-		requestID = "unknown"
-	}
+	requestID := RequestID(c)
 
 	resp := ErrorResponse{
 		Code:        code,

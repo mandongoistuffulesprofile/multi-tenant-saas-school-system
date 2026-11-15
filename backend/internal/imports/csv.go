@@ -273,12 +273,12 @@ func (h *Handler) ImportLearners(c *gin.Context) {
 
 	existing, err := existingAdmissions(tx, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	grades, err := knownGrades(tx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	preview, err := PreviewCSV(req.CSV, existing, grades)
@@ -294,7 +294,7 @@ func (h *Handler) ImportLearners(c *gin.Context) {
 	if !req.DryRun {
 		created, err := applyImport(tx, tenantID, preview, grades)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		// One audit event per applied import, in the same transaction as the

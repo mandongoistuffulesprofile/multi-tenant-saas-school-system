@@ -186,7 +186,7 @@ func (h *Handler) requireSetupTenant(c *gin.Context) (string, bool) {
 	tenantID := c.Param("id")
 	ok, schoolStatus, err := h.tenantExists(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return "", false
 	}
 	if !ok {
@@ -208,7 +208,7 @@ func (h *Handler) GetTenantOnboarding(c *gin.Context) {
 	}
 	state, err := h.getOnboarding(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if state == nil {
@@ -437,7 +437,7 @@ func (h *Handler) SetupProfile(c *gin.Context) {
 			validation.Conflict(c, "NEMIS code already in use")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	_ = h.updateOnboarding(c.Request.Context(), tenantID, "IN_PROGRESS", "PROFILE", actor, map[string]any{"profile": "done"}, map[string]any{"profile": req})
@@ -710,7 +710,7 @@ func (h *Handler) SetupCalendar(c *gin.Context) {
 		return e
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	_ = h.updateOnboarding(c.Request.Context(), tenantID, "IN_PROGRESS", "CALENDAR", actor, map[string]any{"calendar": "done"}, map[string]any{"calendar": req})
@@ -733,7 +733,7 @@ func (h *Handler) SetupStructure(c *gin.Context) {
 		return h.applyStructure(c.Request.Context(), tx, tenantID, req)
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	_ = h.updateOnboarding(c.Request.Context(), tenantID, "IN_PROGRESS", "STRUCTURE", actor, map[string]any{"structure": "done"}, map[string]any{"structure": req})
@@ -756,7 +756,7 @@ func (h *Handler) SetupFinance(c *gin.Context) {
 		return h.applyFinance(c.Request.Context(), tx, tenantID, req)
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	_ = h.updateOnboarding(c.Request.Context(), tenantID, "IN_PROGRESS", "FINANCE", actor, map[string]any{"finance": "done"}, map[string]any{"finance": req})
@@ -852,7 +852,7 @@ func (h *Handler) SetupSeeds(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	_ = h.updateOnboarding(c.Request.Context(), tenantID, "IN_PROGRESS", "SEEDS", actor, map[string]any{"seeds": "done"}, map[string]any{"seeds": req})
@@ -868,7 +868,7 @@ func (h *Handler) CompleteSetup(c *gin.Context) {
 	actor := c.GetString("user_id")
 	res, err := h.computeReadiness(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if !res.Ready {
@@ -880,7 +880,7 @@ func (h *Handler) CompleteSetup(c *gin.Context) {
 		`UPDATE platform_tenant_onboarding SET status='READY_FOR_HANDOFF', current_step='HANDOFF', readiness=$2::jsonb, updated_by=NULLIF($3,'')::uuid, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1`,
 		tenantID, string(readyBytes), actor)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	h.auditPlatform(c, tenantID, "PLATFORM_SETUP_COMPLETE", map[string]any{"ready": true})
@@ -897,7 +897,7 @@ func (h *Handler) MarkHandoff(c *gin.Context) {
 		`UPDATE platform_tenant_onboarding SET status='HANDED_OFF', current_step='HANDED_OFF', handed_off_at=CURRENT_TIMESTAMP, updated_by=NULLIF($2,'')::uuid, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1`,
 		tenantID, actor)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	h.auditPlatform(c, tenantID, "PLATFORM_SETUP_HANDOFF", map[string]any{})

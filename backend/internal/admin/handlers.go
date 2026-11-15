@@ -20,7 +20,7 @@ func (h *Handler) ListInKindSettings(c *gin.Context) {
 
 	settings, err := h.service.ListInKindSettings(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, settings)
@@ -38,7 +38,7 @@ func (h *Handler) UpsertInKindSetting(c *gin.Context) {
 
 	setting, err := h.service.UpsertInKindSetting(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, setting)

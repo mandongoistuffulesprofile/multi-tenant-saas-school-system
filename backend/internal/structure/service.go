@@ -99,7 +99,7 @@ func (h *Handler) ListGrades(c *gin.Context) {
 	rows, err := tx.Query(
 		`SELECT grade_id, grade_label, level_band, lessons_per_week FROM grades ORDER BY grade_label`)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -108,7 +108,7 @@ func (h *Handler) ListGrades(c *gin.Context) {
 	for rows.Next() {
 		var g Grade
 		if err := rows.Scan(&g.GradeID, &g.GradeLabel, &g.LevelBand, &g.LessonsPerWeek); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		grades = append(grades, g)
@@ -128,7 +128,7 @@ func (h *Handler) ListStreams(c *gin.Context) {
 		`SELECT stream_id, tenant_id, stream_name, created_at FROM streams WHERE tenant_id = $1 ORDER BY stream_name`,
 		tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -137,7 +137,7 @@ func (h *Handler) ListStreams(c *gin.Context) {
 	for rows.Next() {
 		var s Stream
 		if err := rows.Scan(&s.StreamID, &s.TenantID, &s.StreamName, &s.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		streams = append(streams, s)
@@ -175,7 +175,7 @@ func (h *Handler) CreateStream(c *gin.Context) {
 			validation.Conflict(c, "A stream with that name already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"stream_id": streamID})
@@ -199,7 +199,7 @@ func (h *Handler) UpdateStream(c *gin.Context) {
 		`UPDATE streams SET stream_name = $1 WHERE stream_id = $2 AND tenant_id = $3`,
 		strings.TrimSpace(req.StreamName), streamID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -224,7 +224,7 @@ func (h *Handler) DeleteStream(c *gin.Context) {
 			validation.Conflict(c, "Stream is still used by a class group")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -268,7 +268,7 @@ func (h *Handler) ListClassGroups(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -279,7 +279,7 @@ func (h *Handler) ListClassGroups(c *gin.Context) {
 		if err := rows.Scan(&cg.ClassGroupID, &cg.TenantID, &cg.YearID, &cg.YearLabel,
 			&cg.GradeID, &cg.GradeLabel, &cg.StreamID, &cg.StreamName,
 			&cg.ClassTeacherID, &cg.ClassTeacherName, &cg.LearnerCount, &cg.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		groups = append(groups, cg)
@@ -328,7 +328,7 @@ func (h *Handler) CreateClassGroup(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"class_group_id": classGroupID})
@@ -357,7 +357,7 @@ func (h *Handler) UpdateClassGroup(c *gin.Context) {
 		`UPDATE class_groups SET class_teacher_id = $1 WHERE class_group_id = $2 AND tenant_id = $3`,
 		teacher, classGroupID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -381,7 +381,7 @@ func (h *Handler) DeleteClassGroup(c *gin.Context) {
 			validation.Conflict(c, "Class group still has enrolments or teaching assignments")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -432,7 +432,7 @@ func (h *Handler) ListTeachingAssignments(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -443,7 +443,7 @@ func (h *Handler) ListTeachingAssignments(c *gin.Context) {
 		if err := rows.Scan(&a.AssignmentID, &a.TenantID, &a.StaffMembershipID,
 			&a.TeacherName, &a.ClassGroupID, &a.ClassLabel, &a.SubjectID,
 			&a.SubjectName, &a.AcademicYearID, &a.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		assignments = append(assignments, a)
@@ -483,7 +483,7 @@ func (h *Handler) CreateTeachingAssignment(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"assignment_id": assignmentID})
@@ -499,7 +499,7 @@ func (h *Handler) DeleteTeachingAssignment(c *gin.Context) {
 	result, err := tx.Exec(
 		`DELETE FROM teaching_assignments WHERE assignment_id = $1 AND tenant_id = $2`, assignmentID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -549,7 +549,7 @@ func (h *Handler) RolloverClassGroups(c *gin.Context) {
 			 WHERE cg.tenant_id = $1 AND cg.year_id = $2`+gradeFilter,
 			args...)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		defer rows.Close()
@@ -563,7 +563,7 @@ func (h *Handler) RolloverClassGroups(c *gin.Context) {
 		for rows.Next() {
 			var p preview
 			if err := rows.Scan(&p.GradeID, &p.GradeLabel, &p.StreamID, &p.StreamName); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 			items = append(items, p)
@@ -580,7 +580,7 @@ func (h *Handler) RolloverClassGroups(c *gin.Context) {
 		 ON CONFLICT DO NOTHING`,
 		args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	copied, _ := result.RowsAffected()

@@ -3,6 +3,7 @@ package reports
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 	"strings"
 	"time"
@@ -66,7 +67,7 @@ func (h *Handler) GetReportCardPDF(c *gin.Context) {
 		card.Snapshot = json.RawMessage(snapshotText)
 	}
 	if err := h.loadCardResults(tx, &card); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 

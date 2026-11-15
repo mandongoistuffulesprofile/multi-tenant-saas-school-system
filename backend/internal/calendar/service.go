@@ -49,7 +49,7 @@ func (h *Handler) ListAcademicYears(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -58,7 +58,7 @@ func (h *Handler) ListAcademicYears(c *gin.Context) {
 	for rows.Next() {
 		var y AcademicYear
 		if err := rows.Scan(&y.YearID, &y.TenantID, &y.YearLabel, &y.StartDate, &y.EndDate, &y.IsCurrent); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		years = append(years, y)
@@ -92,7 +92,7 @@ func (h *Handler) CreateAcademicYear(c *gin.Context) {
 		tenantID, req.YearLabel, req.StartDate, req.EndDate, req.IsCurrent,
 	).Scan(&yearID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"year_id": yearID})
@@ -133,7 +133,7 @@ func (h *Handler) ListTerms(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -144,7 +144,7 @@ func (h *Handler) ListTerms(c *gin.Context) {
 		var midtermStart, midtermEnd sql.NullString
 		if err := rows.Scan(&t.TermID, &t.TenantID, &t.YearID, &t.TermNumber, &t.TermLabel,
 			&t.StartDate, &t.EndDate, &midtermStart, &midtermEnd, &t.IsCurrent); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		t.MidtermStart = midtermStart.String
@@ -186,7 +186,7 @@ func (h *Handler) CreateTerm(c *gin.Context) {
 		req.MidtermStart, req.MidtermEnd, req.IsCurrent,
 	).Scan(&termID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"term_id": termID})
@@ -215,7 +215,7 @@ func (h *Handler) ListExamWindows(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -224,7 +224,7 @@ func (h *Handler) ListExamWindows(c *gin.Context) {
 	for rows.Next() {
 		var w ExamWindow
 		if err := rows.Scan(&w.WindowID, &w.TenantID, &w.ExamType, &w.WindowLabel, &w.StartDate, &w.EndDate); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		windows = append(windows, w)
@@ -258,7 +258,7 @@ func (h *Handler) CreateExamWindow(c *gin.Context) {
 		tenantID, req.ExamType, req.WindowLabel, req.StartDate, req.EndDate,
 	).Scan(&windowID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"window_id": windowID})
