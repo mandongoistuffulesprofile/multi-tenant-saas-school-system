@@ -242,13 +242,23 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 	}
 	if planCode != "" {
 		var planID string
-		if err := tx.QueryRow(`SELECT plan_id FROM plans WHERE plan_code = $1`, planCode).Scan(&planID); err == nil {
-			if _, err := tx.Exec(
-				`INSERT INTO subscriptions (tenant_id, plan_id, status, auto_renew)
-				 VALUES ($1, $2, 'ACTIVE', true)`, tenantID, planID); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		if err := tx.QueryRow(`SELECT plan_id FROM plans WHERE plan_code = $1`, planCode).Scan(&planID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				// A misspelt or retired plan used to register the school with no
+				// subscription at all, silently. Say so instead.
+				validation.BadRequest(c, "Invalid request", []validation.FieldError{
+					{Field: "plan_code", Code: "INVALID_VALUE", Message: "plan_code does not match a known plan"},
+				})
 				return
 			}
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO subscriptions (tenant_id, plan_id, status, auto_renew)
+			 VALUES ($1, $2, 'ACTIVE', true)`, tenantID, planID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
 		}
 	}
 

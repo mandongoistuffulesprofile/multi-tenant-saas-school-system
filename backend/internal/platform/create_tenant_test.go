@@ -186,6 +186,41 @@ func TestCreateTenantSubscribesToTheChosenPlan(t *testing.T) {
 	}
 }
 
+func TestCreateTenantRejectsAnUnknownPlan(t *testing.T) {
+	h := newOnboardingHandler(t)
+	token := fmt.Sprintf("%d", time.Now().UnixNano())
+	tenantID := "dup-plan-unknown-" + token
+	email := "admin-unknown-" + token + "@dup-test.example"
+	cleanupTenant(t, h, tenantID, email)
+
+	// The plan lookup used to swallow its own miss: the school was created with no
+	// subscription, and nobody was told the plan code did not exist.
+	w := postCreateTenant(t, h, map[string]any{
+		"school_name": "Unknown Plan Primary",
+		"subdomain":   tenantID,
+		"admin_email": email,
+		"admin_phone": "2547" + token[len(token)-8:],
+		"plan_code":   "STARTER_PLUS",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400: %s", w.Code, w.Body.String())
+	}
+	if body := decodeBody(t, w); body["code"] != "VALIDATION_ERROR" {
+		t.Fatalf("code is %v, want VALIDATION_ERROR", body["code"])
+	}
+
+	// Refusing the plan must leave nothing behind: the whole create is one tx.
+	tx := platformTx(t, h)
+	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM schools WHERE tenant_id = $1)`, tenantID).Scan(&exists); err != nil {
+		t.Fatalf("check school: %v", err)
+	}
+	if exists {
+		t.Fatalf("school %q exists after a rejected plan", tenantID)
+	}
+}
+
 func TestCreateTenantStoresLoginLookupFields(t *testing.T) {
 	h := newOnboardingHandler(t)
 	token := fmt.Sprintf("%d", time.Now().UnixNano())
