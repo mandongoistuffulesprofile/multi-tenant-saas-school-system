@@ -455,7 +455,13 @@ async function capturePersona(browser, persona, plan, resolvedParams, results) {
       console.log(`  ${label} ${route.file}  <- ${targetPath}${status === "skipped" ? " (dev-only route, not-found page served)" : ""}`);
     }
   } finally {
-    await context.close();
+    // A browser that died mid-run must not abort the whole capture before the
+    // report is written; the per-route failure already records what happened.
+    try {
+      await context.close();
+    } catch {
+      // Ignore: closing a browser that already crashed is not a new failure.
+    }
   }
 }
 
@@ -573,7 +579,11 @@ async function main() {
       }
     }
   } finally {
-    await browser.close();
+    try {
+      await browser.close();
+    } catch {
+      // Same reason as context.close above.
+    }
   }
 
   const reportPath = path.join(OUT_DIR, "capture-report.json");
