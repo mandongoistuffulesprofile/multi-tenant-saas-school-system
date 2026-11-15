@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -72,5 +73,5 @@ func (h *Handler) GetLinkedLearners(c *gin.Context) {
 		learners = append(learners, ll)
 	}
 
-	c.JSON(http.StatusOK, learners)
+	c.JSON(http.StatusOK, validation.List(learners))
 }

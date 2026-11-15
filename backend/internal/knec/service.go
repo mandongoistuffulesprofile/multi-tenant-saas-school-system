@@ -2,6 +2,7 @@ package knec
 
 import (
 	"database/sql"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -47,7 +48,7 @@ func (h *Handler) ListKNECRules(c *gin.Context) {
 		 FROM knec_tools ORDER BY tool_code`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -58,7 +59,7 @@ func (h *Handler) ListKNECRules(c *gin.Context) {
 		var description sql.NullString
 		if err := rows.Scan(&t.ToolID, &t.ToolCode, &t.Name, &description, &t.GradeID,
 			&t.AssessmentYear, &t.IsActive, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if description.Valid {
@@ -66,7 +67,7 @@ func (h *Handler) ListKNECRules(c *gin.Context) {
 		}
 		tools = append(tools, t)
 	}
-	c.JSON(http.StatusOK, tools)
+	c.JSON(http.StatusOK, validation.List(tools))
 }
 
 // KNECSubmissionStatus
@@ -99,7 +100,7 @@ func (h *Handler) ListKNECRSubmissionStatus(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -111,7 +112,7 @@ func (h *Handler) ListKNECRSubmissionStatus(c *gin.Context) {
 		if err := rows.Scan(&s.SubmissionID, &s.TenantID, &s.ToolID, &s.AcademicYearID,
 			&s.GradeID, &s.Status, &exportRef, &exportedAt, &confirmedAt,
 			&createdBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		s.ExportRef = exportRef.String
@@ -120,7 +121,7 @@ func (h *Handler) ListKNECRSubmissionStatus(c *gin.Context) {
 		s.CreatedBy = createdBy.String
 		statuses = append(statuses, s)
 	}
-	c.JSON(http.StatusOK, statuses)
+	c.JSON(http.StatusOK, validation.List(statuses))
 }
 
 // KNECExportBatch
@@ -152,7 +153,7 @@ func (h *Handler) ListKNECRExportBatches(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -164,7 +165,7 @@ func (h *Handler) ListKNECRExportBatches(c *gin.Context) {
 		if err := rows.Scan(&b.BatchID, &b.TenantID, &b.ToolID, &b.BatchReference,
 			&b.LearnerCount, &b.Status, &fileRef, &errorMessage, &createdBy,
 			&b.CreatedAt, &completedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		b.FileRef = fileRef.String
@@ -173,7 +174,7 @@ func (h *Handler) ListKNECRExportBatches(c *gin.Context) {
 		b.CompletedAt = completedAt.String
 		batches = append(batches, b)
 	}
-	c.JSON(http.StatusOK, batches)
+	c.JSON(http.StatusOK, validation.List(batches))
 }
 
 var _ = http.StatusOK

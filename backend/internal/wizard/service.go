@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -109,7 +110,7 @@ func (h *Handler) GetState(c *gin.Context) {
 	}
 	w, err := h.service.GetState(c.Request.Context(), tenantID, wizardType)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if w == nil {
@@ -137,7 +138,7 @@ func (h *Handler) UpsertState(c *gin.Context) {
 	userID := c.GetString("user_id")
 	w, err := h.service.UpsertState(c.Request.Context(), tenantID, req.WizardType, req.Step, req.Status, req.Draft, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, w)

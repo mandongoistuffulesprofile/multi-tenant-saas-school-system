@@ -3,6 +3,7 @@ package attendance
 import (
 	"database/sql"
 	"fmt"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 	"strconv"
 
@@ -79,7 +80,7 @@ func (h *Handler) ListAttendanceRegisters(c *gin.Context) {
 	args = append(args, limit, offset)
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -90,12 +91,12 @@ func (h *Handler) ListAttendanceRegisters(c *gin.Context) {
 		if err := rows.Scan(&r.RegisterID, &r.TenantID, &r.ClassGroupID, &r.GradeID, &r.StreamID,
 			&r.AcademicYearID, &r.TermID, &r.RegisterDate, &r.SessionType, &r.Status,
 			&r.MarkedBy, &r.MarkedAt, &r.CreatedAt, &r.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		registers = append(registers, r)
 	}
-	c.JSON(http.StatusOK, registers)
+	c.JSON(http.StatusOK, validation.List(registers))
 }
 
 // AttendanceMark
@@ -199,7 +200,7 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -211,14 +212,14 @@ func (h *Handler) ListAttendanceMarks(c *gin.Context) {
 		var markedBy, notes sql.NullString
 		if err := rows.Scan(&m.MarkID, &m.TenantID, &m.RegisterID, &m.LearnerID, &m.Status,
 			&markedBy, &m.MarkedAt, &notes); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		m.MarkedBy = markedBy.String
 		m.Notes = notes.String
 		marks = append(marks, m)
 	}
-	c.JSON(http.StatusOK, marks)
+	c.JSON(http.StatusOK, validation.List(marks))
 }
 
 // ParentAttendance returns recent attendance marks for the learners linked to
@@ -254,7 +255,7 @@ func (h *Handler) ParentAttendance(c *gin.Context) {
 		 LIMIT 100`,
 		tenantID, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -269,12 +270,12 @@ func (h *Handler) ParentAttendance(c *gin.Context) {
 	for rows.Next() {
 		var m parentMark
 		if err := rows.Scan(&m.Date, &m.Learner, &m.ClassName, &m.Status); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		marks = append(marks, m)
 	}
-	c.JSON(http.StatusOK, marks)
+	c.JSON(http.StatusOK, validation.List(marks))
 }
 
 func (h *Handler) getLinkedLearnerIDs(tx *sqlx.Tx, userID string) (map[string]bool, error) {
@@ -356,7 +357,7 @@ func (h *Handler) ListGateDevices(c *gin.Context) {
 		tenantID, limit, offset,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -367,12 +368,12 @@ func (h *Handler) ListGateDevices(c *gin.Context) {
 		if err := rows.Scan(&d.DeviceID, &d.TenantID, &d.DeviceName, &d.DeviceType, &d.Location,
 			&d.PairingCode, &d.IsPaired, &d.PairedAt, &d.PairedBy, &d.LastSeenAt,
 			&d.Status, &d.CreatedAt, &d.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		devices = append(devices, d)
 	}
-	c.JSON(http.StatusOK, devices)
+	c.JSON(http.StatusOK, validation.List(devices))
 }
 
 // RFIDTag
@@ -425,7 +426,7 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 		tenantID, limit, offset,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -435,12 +436,12 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 		var t RFIDTag
 		if err := rows.Scan(&t.TagID, &t.TenantID, &t.TagUID, &t.HolderType, &t.HolderID,
 			&t.IsActive, &t.IssuedAt, &t.CreatedAt, &t.UpdatedAt, &t.HolderName); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		tags = append(tags, t)
 	}
-	c.JSON(http.StatusOK, tags)
+	c.JSON(http.StatusOK, validation.List(tags))
 }
 
 // GateEvent
@@ -496,7 +497,7 @@ func (h *Handler) ListGateEvents(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -507,12 +508,12 @@ func (h *Handler) ListGateEvents(c *gin.Context) {
 		if err := rows.Scan(&e.EventID, &e.TenantID, &e.DeviceID, &e.TagID, &e.HolderType,
 			&e.HolderID, &e.EventType, &e.EventTS, &e.Verified, &e.VerifiedBy,
 			&e.VerifiedAt, &e.CreatedAt, &e.HolderName); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		events = append(events, e)
 	}
-	c.JSON(http.StatusOK, events)
+	c.JSON(http.StatusOK, validation.List(events))
 }
 
 var _ = http.StatusOK

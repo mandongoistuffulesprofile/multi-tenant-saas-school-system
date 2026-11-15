@@ -235,7 +235,7 @@ func (h *Handler) Rollover(c *gin.Context) {
 		`SELECT count(*) FROM academic_years WHERE tenant_id = $1 AND year_id IN ($2, $3)`,
 		tenantID, req.FromYearID, req.ToYearID,
 	).Scan(&years); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if years != 2 {
@@ -245,12 +245,12 @@ func (h *Handler) Rollover(c *gin.Context) {
 
 	grades, err := loadGrades(tx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	sources, err := loadSourceGroups(tx, tenantID, req.FromYearID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	plan := BuildPlan(grades, sources)
@@ -270,7 +270,7 @@ func (h *Handler) Rollover(c *gin.Context) {
 
 	promoted, graduating, err := applyRollover(tx, tenantID, req.FromYearID, req.ToYearID, grades, sources)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	// Only an applied rollover is audited: previews change nothing, and the

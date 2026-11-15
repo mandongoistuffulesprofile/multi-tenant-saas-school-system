@@ -102,7 +102,7 @@ func (h *Handler) UpsertResult(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -386,7 +386,7 @@ func (h *Handler) CreateAssessmentEvent(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"event_id": eventID})
@@ -439,7 +439,7 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 			   AND (ta.subject_id = la.code OR ta.subject_id = la.area_id::text)`,
 			eventID, tenantID).Scan(&allocated)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if allocated == 0 {
@@ -478,7 +478,7 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 		`UPDATE assessment_events SET `+strings.Join(sets, ", ")+` WHERE event_id = $`+strconv.Itoa(len(args)-1)+` AND tenant_id = $`+strconv.Itoa(len(args)),
 		args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -492,7 +492,7 @@ func (h *Handler) UpdateAssessmentEvent(c *gin.Context) {
 			`UPDATE assessment_results SET state = $1, server_ts = now()
 			 WHERE tenant_id = $2 AND event_id = $3 AND state IN ($4, $5)`,
 			StateLocked, tenantID, eventID, StateSubmitted, StateModerated); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -533,7 +533,7 @@ func (h *Handler) ReopenResult(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -542,7 +542,7 @@ func (h *Handler) ReopenResult(c *gin.Context) {
 		 (tenant_id, result_id, event_id, learner_id, state, changed_by, change_reason)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		tenantID, resultID, eventID, learnerID, StateDraft, nullableString(userID), req.Reason); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -572,7 +572,7 @@ func (h *Handler) ModerationQueue(c *gin.Context) {
 		 ORDER BY ae.assessment_type, l.last_name`,
 		tenantID, StateSubmitted)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -597,7 +597,7 @@ func (h *Handler) ModerationQueue(c *gin.Context) {
 		if err := rows.Scan(&r.ResultID, &r.EventID, &r.LearnerID, &learnerName,
 			&r.AssessmentType, &gradeLabel, &streamName, &levelCode, &r.State,
 			&remarks, &r.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		r.LearnerName = strings.TrimSpace(learnerName.String + " " + learnerName.String)
@@ -607,7 +607,7 @@ func (h *Handler) ModerationQueue(c *gin.Context) {
 		r.Remarks = remarks.String
 		items = append(items, r)
 	}
-	c.JSON(http.StatusOK, items)
+	c.JSON(http.StatusOK, validation.List(items))
 }
 
 // ModerateResults moves submitted results to MODERATED (or LOCKED).
@@ -640,7 +640,7 @@ func (h *Handler) ModerateResults(c *gin.Context) {
 		 WHERE tenant_id = $2 AND result_id = ANY($3) AND state IN ($4, $5)`,
 		state, tenantID, req.ResultIDs, StateSubmitted, StateModerated)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	updated, _ := result.RowsAffected()
@@ -668,7 +668,7 @@ func (h *Handler) EventGrid(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -684,14 +684,14 @@ func (h *Handler) EventGrid(c *gin.Context) {
 		 JOIN strands st ON st.strand_id = ss.strand_id
 		 WHERE st.area_id = $1 ORDER BY st.sort_order, ss.sort_order`, areaID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	for rows.Next() {
 		var s subStrand
 		if err := rows.Scan(&s.SubStrandID, &s.Code, &s.Name); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		subStrands = append(subStrands, s)
@@ -713,14 +713,14 @@ func (h *Handler) EventGrid(c *gin.Context) {
 		 WHERE l.tenant_id = $1 AND cg.grade_id = $2 AND l.status = 'ACTIVE'
 		 ORDER BY l.last_name, l.first_name`, tenantID, gradeID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	for rows.Next() {
 		var learnerID, firstName, lastName, admissionNo string
 		if err := rows.Scan(&learnerID, &firstName, &lastName, &admissionNo); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		learners = append(learners, learnerCell{
@@ -743,7 +743,7 @@ func (h *Handler) EventGrid(c *gin.Context) {
 				remarks, state, version
 			 FROM assessment_results WHERE tenant_id = $1 AND event_id = $2`, tenantID, eventID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		defer resultRows.Close()
@@ -755,7 +755,7 @@ func (h *Handler) EventGrid(c *gin.Context) {
 			var version int
 			if err := resultRows.Scan(&learnerID, &subStrandID, &levelCode, &points,
 				&rawScore, &maxScore, &remarks, &state, &version); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 			i, ok := index[learnerID]
@@ -826,7 +826,7 @@ func (h *Handler) UpsertLearnerRemark(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"remark_id": remarkID})
@@ -874,7 +874,7 @@ func (h *Handler) UpsertCompetency(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"rating_id": ratingID})
@@ -918,7 +918,7 @@ func (h *Handler) CreateEvidence(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"evidence_id": evidenceID})

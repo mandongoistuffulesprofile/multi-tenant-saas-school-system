@@ -23,10 +23,10 @@ func (h *Handler) ListRecipes(c *gin.Context) {
 
 	recipes, err := h.service.ListRecipes(c.Request.Context(), tenantID, mealType, includeInactive)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, recipes)
+	c.JSON(http.StatusOK, validation.List(recipes))
 }
 
 func (h *Handler) CreateRecipe(c *gin.Context) {
@@ -41,7 +41,7 @@ func (h *Handler) CreateRecipe(c *gin.Context) {
 
 	recipe, err := h.service.CreateRecipe(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, recipe)
@@ -64,10 +64,10 @@ func (h *Handler) ListRequisitions(c *gin.Context) {
 
 	reqs, err := h.service.ListRequisitions(c.Request.Context(), tenantID, status, fromDate, toDate, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, reqs)
+	c.JSON(http.StatusOK, validation.List(reqs))
 }
 
 func (h *Handler) CreateRequisition(c *gin.Context) {
@@ -82,7 +82,7 @@ func (h *Handler) CreateRequisition(c *gin.Context) {
 
 	requisition, err := h.service.CreateRequisition(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, requisition)
@@ -103,7 +103,7 @@ func (h *Handler) ProcessRequisition(c *gin.Context) {
 
 	requisition, err := h.service.ProcessRequisition(c.Request.Context(), tenantID, userID, requisitionID, req.BoarderCount)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, requisition)

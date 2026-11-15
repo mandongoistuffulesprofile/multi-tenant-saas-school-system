@@ -2,6 +2,7 @@ package comms
 
 import (
 	"database/sql"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -67,7 +68,7 @@ func (h *Handler) ListMessageTemplates(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -78,12 +79,12 @@ func (h *Handler) ListMessageTemplates(c *gin.Context) {
 		if err := rows.Scan(&t.TemplateID, &t.TenantID, &t.TemplateName, &t.Channel,
 			&t.Subject, &t.BodyText, &t.BodyHTML, &t.IsActive, &t.IsDefault,
 			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		templates = append(templates, t)
 	}
-	c.JSON(http.StatusOK, templates)
+	c.JSON(http.StatusOK, validation.List(templates))
 }
 
 // OutboundMessage
@@ -123,7 +124,7 @@ func (h *Handler) ListOutboundMessages(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -135,12 +136,12 @@ func (h *Handler) ListOutboundMessages(c *gin.Context) {
 			&m.RecipientID, &m.Channel, &m.RecipientAddress, &m.Subject, &m.BodyText,
 			&m.Status, &m.ProviderMsgID, &m.SentAt, &m.DeliveredAt, &m.ReadAt,
 			&m.ErrorMessage, &m.CreatedBy, &m.CreatedAt, &m.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		messages = append(messages, m)
 	}
-	c.JSON(http.StatusOK, messages)
+	c.JSON(http.StatusOK, validation.List(messages))
 }
 
 // Broadcast
@@ -180,7 +181,7 @@ func (h *Handler) ListBroadcasts(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -193,13 +194,13 @@ func (h *Handler) ListBroadcasts(c *gin.Context) {
 			&b.TargetAudience, &gradeIDs, &b.Subject, &b.BodyText, &b.Status,
 			&b.ScheduledAt, &b.SentAt, &b.CompletedAt, &b.TotalRecipients,
 			&b.SentCount, &b.FailedCount, &b.CreatedBy, &b.CreatedAt, &b.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		b.TargetGradeIDs = string(gradeIDs)
 		broadcasts = append(broadcasts, b)
 	}
-	c.JSON(http.StatusOK, broadcasts)
+	c.JSON(http.StatusOK, validation.List(broadcasts))
 }
 
 // OptOut
@@ -228,7 +229,7 @@ func (h *Handler) ListOptOuts(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -238,12 +239,12 @@ func (h *Handler) ListOptOuts(c *gin.Context) {
 		var o OptOut
 		if err := rows.Scan(&o.OptOutID, &o.TenantID, &o.UserID, &o.Channel,
 			&o.Reason, &o.OptedOutAt, &o.OptedBackInAt, &o.IsActive); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		optOuts = append(optOuts, o)
 	}
-	c.JSON(http.StatusOK, optOuts)
+	c.JSON(http.StatusOK, validation.List(optOuts))
 }
 
 var _ = http.StatusOK
@@ -276,7 +277,7 @@ func (h *Handler) ParentNotices(c *gin.Context) {
 		 ORDER BY COALESCE(sent_at, created_at) DESC
 		 LIMIT 100`, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -285,10 +286,10 @@ func (h *Handler) ParentNotices(c *gin.Context) {
 	for rows.Next() {
 		var n ParentNotice
 		if err := rows.Scan(&n.ID, &n.Title, &n.Body, &n.Date, &n.Channel); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		notices = append(notices, n)
 	}
-	c.JSON(http.StatusOK, notices)
+	c.JSON(http.StatusOK, validation.List(notices))
 }

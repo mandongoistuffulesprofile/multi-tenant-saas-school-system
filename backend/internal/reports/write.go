@@ -55,7 +55,7 @@ func (h *Handler) CreateReportTemplate(c *gin.Context) {
 			validation.Conflict(c, "A template with that name already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"template_id": templateID})
@@ -108,7 +108,7 @@ func (h *Handler) UpdateReportTemplate(c *gin.Context) {
 		`UPDATE report_templates SET `+strings.Join(sets, ", ")+
 			` WHERE template_id = $`+itoa(len(args)-1)+` AND tenant_id = $`+itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -130,7 +130,7 @@ func (h *Handler) DeleteReportTemplate(c *gin.Context) {
 		`UPDATE report_templates SET is_active = false, updated_at = now()
 		 WHERE template_id = $1 AND tenant_id = $2`, templateID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -173,7 +173,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 				(SELECT year_id FROM academic_years WHERE tenant_id = $1 AND is_current = true),
 				(SELECT year_id FROM academic_years WHERE tenant_id = $1 ORDER BY start_date DESC LIMIT 1))`,
 			tenantID).Scan(&y); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if !y.Valid || y.String == "" {
@@ -211,7 +211,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		 VALUES ($1, $2, $3, $4, $5, 'PENDING', $6) RETURNING run_id`,
 		tenantID, req.TemplateID, academicYearID, termID, gradeFilter, nullableString(userID)).Scan(&runID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -236,7 +236,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 
 	rows, err := tx.Query(learnerQuery, qargs...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	type learnerRow struct {
@@ -249,7 +249,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 		var lr learnerRow
 		if err := rows.Scan(&lr.learnerID, &lr.gradeLabel, &lr.gradeID); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		learners = append(learners, lr)
@@ -280,7 +280,7 @@ func (h *Handler) CreateReportRun(c *gin.Context) {
 	if _, err := tx.Exec(
 		`UPDATE report_runs SET learner_count = $1, generated_count = $2, status = 'COMPLETED', completed_at = now(), error_message = ''
 		 WHERE run_id = $3`, len(learners), generated, runID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -314,7 +314,7 @@ func (h *Handler) GetReportRun(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -347,7 +347,7 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 
 	cfg, err := grading.LoadConfig(tx, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -361,7 +361,7 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 		 FROM report_cards WHERE tenant_id = $1 AND run_id = $2
 		 ORDER BY learner_id`, tenantID, runID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	cards := make([]cardRow, 0)
@@ -369,7 +369,7 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 		var cr cardRow
 		if err := rows.Scan(&cr.cardID, &cr.revision, &cr.status); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		cards = append(cards, cr)
@@ -393,7 +393,7 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 		}
 		snapshot, err := BuildSnapshot(tx, tenantID, cr.cardID, cfg, revision)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		snapshots = append(snapshots, snapshot)
@@ -412,7 +412,7 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 		snapshot := snapshots[i]
 		raw, err := json.Marshal(snapshot)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if _, err := tx.Exec(
@@ -420,7 +420,7 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 			 VALUES ($1, $2, $3, $4::jsonb, NULLIF($5, '')::uuid)
 			 ON CONFLICT (tenant_id, card_id, revision) DO NOTHING`,
 			tenantID, cr.cardID, snapshot.Revision, string(raw), userID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 
@@ -444,7 +444,7 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 			 WHERE tenant_id = $9 AND card_id = $10`,
 			string(raw), snapshot.Revision, position, overall, total, max, percentage,
 			userID, tenantID, cr.cardID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		published++
@@ -452,16 +452,16 @@ func (h *Handler) PublishReportRun(c *gin.Context) {
 
 	if _, err := tx.Exec(
 		`UPDATE report_runs SET status = 'PUBLISHED' WHERE run_id = $1 AND tenant_id = $2`, runID, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"run_id":            runID,
-		"published":         published,
-		"show_aggregate":    cfg.ShowAggregate,
-		"show_position":     cfg.ShowPosition,
-		"frozen_revisions":  published,
+		"run_id":           runID,
+		"published":        published,
+		"show_aggregate":   cfg.ShowAggregate,
+		"show_position":    cfg.ShowPosition,
+		"frozen_revisions": published,
 	})
 }
 
@@ -494,7 +494,7 @@ func (h *Handler) UpsertReportCardComment(c *gin.Context) {
 			validation.NotFound(c, "Report card not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if frozen || strings.EqualFold(status, "PUBLISHED") {
@@ -514,7 +514,7 @@ func (h *Handler) UpsertReportCardComment(c *gin.Context) {
 		 RETURNING comment_id`,
 		tenantID, cardID, req.LearningAreaID, req.CommentText, nullableString(userID)).Scan(&commentID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"comment_id": commentID})
@@ -550,7 +550,7 @@ func (h *Handler) UpdateReportCardHeadComment(c *gin.Context) {
 			validation.NotFound(c, "Report card not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if frozen || strings.EqualFold(status, "PUBLISHED") {
@@ -564,7 +564,7 @@ func (h *Handler) UpdateReportCardHeadComment(c *gin.Context) {
 		`UPDATE report_cards SET head_teacher_comment = $1, comment = COALESCE(comment, $1), updated_at = now()
 		 WHERE card_id = $2 AND tenant_id = $3`, text, cardID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {

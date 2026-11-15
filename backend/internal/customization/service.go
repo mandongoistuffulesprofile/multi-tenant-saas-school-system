@@ -100,7 +100,7 @@ func (h *Handler) ListTransportZones(c *gin.Context) {
 
 	rows, err := tx.Query(query, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -111,12 +111,12 @@ func (h *Handler) ListTransportZones(c *gin.Context) {
 		z.TenantID = tenantID
 		if err := rows.Scan(&z.ZoneID, &z.ZoneName, &z.PickupPoints, &z.TwoWayFee,
 			&z.OneWayFee, &z.IsActive, &z.CreatedAt, &z.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		zones = append(zones, z)
 	}
-	c.JSON(http.StatusOK, zones)
+	c.JSON(http.StatusOK, validation.List(zones))
 }
 
 func (h *Handler) CreateTransportZone(c *gin.Context) {
@@ -150,7 +150,7 @@ func (h *Handler) CreateTransportZone(c *gin.Context) {
 			validation.Conflict(c, "A transport zone with this name already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"zone_id": zoneID})
@@ -190,7 +190,7 @@ func (h *Handler) UpdateTransportZone(c *gin.Context) {
 			validation.Conflict(c, "A transport zone with this name already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -214,7 +214,7 @@ func (h *Handler) DeleteTransportZone(c *gin.Context) {
 		`UPDATE transport_zones SET is_active = false, updated_at = now()
 		 WHERE id = $1 AND tenant_id = $2`, zoneID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -301,7 +301,7 @@ func (h *Handler) ListTenantLearningAreas(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -312,12 +312,12 @@ func (h *Handler) ListTenantLearningAreas(c *gin.Context) {
 		a.TenantID = tenantID
 		if err := rows.Scan(&a.AreaID, &a.GradeTier, &a.Name, &a.Code, &a.IsElective,
 			&a.IsActive, &a.KNECSubjectCode, &a.CreatedAt, &a.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		areas = append(areas, a)
 	}
-	c.JSON(http.StatusOK, areas)
+	c.JSON(http.StatusOK, validation.List(areas))
 }
 
 func (h *Handler) CreateTenantLearningArea(c *gin.Context) {
@@ -353,7 +353,7 @@ func (h *Handler) CreateTenantLearningArea(c *gin.Context) {
 			validation.Conflict(c, "This learning area already exists for that grade tier")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"area_id": areaID})
@@ -393,7 +393,7 @@ func (h *Handler) UpdateTenantLearningArea(c *gin.Context) {
 			validation.Conflict(c, "This learning area already exists for that grade tier")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -415,7 +415,7 @@ func (h *Handler) DeleteTenantLearningArea(c *gin.Context) {
 		`UPDATE tenant_learning_areas SET is_active = false, updated_at = now()
 		 WHERE id = $1 AND tenant_id = $2`, areaID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {

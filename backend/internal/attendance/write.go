@@ -88,7 +88,7 @@ func (h *Handler) CreateRegister(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"register_id": registerID})
@@ -152,7 +152,7 @@ func (h *Handler) UpdateRegister(c *gin.Context) {
 		`UPDATE attendance_registers SET `+strings.Join(sets, ", ")+
 			` WHERE register_id = $`+strconv.Itoa(len(args)-1)+` AND tenant_id = $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -188,7 +188,7 @@ func (h *Handler) DeleteRegister(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (h *Handler) DeleteRegister(c *gin.Context) {
 	if result, err := tx.Exec(
 		`DELETE FROM attendance_marks WHERE register_id = $1 AND tenant_id = $2`,
 		registerID, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	} else if affected, err := result.RowsAffected(); err == nil {
 		marksDeleted = int(affected)
@@ -204,7 +204,7 @@ func (h *Handler) DeleteRegister(c *gin.Context) {
 	if _, err := tx.Exec(
 		`DELETE FROM attendance_registers WHERE register_id = $1 AND tenant_id = $2`,
 		registerID, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -237,7 +237,7 @@ func (h *Handler) UpsertMark(c *gin.Context) {
 	userID := c.GetString("user_id")
 	saved, err := h.upsertMark(c.Request.Context(), tenantID, userID, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, saved)
@@ -384,7 +384,7 @@ func (h *Handler) AttendanceSummary(c *gin.Context) {
 
 	rows, err := q.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -395,7 +395,7 @@ func (h *Handler) AttendanceSummary(c *gin.Context) {
 		var status string
 		var count int
 		if err := rows.Scan(&status, &count); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		counts[status] = count
@@ -434,7 +434,7 @@ func (h *Handler) GetGatePolicy(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	_ = json.Unmarshal(raw, &policy)
@@ -461,7 +461,7 @@ func (h *Handler) UpdateGatePolicy(c *gin.Context) {
 
 	raw, err := json.Marshal(policy)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	_, err = q.Exec(
@@ -471,7 +471,7 @@ func (h *Handler) UpdateGatePolicy(c *gin.Context) {
 		 DO UPDATE SET setting_value = EXCLUDED.setting_value, version = school_settings.version + 1, updated_by = EXCLUDED.updated_by, updated_at = now()`,
 		tenantID, string(raw), nullableString(userID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, policy)
@@ -514,7 +514,7 @@ func (h *Handler) PairDevice(c *gin.Context) {
 			validation.Conflict(c, "A device with that name already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"device_id": deviceID, "pairing_code": code})
@@ -556,7 +556,7 @@ func (h *Handler) IssueTag(c *gin.Context) {
 			validation.Conflict(c, "That tag UID is already issued")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"tag_id": tagID})
@@ -576,7 +576,7 @@ func (h *Handler) DeactivateTag(c *gin.Context) {
 		`UPDATE rfid_tags SET is_active = false, deactivated_at = now(), updated_at = now()
 		 WHERE tag_id = $1 AND tenant_id = $2`, tagID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -676,7 +676,7 @@ func (h *Handler) ScanGate(c *gin.Context) {
 		holderType = sql.NullString{String: "LEARNER", Valid: true}
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -694,7 +694,7 @@ func (h *Handler) ScanGate(c *gin.Context) {
 			tenantID, randomPairingCode()).Scan(&deviceID)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -712,7 +712,7 @@ func (h *Handler) ScanGate(c *gin.Context) {
 		 VALUES ($1, $2, $3, $4, $5, 'ENTRY', true, $6, now())`,
 		tenantID, deviceID, tagArg, holderType.String, holderID.String, verifiedBy)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -754,7 +754,7 @@ func (h *Handler) OverrideGate(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -776,7 +776,7 @@ func (h *Handler) OverrideGate(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"event_id": eventID})

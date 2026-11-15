@@ -1455,10 +1455,10 @@ func (s *Service) UpdateReceiptSequence(ctx context.Context, tenantID, sequenceI
 func (h *Handler) ListReceiptSequences(c *gin.Context) {
 	sequences, err := h.service.ListReceiptSequences(c.Request.Context(), c.GetString("tenant_id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, sequences)
+	c.JSON(http.StatusOK, validation.List(sequences))
 }
 
 func normalizeReceiptSequence(in *ReceiptSequenceInput) bool {
@@ -1495,7 +1495,7 @@ func (h *Handler) CreateReceiptSequence(c *gin.Context) {
 			validation.Conflict(c, "A sequence already exists for that period")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -1525,7 +1525,7 @@ func (h *Handler) UpdateReceiptSequence(c *gin.Context) {
 			validation.Conflict(c, "A sequence already exists for that period")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, updated)
@@ -1571,10 +1571,10 @@ func (s *Service) ListMPESASTKRequests(ctx context.Context, tenantID string, lim
 func (h *Handler) ListMPESASTKRequests(c *gin.Context) {
 	requests, err := h.service.ListMPESASTKRequests(c.Request.Context(), c.GetString("tenant_id"), 100)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, requests)
+	c.JSON(http.StatusOK, validation.List(requests))
 }
 
 // PaymentChannel is one M-Pesa paybill/till the school collects through.
@@ -1619,10 +1619,10 @@ func (s *Service) ListPaymentChannels(ctx context.Context, tenantID string) ([]P
 func (h *Handler) ListPaymentChannels(c *gin.Context) {
 	channels, err := h.service.ListPaymentChannels(c.Request.Context(), c.GetString("tenant_id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, channels)
+	c.JSON(http.StatusOK, validation.List(channels))
 }
 
 // ============ Capitation Receipts (tenant-scoped) ============
@@ -1754,10 +1754,10 @@ func (h *Handler) ListFeeStructures(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	structures, err := h.service.ListFeeStructures(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, structures)
+	c.JSON(http.StatusOK, validation.List(structures))
 }
 
 func (h *Handler) ListFeeCategories(c *gin.Context) {
@@ -1766,10 +1766,10 @@ func (h *Handler) ListFeeCategories(c *gin.Context) {
 
 	categories, err := h.service.ListFeeCategories(c.Request.Context(), tenantID, includeInactive)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, categories)
+	c.JSON(http.StatusOK, validation.List(categories))
 }
 
 // GetFeeCategoryTemplates returns the standard Kenyan school fee category templates
@@ -1792,7 +1792,7 @@ func (h *Handler) GetFeeCategoryTemplates(c *gin.Context) {
 		{Code: "TRIP", Name: "School Trips", Description: "Educational trips and excursions", IsTuition: false, IsOptional: true, RequiresConsent: true},
 		{Code: "CLUB", Name: "Club Fees", Description: "Club and society membership fees", IsTuition: false, IsOptional: true, RequiresConsent: true},
 	}
-	c.JSON(http.StatusOK, templates)
+	c.JSON(http.StatusOK, validation.List(templates))
 }
 
 // FeeCategoryRequest is the payload for creating or updating a custom fee
@@ -1854,7 +1854,7 @@ func (h *Handler) CreateFeeCategory(c *gin.Context) {
 			validation.Conflict(c, "A fee category with this code already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"category_id": categoryID})
@@ -1890,7 +1890,7 @@ func (h *Handler) UpdateFeeCategory(c *gin.Context) {
 			validation.Conflict(c, "A fee category with this code already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"category_id": categoryID})
@@ -1906,7 +1906,7 @@ func (h *Handler) DeleteFeeCategory(c *gin.Context) {
 			validation.NotFound(c, "Fee category not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"category_id": categoryID, "message": "Fee category deactivated"})
@@ -1942,7 +1942,7 @@ func (h *Handler) CreateFeeStructure(c *gin.Context) {
 	fs.ResidenceType = residence
 	created, err := h.service.CreateFeeStructure(c.Request.Context(), tenantID, fs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -1954,10 +1954,10 @@ func (h *Handler) ListLearnerFeeOptions(c *gin.Context) {
 	learnerID := c.Param("learner_id")
 	options, err := h.service.ListLearnerFeeOptions(c.Request.Context(), tenantID, learnerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, options)
+	c.JSON(http.StatusOK, validation.List(options))
 }
 
 func (h *Handler) UpsertLearnerFeeOption(c *gin.Context) {
@@ -1978,7 +1978,7 @@ func (h *Handler) UpsertLearnerFeeOption(c *gin.Context) {
 	o.OptedBy = c.GetString("user_id")
 	created, err := h.service.UpsertLearnerFeeOption(c.Request.Context(), tenantID, o)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, created)
@@ -1990,10 +1990,10 @@ func (h *Handler) ListInvoices(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	invoices, err := h.service.ListInvoices(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, invoices)
+	c.JSON(http.StatusOK, validation.List(invoices))
 }
 
 func (h *Handler) CreateInvoice(c *gin.Context) {
@@ -2005,7 +2005,7 @@ func (h *Handler) CreateInvoice(c *gin.Context) {
 	}
 	created, err := h.service.CreateInvoice(c.Request.Context(), tenantID, inv)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -2017,10 +2017,10 @@ func (h *Handler) ListInvoiceLines(c *gin.Context) {
 	invoiceID := c.Param("invoice_id")
 	lines, err := h.service.ListInvoiceLines(c.Request.Context(), tenantID, invoiceID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, lines)
+	c.JSON(http.StatusOK, validation.List(lines))
 }
 
 func (h *Handler) CreateInvoiceLine(c *gin.Context) {
@@ -2034,7 +2034,7 @@ func (h *Handler) CreateInvoiceLine(c *gin.Context) {
 	l.InvoiceID = invoiceID
 	created, err := h.service.CreateInvoiceLine(c.Request.Context(), tenantID, l)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -2046,10 +2046,10 @@ func (h *Handler) ListPayments(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	payments, err := h.service.ListPayments(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, payments)
+	c.JSON(http.StatusOK, validation.List(payments))
 }
 
 // Parent-scoped reads: the same rows as the staff lists, filtered to the
@@ -2060,10 +2060,10 @@ func (h *Handler) ListParentInvoices(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	invoices, err := h.service.ParentInvoices(c.Request.Context(), tenantID, userID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, invoices)
+	c.JSON(http.StatusOK, validation.List(invoices))
 }
 
 func (h *Handler) ListParentPayments(c *gin.Context) {
@@ -2072,10 +2072,10 @@ func (h *Handler) ListParentPayments(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	payments, err := h.service.ParentPayments(c.Request.Context(), tenantID, userID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, payments)
+	c.JSON(http.StatusOK, validation.List(payments))
 }
 
 // Payment Allocation handler
@@ -2088,7 +2088,7 @@ func (h *Handler) AllocatePayment(c *gin.Context) {
 	}
 	created, err := h.service.AllocatePayment(c.Request.Context(), tenantID, alloc)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, created)
@@ -2100,10 +2100,10 @@ func (h *Handler) ListCredits(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	credits, err := h.service.ListCredits(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, credits)
+	c.JSON(http.StatusOK, validation.List(credits))
 }
 
 func (h *Handler) CreateCredit(c *gin.Context) {
@@ -2115,7 +2115,7 @@ func (h *Handler) CreateCredit(c *gin.Context) {
 	}
 	created, err := h.service.CreateCredit(c.Request.Context(), tenantID, credit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -2127,10 +2127,10 @@ func (h *Handler) ListAdjustments(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	adjustments, err := h.service.ListAdjustments(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, adjustments)
+	c.JSON(http.StatusOK, validation.List(adjustments))
 }
 
 func (h *Handler) CreateAdjustment(c *gin.Context) {
@@ -2142,7 +2142,7 @@ func (h *Handler) CreateAdjustment(c *gin.Context) {
 	}
 	created, err := h.service.CreateAdjustment(c.Request.Context(), tenantID, a)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -2154,10 +2154,10 @@ func (h *Handler) ListRefunds(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	refunds, err := h.service.ListRefunds(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, refunds)
+	c.JSON(http.StatusOK, validation.List(refunds))
 }
 
 func (h *Handler) CreateRefund(c *gin.Context) {
@@ -2169,7 +2169,7 @@ func (h *Handler) CreateRefund(c *gin.Context) {
 	}
 	created, err := h.service.CreateRefund(c.Request.Context(), tenantID, r)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -2181,10 +2181,10 @@ func (h *Handler) ListMPESATransactions(c *gin.Context) {
 	limit, offset := paginationParams(c)
 	txns, err := h.service.ListMPESATransactions(c.Request.Context(), tenantID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, txns)
+	c.JSON(http.StatusOK, validation.List(txns))
 }
 
 func (h *Handler) CreateMPESATransaction(c *gin.Context) {
@@ -2196,7 +2196,7 @@ func (h *Handler) CreateMPESATransaction(c *gin.Context) {
 	}
 	created, err := h.service.CreateMPESATransaction(c.Request.Context(), tenantID, t)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -2212,7 +2212,7 @@ func (h *Handler) CreateMPESASTKRequest(c *gin.Context) {
 	}
 	created, err := h.service.CreateMPESASTKRequest(c.Request.Context(), tenantID, r)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, created)
@@ -2279,7 +2279,7 @@ func (h *Handler) CreateParentMPESASTKRequest(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -2328,7 +2328,7 @@ func (h *Handler) CreateParentMPESASTKRequest(c *gin.Context) {
 		Status:            "PENDING",
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -2378,7 +2378,7 @@ func (h *Handler) ParentMPESASTKStatus(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"stk_id": stkID, "status": status})
@@ -2390,7 +2390,7 @@ func (h *Handler) GetReceiptSequence(c *gin.Context) {
 	period := c.Param("period")
 	seq, err := h.service.GetReceiptSequence(c.Request.Context(), tenantID, period)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, seq)
@@ -2400,7 +2400,7 @@ func (h *Handler) IncrementReceiptSequence(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	sequenceID := c.Param("sequence_id")
 	if err := h.service.IncrementReceiptSequence(c.Request.Context(), tenantID, sequenceID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": "INCREMENTED", "message": "Receipt sequence incremented"})
@@ -2411,10 +2411,10 @@ func (h *Handler) ListCapitationReceipts(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	receipts, err := h.service.ListCapitationReceipts(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, receipts)
+	c.JSON(http.StatusOK, validation.List(receipts))
 }
 
 // Reconciliation Runs handler
@@ -2422,10 +2422,10 @@ func (h *Handler) ListReconciliationRuns(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	runs, err := h.service.ListReconciliationRuns(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, runs)
+	c.JSON(http.StatusOK, validation.List(runs))
 }
 
 // ============ Pagination helper ============

@@ -3,12 +3,13 @@ package assessment
 import (
 	"database/sql"
 	"fmt"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/db"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/middleware"
 )
 
 type Service struct {
@@ -86,7 +87,7 @@ func (h *Handler) ListAssessmentEvents(c *gin.Context) {
 	args = append(args, limit, offset)
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -98,12 +99,12 @@ func (h *Handler) ListAssessmentEvents(c *gin.Context) {
 			&e.AssessmentType, &e.ScoringMode, &e.AssessmentWindow, &e.WeightingProfileID,
 			&e.Status, &e.MaxScore, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt,
 			&e.GradeLabel, &e.LevelBand, &e.LearningAreaName); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		events = append(events, e)
 	}
-	c.JSON(http.StatusOK, events)
+	c.JSON(http.StatusOK, validation.List(events))
 }
 
 func (h *Handler) GetAssessmentEvent(c *gin.Context) {
@@ -136,7 +137,7 @@ func (h *Handler) GetAssessmentEvent(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Assessment event not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, e)
@@ -196,7 +197,7 @@ func (h *Handler) ListAssessmentResults(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -207,12 +208,12 @@ func (h *Handler) ListAssessmentResults(c *gin.Context) {
 		if err := rows.Scan(&r.ResultID, &r.TenantID, &r.EventID, &r.LearnerID, &r.SubStrandID,
 			&r.LevelCode, &r.Points, &r.RawScore, &r.MaxScore, &r.TeacherID, &r.Remarks,
 			&r.ClientUUID, &r.Version, &r.State, &r.DeviceID, &r.ClientTS, &r.ServerTS); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		results = append(results, r)
 	}
-	c.JSON(http.StatusOK, results)
+	c.JSON(http.StatusOK, validation.List(results))
 }
 
 func (h *Handler) GetAssessmentResult(c *gin.Context) {
@@ -239,7 +240,7 @@ func (h *Handler) GetAssessmentResult(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Assessment result not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, r)
@@ -270,7 +271,7 @@ func (h *Handler) ListWeightingProfiles(c *gin.Context) {
 		 FROM weighting_profiles ORDER BY name`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -281,13 +282,13 @@ func (h *Handler) ListWeightingProfiles(c *gin.Context) {
 		var weights []byte
 		if err := rows.Scan(&p.ProfileID, &p.Name, &p.Description, &p.GradeID,
 			&weights, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		p.Weights = string(weights)
 		profiles = append(profiles, p)
 	}
-	c.JSON(http.StatusOK, profiles)
+	c.JSON(http.StatusOK, validation.List(profiles))
 }
 
 var _ = http.StatusOK

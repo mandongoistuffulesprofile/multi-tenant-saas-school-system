@@ -1,6 +1,7 @@
 package holdingtank
 
 import (
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 	"strconv"
 	"time"
@@ -21,10 +22,10 @@ func (h *Handler) ListHoldingTank(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	entries, err := h.service.List(c.Request.Context(), tenantID, status, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, entries)
+	c.JSON(http.StatusOK, validation.List(entries))
 }
 
 func (h *Handler) ResolveHoldingTank(c *gin.Context) {
@@ -39,7 +40,7 @@ func (h *Handler) ResolveHoldingTank(c *gin.Context) {
 		return
 	}
 	if err := h.service.Resolve(c.Request.Context(), tenantID, userID, entryID, req.StudentID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "resolved"})
@@ -65,7 +66,7 @@ func (h *Handler) CreateToken(c *gin.Context) {
 	}
 	tok, err := h.service.CreateToken(c.Request.Context(), tenantID, userID, req.ClassID, req.Subjects, exp, req.PIN)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, tok)
@@ -87,7 +88,7 @@ func (h *Handler) RevokeToken(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	tokenID := c.Param("id")
 	if err := h.service.RevokeToken(c.Request.Context(), tenantID, tokenID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "revoked"})
@@ -97,8 +98,8 @@ func (h *Handler) ListTokens(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	toks, err := h.service.ListTokens(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toks)
+	c.JSON(http.StatusOK, validation.List(toks))
 }

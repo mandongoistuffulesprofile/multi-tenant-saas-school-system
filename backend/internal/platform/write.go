@@ -57,7 +57,7 @@ func (h *Handler) ListTenants(c *gin.Context) {
 			 FROM schools s ORDER BY s.school_name`)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -67,12 +67,12 @@ func (h *Handler) ListTenants(c *gin.Context) {
 		var t Tenant
 		if err := rows.Scan(&t.TenantID, &t.SchoolName, &t.Subdomain, &t.SchoolType,
 			&t.FundingMode, &t.Status, &t.County, &t.Learners, &t.LastActivity, &t.OnboardingStatus, &t.OnboardingStep); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		tenants = append(tenants, t)
 	}
-	c.JSON(http.StatusOK, tenants)
+	c.JSON(http.StatusOK, validation.List(tenants))
 }
 
 // CreateTenant registers a new school and its first administrator.
@@ -124,13 +124,13 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 
 	tx, err := h.service.database.Beginx()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer tx.Rollback()
 
 	if _, err := tx.Exec(`SELECT set_config('app.current_tenant_id', $1, true)`, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -143,12 +143,12 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 	var emailTaken, phoneTaken bool
 	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM users WHERE email = $1::citext OR email_norm = LOWER($1::text))`,
 		adminEmail).Scan(&emailTaken); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM users WHERE phone_number = $1)`,
 		adminPhone).Scan(&phoneTaken); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	switch {
@@ -167,7 +167,7 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		`INSERT INTO schools (tenant_id, school_name, subdomain, school_type, funding_mode, status, license_tier, county)
 		 VALUES ($1, $2, $3, $4, $5, 'ACTIVE', $6, $7)`,
 		tenantID, req.SchoolName, subdomain, schoolType, fundingMode, licenseTier, nullableString(req.County)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -178,7 +178,7 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 	}
 	hash, err := auth.HashPassword(req.AdminPassword)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "HASH_ERROR", "message": err.Error()})
+		validation.ServerError(c, err)
 		return
 	}
 
@@ -201,7 +201,7 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 			}
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -216,7 +216,7 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 			`INSERT INTO staff_memberships (tenant_id, user_id, role, employment_status, first_name, last_name)
 			 VALUES ($1, $2, 'SCHOOL_ADMIN', 'ACTIVE', $3, $4)`,
 			tenantID, userID, firstName, lastName); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -224,7 +224,7 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 	if _, err := tx.Exec(
 		`INSERT INTO tenant_memberships (user_id, tenant_id, role, status)
 		 VALUES ($1, $2, 'SCHOOL_ADMIN', 'ACTIVE')`, userID, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -232,7 +232,7 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		`INSERT INTO school_finance_settings (tenant_id, tuition_invoicing, optional_services, capitation_tracking, arrears_reminders)
 		 VALUES ($1, $2, true, $3, true)`,
 		tenantID, fundingMode == "CUSTOM" || schoolType == "PRIVATE", fundingMode == "CAPITATION"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -251,13 +251,13 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 				})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO subscriptions (tenant_id, plan_id, status, auto_renew)
 			 VALUES ($1, $2, 'ACTIVE', true)`, tenantID, planID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -270,12 +270,12 @@ func (h *Handler) CreateTenant(c *gin.Context) {
 		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, created_by, updated_by)
 		 VALUES ($1, 'PENDING_SETUP', 'PROVISIONED', NULLIF($2,'')::uuid, NULLIF($2,'')::uuid)
 		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID, adminUserID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -334,7 +334,7 @@ func (h *Handler) UpdateTenant(c *gin.Context) {
 	result, err := h.q(c).Exec(
 		`UPDATE schools SET `+strings.Join(sets, ", ")+` WHERE tenant_id = $`+itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -384,7 +384,7 @@ func (h *Handler) SetTenantStatus(c *gin.Context) {
 	}
 	result, err := h.q(c).Exec(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -395,7 +395,7 @@ func (h *Handler) SetTenantStatus(c *gin.Context) {
 			validation.NotFound(c, "Tenant not found")
 			return
 		case err != nil:
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		case strings.EqualFold(current, status):
 			// The change the operator asked for is already in force: someone else
@@ -453,7 +453,7 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 			validation.NotFound(c, "Tenant not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -468,7 +468,7 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 			return
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -479,7 +479,7 @@ func (h *Handler) CreateImpersonation(c *gin.Context) {
 		 VALUES ($1, $2, $3, $4, now() + ($5 || ' minutes')::interval) RETURNING session_id`,
 		adminUserID, targetUserID, targetTenantID, req.Reason, itoa(duration)).Scan(&sessionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -536,7 +536,7 @@ func (h *Handler) GetImpersonationToken(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if revokedAt != nil {
@@ -590,7 +590,7 @@ func (h *Handler) EndImpersonation(c *gin.Context) {
 	result, err := h.q(c).Exec(
 		`UPDATE impersonation_sessions SET revoked_at = now() WHERE session_id = $1 AND revoked_at IS NULL`, sessionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -606,7 +606,7 @@ func (h *Handler) ListImpersonations(c *gin.Context) {
 		`SELECT session_id, admin_user_id, target_user_id, target_tenant_id, reason, expires_at, revoked_at, created_at
 		 FROM impersonation_sessions ORDER BY created_at DESC LIMIT 100`)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -627,13 +627,13 @@ func (h *Handler) ListImpersonations(c *gin.Context) {
 		var revokedAt sql.NullString
 		if err := rows.Scan(&s.SessionID, &s.AdminUserID, &s.TargetUserID, &s.TargetTenantID,
 			&s.Reason, &s.ExpiresAt, &revokedAt, &s.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		s.RevokedAt = revokedAt.String
 		sessions = append(sessions, s)
 	}
-	c.JSON(http.StatusOK, sessions)
+	c.JSON(http.StatusOK, validation.List(sessions))
 }
 
 // CreatePlan adds a subscription plan.
@@ -669,7 +669,7 @@ func (h *Handler) CreatePlan(c *gin.Context) {
 			validation.Conflict(c, "A plan with that code already exists")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"plan_id": planID})
@@ -723,7 +723,7 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 	result, err := h.q(c).Exec(
 		`UPDATE plans SET `+strings.Join(sets, ", ")+` WHERE plan_id = $`+itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -758,7 +758,7 @@ func (h *Handler) UpsertSubscription(c *gin.Context) {
 		 RETURNING subscription_id`,
 		req.TenantID, req.PlanID, status, req.AutoRenew).Scan(&subscriptionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"subscription_id": subscriptionID})
@@ -789,7 +789,7 @@ func (h *Handler) CreateExport(c *gin.Context) {
 		 VALUES ($1, $2, 'PENDING', $3::jsonb, $4) RETURNING export_id`,
 		tenantID, strings.ToUpper(strings.TrimSpace(req.ExportType)), string(raw), nullableString(userID)).Scan(&exportID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"export_id": exportID, "status": "PENDING"})
@@ -827,7 +827,7 @@ func (h *Handler) CreateCurriculumVersion(c *gin.Context) {
 		strings.TrimSpace(req.VersionLabel), nullableString(req.Description),
 		nullableString(req.EffectiveFrom), nullableString(userID)).Scan(&versionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"version_id": versionID})
@@ -849,7 +849,7 @@ func (h *Handler) PublishCurriculumVersion(c *gin.Context) {
 		   )`,
 		versionID).Scan(&unmapped)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if unmapped > 0 {
@@ -859,7 +859,7 @@ func (h *Handler) PublishCurriculumVersion(c *gin.Context) {
 	result, err := h.q(c).Exec(
 		`UPDATE curriculum_versions SET is_published = true, updated_at = now() WHERE version_id = $1`, versionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -892,7 +892,7 @@ func (h *Handler) CreateWeightingProfile(c *gin.Context) {
 		strings.TrimSpace(req.Name), nullableString(req.Description), req.GradeID, string(raw),
 		req.IsDefault, nullableString(userID)).Scan(&profileID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"profile_id": profileID})
@@ -935,7 +935,7 @@ func (h *Handler) UpdateWeightingProfile(c *gin.Context) {
 	result, err := h.q(c).Exec(
 		`UPDATE weighting_profiles SET `+strings.Join(sets, ", ")+` WHERE profile_id = $`+itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
@@ -951,7 +951,7 @@ func (h *Handler) ListWeightingProfiles(c *gin.Context) {
 		`SELECT profile_id, name, COALESCE(description,''), grade_id, weights, is_default
 		 FROM weighting_profiles ORDER BY grade_id, name`)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -969,14 +969,14 @@ func (h *Handler) ListWeightingProfiles(c *gin.Context) {
 		var p profile
 		var raw []byte
 		if err := rows.Scan(&p.ProfileID, &p.Name, &p.Description, &p.GradeID, &raw, &p.IsDefault); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		p.Weights = map[string]any{}
 		_ = json.Unmarshal(raw, &p.Weights)
 		profiles = append(profiles, p)
 	}
-	c.JSON(http.StatusOK, profiles)
+	c.JSON(http.StatusOK, validation.List(profiles))
 }
 
 // CreateKNECTool registers a KNEC reporting tool.
@@ -999,7 +999,7 @@ func (h *Handler) CreateKNECTool(c *gin.Context) {
 		strings.ToUpper(strings.TrimSpace(req.ToolCode)), req.Name, nullableString(req.Description),
 		req.GradeID, req.AssessmentYear).Scan(&toolID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"tool_id": toolID})
@@ -1041,7 +1041,7 @@ func (h *Handler) UpdateKNECTool(c *gin.Context) {
 	result, err := h.q(c).Exec(
 		`UPDATE knec_tools SET `+strings.Join(sets, ", ")+` WHERE tool_id = $`+itoa(len(args)), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {

@@ -1,6 +1,7 @@
 package grading
 
 import (
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -21,17 +22,17 @@ func (h *Handler) GetSettings(c *gin.Context) {
 	}
 	cfg, err := LoadConfig(tx, c.GetString("tenant_id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	four, err := cfg.Definition(ScaleFourBand)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	eight, err := cfg.Definition(ScaleEightPoint)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -60,7 +61,7 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 		return
 	}
 	if err := SaveConfig(tx, c.GetString("tenant_id"), c.GetString("user_id"), cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"config": cfg})
@@ -76,7 +77,7 @@ func (h *Handler) ListLevels(c *gin.Context) {
 	}
 	cfg, err := LoadConfig(tx, c.GetString("tenant_id"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	gradeBand := c.Query("grade_band")
@@ -86,7 +87,7 @@ func (h *Handler) ListLevels(c *gin.Context) {
 	scale := cfg.ResolveScale(gradeBand)
 	def, err := cfg.Definition(scale)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"scale": def.Scale, "levels": def.Levels})

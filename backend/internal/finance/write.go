@@ -89,7 +89,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	type feeLine struct {
@@ -109,7 +109,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 		if err := rows.Scan(&f.learnerID, &f.admissionNo, &f.categoryID, &f.amount, &f.description,
 			&f.transportTrip, &f.zoneName, &f.oneWayFee, &f.twoWayFee); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		lines = append(lines, f)
@@ -211,7 +211,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 				skipped++
 				continue
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 
@@ -220,7 +220,7 @@ func (h *Handler) CreateInvoiceRun(c *gin.Context) {
 				`INSERT INTO invoice_lines (tenant_id, invoice_id, category_id, description, quantity, unit_amount, line_amount, academic_year_id, term_id)
 				 VALUES ($1, $2, $3, $4, 1, $5, $5, $6, $7)`,
 				tenantID, invoiceID, l.categoryID, l.description, l.amount, req.AcademicYearID, req.TermID); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 		}
@@ -272,7 +272,7 @@ func (h *Handler) ArrearsReport(c *gin.Context) {
 		 ORDER BY 7 DESC`,
 		tenantID, minAmount)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -295,7 +295,7 @@ func (h *Handler) ArrearsReport(c *gin.Context) {
 		var firstName, lastName, dueDate sql.NullString
 		if err := rows.Scan(&a.LearnerID, &a.AdmissionNo, &firstName, &lastName, &a.GradeLabel,
 			&a.StreamName, &a.Outstanding, &a.InvoiceCount, &dueDate); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		a.LearnerName = strings.TrimSpace(firstName.String + " " + lastName.String)
@@ -414,7 +414,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if status == "MATCHED" {
@@ -459,7 +459,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if learnerID != "" && invLearnerID != learnerID {
@@ -486,7 +486,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		 VALUES ($1, $2, $3, 'MPESA', $4, 'COMPLETED', $5, $6) RETURNING payment_id`,
 		tenantID, "MPESA-"+shortID(transactionID), learnerID, amount, transactionID, nullableString(userID)).Scan(&paymentID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -497,7 +497,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		`INSERT INTO payment_allocations (tenant_id, payment_id, invoice_id, allocated_amount, allocated_by)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		tenantID, paymentID, req.InvoiceID, amount, nullableString(userID)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -509,7 +509,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		   updated_at = now()
 		 WHERE invoice_id = $2 AND tenant_id = $3`, amount, req.InvoiceID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := res.RowsAffected(); affected == 0 {
@@ -521,7 +521,7 @@ func (h *Handler) MatchReconciliation(c *gin.Context) {
 		`UPDATE mpesa_transactions SET status = 'MATCHED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,
 		transactionID, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	if affected, _ := res.RowsAffected(); affected == 0 {
@@ -560,7 +560,7 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -589,11 +589,11 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 			tenantID, "MPESA-"+shortID(transactionID), resolvedLearner, amount, transactionID,
 			nullableString(userID)).Scan(&paymentID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	} else if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -603,14 +603,14 @@ func (h *Handler) FlagRefundForReconciliation(c *gin.Context) {
 		 VALUES ($1, $2, $3, $4, 'PENDING', $5) RETURNING refund_id`,
 		tenantID, paymentID, amount, req.Reason, nullableString(userID)).Scan(&refundID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
 	if _, err := tx.Exec(
 		`UPDATE mpesa_transactions SET status = 'REFUND_FLAGGED', updated_at = now() WHERE trans_id = $1 AND tenant_id = $2`,
 		transactionID, tenantID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -636,7 +636,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -645,7 +645,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		`SELECT invoice_id, invoice_number, status, total_amount, amount_paid, amount_outstanding, due_date
 		 FROM invoices WHERE tenant_id = $1 AND learner_id = $2 ORDER BY issue_date DESC`, tenantID, learnerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	totalOutstanding := 0.0
@@ -655,7 +655,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		var dueDate sql.NullString
 		if err := rows.Scan(&id, &number, &status, &total, &paid, &outstanding, &dueDate); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		totalOutstanding += outstanding
@@ -672,7 +672,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		`SELECT payment_id, payment_reference, source, amount, status, received_at
 		 FROM payments WHERE tenant_id = $1 AND learner_id = $2 ORDER BY received_at DESC LIMIT 50`, tenantID, learnerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	for rows.Next() {
@@ -680,7 +680,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		var amount float64
 		if err := rows.Scan(&id, &reference, &source, &amount, &status, &receivedAt); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		payments = append(payments, gin.H{
@@ -696,7 +696,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		 FROM adjustments a JOIN invoices i ON i.invoice_id = a.invoice_id
 		 WHERE a.tenant_id = $1 AND i.learner_id = $2 ORDER BY a.created_at DESC`, tenantID, learnerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	for rows.Next() {
@@ -704,7 +704,7 @@ func (h *Handler) LearnerStatement(c *gin.Context) {
 		var amount float64
 		if err := rows.Scan(&id, &adjType, &amount, &reason, &createdAt); err != nil {
 			rows.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		adjustments = append(adjustments, gin.H{
@@ -748,7 +748,7 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 		{`SELECT COUNT(*) FROM mpesa_transactions WHERE tenant_id = $1 AND status = 'UNMATCHED'`, &unmatched},
 	} {
 		if err := tx.QueryRow(stat.query, tenantID).Scan(stat.dest); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -766,7 +766,7 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 		 LEFT JOIN grades g ON g.grade_id = cg.grade_id
 		 WHERE i.tenant_id = $1 GROUP BY g.grade_label ORDER BY g.grade_label`, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -774,7 +774,7 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 		var label string
 		var total, paid, out float64
 		if err := rows.Scan(&label, &total, &paid, &out); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		byGrade = append(byGrade, gin.H{
@@ -783,7 +783,7 @@ func (h *Handler) FinanceDashboard(c *gin.Context) {
 		})
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -817,7 +817,7 @@ func (h *Handler) CapitationSummary(c *gin.Context) {
 		`SELECT receipt_number, capitation_period, learner_count, amount_per_learner, total_amount, status, received_at
 		 FROM capitation_receipts WHERE tenant_id = $1 ORDER BY capitation_period DESC`, tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -838,7 +838,7 @@ func (h *Handler) CapitationSummary(c *gin.Context) {
 		var receivedAt sql.NullString
 		if err := rows.Scan(&r.ReceiptNumber, &r.Period, &r.LearnerCount, &r.AmountPerLearner,
 			&r.TotalAmount, &r.Status, &receivedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		r.ReceivedAt = receivedAt.String
@@ -880,7 +880,7 @@ func (h *Handler) CreateCapitationReceipt(c *gin.Context) {
 		req.AmountPerLearner, total, nullableString(req.ReceivedAt), nullableString(req.Reference),
 		nullableString(userID)).Scan(&receiptID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"receipt_id": receiptID, "total_amount": total})
@@ -905,7 +905,7 @@ func (h *Handler) STKStatus(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -1005,7 +1005,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	if !errors.Is(err, sql.ErrNoRows) {
 		// A failed read cannot be read as "not replayed": that would record the same
 		// payment twice.
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -1016,7 +1016,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		tenantID, reference, req.LearnerID, source, paymentAmount.StringFixed(2),
 		nullableString(userID), idempotencyKey).Scan(&paymentID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -1025,7 +1025,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	// fine, waiting behind a stalled one is not.
 	if _, err := tx.Exec(`SELECT set_config('lock_timeout', $1, true)`,
 		fmt.Sprintf("%dms", paymentLockTimeoutMS)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	allocationInvoice := req.InvoiceID
@@ -1045,7 +1045,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 				invoiceBusy(c)
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -1060,7 +1060,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 				invoiceBusy(c)
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		outstanding := money.New(outstandingStr)
@@ -1075,7 +1075,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 				tenantID, paymentID, allocationInvoice, alloc.StringFixed(2), nullableString(userID)); err != nil {
 				// The payment is in this same transaction: failing to record where it went
 				// has to undo it, not leave the money unallocated.
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			} else {
 				if _, err := tx.Exec(
@@ -1085,7 +1085,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 					   paid_at = CASE WHEN amount_outstanding - $1 <= 0 THEN COALESCE(paid_at, now()) ELSE paid_at END,
 					   updated_at = now()
 					 WHERE invoice_id = $2 AND tenant_id = $3`, alloc.StringFixed(2), allocationInvoice, tenantID); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+					validation.DBError(c, err)
 					return
 				}
 				allocatedAmount = alloc.InexactFloat64()
@@ -1118,7 +1118,7 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 		ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
 		tenantID, msg, req.LearnerID, idem,
 	); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 

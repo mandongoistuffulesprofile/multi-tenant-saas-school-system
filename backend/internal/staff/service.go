@@ -65,7 +65,7 @@ func (h *Handler) ListStaff(c *gin.Context) {
 		c.GetString("tenant_id"),
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -92,7 +92,7 @@ func (h *Handler) ListStaff(c *gin.Context) {
 		var subjects []byte
 		if err := rows.Scan(&s.MembershipID, &s.UserID, &email, &phone,
 			&s.Role, &s.Status, &tsc, &nationalID, &subjects, &employmentDate); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		s.Email = email.String
@@ -111,7 +111,7 @@ func (h *Handler) ListStaff(c *gin.Context) {
 		}
 		staff = append(staff, s)
 	}
-	c.JSON(http.StatusOK, staff)
+	c.JSON(http.StatusOK, validation.List(staff))
 }
 
 func (h *Handler) CreateStaff(c *gin.Context) {
@@ -376,7 +376,7 @@ func (h *Handler) UpdateStaff(c *gin.Context) {
 	)
 
 	if _, err := tx.Exec(query, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 
@@ -387,7 +387,7 @@ func (h *Handler) UpdateStaff(c *gin.Context) {
 			`UPDATE tenant_memberships SET role = $1 WHERE membership_id = $2 AND tenant_id = $3`,
 			req.Role, membershipID, tenantID,
 		); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 	}
@@ -420,7 +420,7 @@ func (h *Handler) DeleteStaff(c *gin.Context) {
 		membershipID, tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 	"strings"
 
@@ -62,7 +63,7 @@ func (h *Handler) ListReportTemplates(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -73,14 +74,14 @@ func (h *Handler) ListReportTemplates(c *gin.Context) {
 		var config []byte
 		if err := rows.Scan(&t.TemplateID, &t.TenantID, &t.TemplateName, &t.TemplateType,
 			&t.GradeBand, &t.IsDefault, &t.IsActive, &config, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		t.TemplateConfig = map[string]any{}
 		_ = json.Unmarshal(config, &t.TemplateConfig)
 		templates = append(templates, t)
 	}
-	c.JSON(http.StatusOK, templates)
+	c.JSON(http.StatusOK, validation.List(templates))
 }
 
 // ReportRun
@@ -139,7 +140,7 @@ func (h *Handler) ListReportRuns(c *gin.Context) {
 		tenantID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -150,7 +151,7 @@ func (h *Handler) ListReportRuns(c *gin.Context) {
 		if err := rows.Scan(&r.RunID, &r.TenantID, &r.TemplateID, &r.AcademicYearID, &r.TermID,
 			&r.GradeID, &r.Status, &r.LearnerCount, &r.GeneratedCount, &r.ErrorMessage,
 			&r.CreatedBy, &r.CreatedAt, &r.CompletedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		runs = append(runs, ReportRun{
@@ -169,7 +170,7 @@ func (h *Handler) ListReportRuns(c *gin.Context) {
 			CompletedAt:    r.CompletedAt.String,
 		})
 	}
-	c.JSON(http.StatusOK, runs)
+	c.JSON(http.StatusOK, validation.List(runs))
 }
 
 // ReportCard
@@ -337,7 +338,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -353,7 +354,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 			&card.Position, &card.Comment, &card.HeadTeacherComment, &card.Status,
 			&card.PDFRef, &card.PublishedAt, &card.PublishedBy, &card.CreatedBy,
 			&card.CreatedAt, &card.UpdatedAt, &snapText); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if snapText != "" {
@@ -361,7 +362,7 @@ func (h *Handler) ListReportCards(c *gin.Context) {
 		}
 		cards = append(cards, card)
 	}
-	c.JSON(http.StatusOK, cards)
+	c.JSON(http.StatusOK, validation.List(cards))
 }
 
 func (h *Handler) logReportAudit(c *gin.Context, action, targetType, targetID string, meta map[string]any) {
@@ -479,7 +480,7 @@ func (h *Handler) ListReportCardRevisions(c *gin.Context) {
 		 ORDER BY revision DESC`,
 		c.GetString("tenant_id"), cardID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -489,7 +490,7 @@ func (h *Handler) ListReportCardRevisions(c *gin.Context) {
 		var id, snapshot, createdAt string
 		var revision int
 		if err := rows.Scan(&id, &revision, &snapshot, &createdAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		revisions = append(revisions, gin.H{
@@ -499,7 +500,7 @@ func (h *Handler) ListReportCardRevisions(c *gin.Context) {
 			"created_at":       createdAt,
 		})
 	}
-	c.JSON(http.StatusOK, revisions)
+	c.JSON(http.StatusOK, validation.List(revisions))
 }
 
 func (h *Handler) GetReportCard(ginCtx *gin.Context) {
@@ -547,14 +548,14 @@ func (h *Handler) GetReportCard(ginCtx *gin.Context) {
 			ginCtx.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Report card not found"})
 			return
 		}
-		ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(ginCtx, err)
 		return
 	}
 	if snapText != "" {
 		card.Snapshot = json.RawMessage(snapText)
 	}
 	if err := h.loadCardResults(tx, &card); err != nil {
-		ginCtx.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(ginCtx, err)
 		return
 	}
 
@@ -627,7 +628,7 @@ func (h *Handler) ListReportCardComments(c *gin.Context) {
 			return
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		linked, linkErr := h.linkedLearnerIDs(tx, c.GetString("user_id"))
@@ -648,7 +649,7 @@ func (h *Handler) ListReportCardComments(c *gin.Context) {
 		tenantID, cardID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -659,12 +660,12 @@ func (h *Handler) ListReportCardComments(c *gin.Context) {
 		if err := rows.Scan(&comment.CommentID, &comment.TenantID, &comment.CardID,
 			&comment.LearningAreaID, &comment.CommentText, &comment.TeacherID,
 			&comment.CreatedAt, &comment.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		comments = append(comments, comment)
 	}
-	c.JSON(http.StatusOK, comments)
+	c.JSON(http.StatusOK, validation.List(comments))
 }
 
 var _ = http.StatusOK

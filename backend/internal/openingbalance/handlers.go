@@ -1,6 +1,7 @@
 package openingbalance
 
 import (
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,7 @@ func (h *Handler) PostStudentArrears(c *gin.Context) {
 	}
 	id, err := h.service.PostStudentArrears(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"journal_entry_id": id})
@@ -38,7 +39,7 @@ func (h *Handler) PostOpeningStock(c *gin.Context) {
 	}
 	id, err := h.service.PostOpeningStock(c.Request.Context(), tenantID, userID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"journal_entry_id": id})

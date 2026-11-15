@@ -81,7 +81,7 @@ func (h *Handler) ListNationalResults(c *gin.Context) {
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -92,7 +92,7 @@ func (h *Handler) ListNationalResults(c *gin.Context) {
 		if err := rows.Scan(&r.ResultID, &r.LearnerID, &r.LearnerName, &r.AdmissionNo,
 			&r.AssessmentType, &r.AssessmentYear, &r.LearningAreaID, &r.SubjectName,
 			&r.SubjectCode, &r.RawBand, &r.Points, &r.Revision, &r.Source, &r.ImportedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		r.RawBand = grading.NormalizeCode(r.RawBand)
@@ -101,10 +101,10 @@ func (h *Handler) ListNationalResults(c *gin.Context) {
 		results = append(results, r)
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, results)
+	c.JSON(http.StatusOK, validation.List(results))
 }
 
 type nationalImportItem struct {
@@ -116,8 +116,8 @@ type nationalImportItem struct {
 }
 
 type nationalImportRequest struct {
-	AssessmentType string              `json:"assessment_type" binding:"required"`
-	AssessmentYear int                 `json:"assessment_year" binding:"required"`
+	AssessmentType string               `json:"assessment_type" binding:"required"`
+	AssessmentYear int                  `json:"assessment_year" binding:"required"`
 	Results        []nationalImportItem `json:"results" binding:"required"`
 }
 
@@ -239,7 +239,7 @@ func (h *Handler) ImportNationalResults(c *gin.Context) {
 			tenantID, learnerID, assessmentType, req.AssessmentYear, areaID, subjectCode,
 		).Scan(&oldID, &oldRevision, &oldBand)
 		if err != nil && err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if err == nil && grading.NormalizeCode(oldBand) == rawBand {
@@ -262,14 +262,14 @@ func (h *Handler) ImportNationalResults(c *gin.Context) {
 			nullableString(subjectCode), rawBand, points, revision, userID,
 		).Scan(&newID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			validation.DBError(c, err)
 			return
 		}
 		if oldID != "" {
 			if _, err := tx.Exec(
 				`UPDATE national_assessment_results SET superseded_by = $1 WHERE result_id = $2`,
 				newID, oldID); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+				validation.DBError(c, err)
 				return
 			}
 		}

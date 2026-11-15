@@ -1,6 +1,7 @@
 package valueledger
 
 import (
+	"github.com/mandongoistuffulesprofile/multi-tenant-saas-school-system/backend/internal/validation"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +17,7 @@ func (h *Handler) GetMetrics(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	m, err := h.service.Compute(c.Request.Context(), tenantID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		validation.DBError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, m)
