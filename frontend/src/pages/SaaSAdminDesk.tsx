@@ -1,10 +1,18 @@
 import { api } from "../lib/api";
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { formatKES } from '../utils/kenyaFormatters';
 
 type WizardField = 'name' | 'slug' | 'email' | 'phone';
 type WizardErrors = Partial<Record<WizardField, string>>;
+
+/** What the platform returns once a school exists; the password is shown once. */
+interface CreatedTenant {
+  tenantId: string;
+  schoolName: string;
+  adminEmail: string;
+  tempPassword: string;
+}
 
 // Mirrors what POST /platform/tenants insists on: the school name, the
 // subdomain (which becomes the tenant_id, a varchar(50)), a unique
@@ -81,6 +89,8 @@ export const SaaSAdminDesk: React.FC = () => {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [createdTenant, setCreatedTenant] = useState<CreatedTenant | null>(null);
+  const navigate = useNavigate();
 
   // The registry is read in four places — first paint, the poll, after a create
   // and after a status change — so there is one loader and one row mapping.
@@ -162,9 +172,20 @@ export const SaaSAdminDesk: React.FC = () => {
       const created = res.data || {};
       await loadTenants();
       setIsOnboardingOpen(false);
-      showToast(`✓ '${created.school_name || wizardData.name}' imesajiliwa. Msimamizi: ${created.admin_email} · Password ya muda (iona mara moja): ${created.temp_password}`);
       setWizardData({ name: '', slug: '', county: 'Kitui', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_AND_BOARDING', admin_email: '', headteacher_name: '', headteacher_phone: '', term_fee: 30000 });
       setErrors({});
+      // The temporary password is only ever returned here, so it is handed over on
+      // screen with the way into setup — a toast would vanish with the navigation.
+      if (created.tenant_id) {
+        setCreatedTenant({
+          tenantId: created.tenant_id,
+          schoolName: created.school_name || schoolName,
+          adminEmail: created.admin_email || adminEmail,
+          tempPassword: created.temp_password || '',
+        });
+      } else {
+        showToast(`✓ '${created.school_name || schoolName}' imesajiliwa.`);
+      }
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Usajili umeshindikana.');
     }
@@ -524,6 +545,62 @@ export const SaaSAdminDesk: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Hand-over after onboarding. The temporary password is returned exactly
+          once, so it is shown here — where it survives — rather than in a toast
+          that the move into setup would wipe out. */}
+      {createdTenant && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
+            <div className="bg-slate-900 text-white p-5">
+              <h3 className="text-base font-black uppercase tracking-wide">
+                Shule imesajiliwa (Tenant provisioned)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">{createdTenant.schoolName}</p>
+            </div>
+            <div className="p-5 space-y-3 text-xs">
+              <div>
+                <span className="block font-bold text-slate-700 mb-1">Msimamizi (Administrator):</span>
+                <div className="font-mono text-slate-800">{createdTenant.adminEmail}</div>
+              </div>
+              <div>
+                <span className="block font-bold text-slate-700 mb-1">
+                  Password ya muda — inaonyeshwa mara moja:
+                </span>
+                <div className="font-mono text-base font-black text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3 select-all">
+                  {createdTenant.tempPassword || '—'}
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Mpe msimamizi sasa; haitaonyeshwa tena na ataombwa kuibadilisha.
+                </p>
+              </div>
+              <p className="text-[11px] text-slate-600">
+                Hatua inayofuata ni Setup: mitaala, kalenda, madarasa na njia za malipo.
+              </p>
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setCreatedTenant(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
+                >
+                  Baadaye
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tenantId = createdTenant.tenantId;
+                    setCreatedTenant(null);
+                    navigate(`/platform/tenants/${encodeURIComponent(tenantId)}/setup`);
+                  }}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black shadow-md cursor-pointer"
+                >
+                  Nenda kwenye Setup →
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

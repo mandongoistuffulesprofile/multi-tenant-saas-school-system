@@ -1,6 +1,6 @@
 import React, { act } from "react";
 import { createRoot, Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The desk normalises the platform tenant payload (tenant_id, school_name,
@@ -59,6 +59,37 @@ afterEach(async () => {
   });
   container.remove();
 });
+
+function setValue(container: HTMLDivElement, placeholder: string, value: string) {
+  const input = container.querySelector(`input[placeholder="${placeholder}"]`) as HTMLInputElement;
+  expect(input).not.toBeNull();
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  setter.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function SetupStub() {
+  const { tenantId } = useParams();
+  return <p>Setup wizard for {tenantId}</p>;
+}
+
+async function renderAtDeskWithSetupRoute() {
+  await act(async () => {
+    root.render(
+      <MemoryRouter initialEntries={["/platform/desk"]}>
+        <Routes>
+          <Route path="/platform/desk" element={<SaaSAdminDesk />} />
+          <Route path="/platform/tenants/:tenantId/setup" element={<SetupStub />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  });
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
 
 async function render() {
   await act(async () => {
@@ -400,6 +431,64 @@ describe("platform admin desk", () => {
     expect(firstRow.textContent || "").toContain("Kitui Central Primary");
     expect(firstRow.textContent || "").toContain("Leseni Hai");
     expect(firstRow.textContent || "").not.toContain("Imesimamishwa");
+  });
+
+  it("hands over the temporary password and then opens the new school's setup", async () => {
+    harness.post.mockResolvedValue({
+      data: {
+        tenant_id: "new-school-1",
+        school_name: "Mandongo I Primary",
+        admin_email: "admin@mandongoi.ac.ke",
+        temp_password: "tmp-9f8e7d6c",
+      },
+    });
+
+    await renderAtDeskWithSetupRoute();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+    await act(async () => {
+      setValue(container, "Mfano: MANDONGOI COMPREHENSIVE SCHOOL", "Mandongo I Primary");
+      setValue(container, "Mfano: Joel Maundu", "Joel Maundu");
+      setValue(container, "0712345678", "0712345678");
+      setValue(container, "admin@newschool.ac.ke", "admin@mandongoi.ac.ke");
+    });
+    await act(async () => {
+      container
+        .querySelector("form")!
+        .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The password comes back once, so it is shown with the school it belongs to.
+    const panel = container.textContent || "";
+    expect(panel).toContain("tmp-9f8e7d6c");
+    expect(panel).toContain("Mandongo I Primary");
+    expect(panel).toContain("mara moja");
+
+    // It must not be parked in browser storage on the way through.
+    const stored = [
+      ...Object.keys(localStorage).map((k) => `${k}=${localStorage.getItem(k)}`),
+      ...Object.keys(sessionStorage).map((k) => `${k}=${sessionStorage.getItem(k)}`),
+    ].join("|");
+    expect(stored).not.toContain("tmp-9f8e7d6c");
+
+    // The operator continues into the wizard for the school just created.
+    const continueButton = Array.from(container.querySelectorAll("button")).find((b) =>
+      (b.textContent || "").includes("Nenda kwenye Setup"),
+    ) as HTMLButtonElement;
+    expect(continueButton).toBeDefined();
+    await act(async () => {
+      continueButton.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.textContent || "").toContain("Setup wizard for new-school-1");
   });
 
   it("does not pretend a failed registry read is an empty one", async () => {
