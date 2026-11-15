@@ -287,6 +287,15 @@ export const translations = {
         imported: "Imported {{count}} learner(s).",
         request_failed: "Import request failed",
       },
+      curriculum_page: {
+        title: "Curriculum",
+        version_label: "Curriculum Version",
+        tree_title: "KICD Curriculum Tree",
+        tree_hint: "Learning areas, strands and sub-strands are pre-loaded. Expand to review before grading.",
+        no_areas: "No learning areas found for this version.",
+        no_strands: "No strands captured.",
+        no_substrands: "No sub-strands captured.",
+      },
       reset_password_page: {
         title: "Reset password",
         subtitle: "Choose a new password for your account.",
@@ -792,6 +801,15 @@ export const translations = {
         dry_run_done: "Jaribio limekamilika — hakiki safu hapa chini.",
         imported: "Wameingizwa wanafunzi {{count}}.",
         request_failed: "Ombi la kuingiza limeshindikana",
+      },
+      curriculum_page: {
+        title: "Mtaala",
+        version_label: "Toleo la mtaala",
+        tree_title: "Mti wa mtaala wa KICD",
+        tree_hint: "Maeneo ya kujifunza, nyuzi na vijisehemu vimepangwa tayari. Panua ili kuhakiki kabla ya kutathmini.",
+        no_areas: "Hakuna maeneo ya kujifunza kwa toleo hili.",
+        no_strands: "Hakuna nyuzi zilizonaswa.",
+        no_substrands: "Hakuna vijisehemu vilivyonaswa.",
       },
       reset_password_page: {
         title: "Weka upya nenosiri",

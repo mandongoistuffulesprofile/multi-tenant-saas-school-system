@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 
 export default function CurriculumPage() {
+  const { t } = useTranslation();
   const [versions, setVersions] = useState<any[]>([]);
   const [areas, setAreas] = useState<any[]>([]);
   const [selectedVersion, setSelectedVersion] = useState<string>("");
@@ -93,13 +95,13 @@ export default function CurriculumPage() {
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 p-4">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-heading mb-6">Curriculum</h2>
+          <h2 className="text-heading mb-6">{t("curriculum_page.title")}</h2>
           {loading ? (
             <Skeleton rows={5} columns={4} />
           ) : (
             <>
               <div className="card p-6 mb-6">
-                <label className="label">Curriculum Version</label>
+                <label className="label">{t("curriculum_page.version_label")}</label>
                 <select
                   className="input-field max-w-xs"
                   value={selectedVersion}
@@ -110,20 +112,18 @@ export default function CurriculumPage() {
                 >
                   {versions.map((v) => (
                     <option key={v.version_id} value={v.version_id}>
-                      {v.version_label} ({v.is_published ? "Published" : "Draft"})
+                      {v.version_label} ({v.is_published ? t("published") : t("draft")})
                     </option>
                   ))}
                 </select>
               </div>
               <div className="card p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-caption uppercase tracking-wide">KICD Curriculum Tree</h3>
-                  <p className="text-xs text-gray-500">
-                    Learning areas, strands and sub-strands are pre-loaded. Expand to review before grading.
-                  </p>
+                  <h3 className="text-caption uppercase tracking-wide">{t("curriculum_page.tree_title")}</h3>
+                  <p className="text-xs text-gray-500">{t("curriculum_page.tree_hint")}</p>
                 </div>
                 {areas.length === 0 ? (
-                  <p className="text-sm text-gray-500">No learning areas found for this version.</p>
+                  <p className="text-sm text-gray-500">{t("curriculum_page.no_areas")}</p>
                 ) : (
                   <div className="divide-y divide-gray-100">
                     {areas.map((area: any) => (
@@ -145,7 +145,7 @@ export default function CurriculumPage() {
                         {expandedArea === area.area_id && (
                           <div className="pl-20 pb-3">
                             {(strands[area.area_id] || []).length === 0 ? (
-                              <p className="text-xs text-gray-500 py-2">No strands captured.</p>
+                              <p className="text-xs text-gray-500 py-2">{t("curriculum_page.no_strands")}</p>
                             ) : (
                               <div className="space-y-1">
                                 {(strands[area.area_id] || []).map((strand: any) => (
@@ -162,7 +162,7 @@ export default function CurriculumPage() {
                                     {expandedStrand === strand.strand_id && (
                                       <ul className="ml-8 mb-2 border-l border-gray-200 pl-3 space-y-1">
                                         {(subStrands[strand.strand_id] || []).length === 0 ? (
-                                          <li className="text-xs text-gray-500">No sub-strands captured.</li>
+                                          <li className="text-xs text-gray-500">{t("curriculum_page.no_substrands")}</li>
                                         ) : (
                                           (subStrands[strand.strand_id] || []).map((sub: any) => (
                                             <li key={sub.sub_strand_id} className="text-xs text-gray-600">
