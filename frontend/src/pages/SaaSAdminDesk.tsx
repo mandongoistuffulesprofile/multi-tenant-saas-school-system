@@ -22,6 +22,22 @@ interface SchoolTenant {
 
 
 
+/**
+ * The platform API stores the head teacher's phone as the account's login
+ * number and rejects a blank one, so the form has to settle on the canonical
+ * 2547XXXXXXXX / 2541XXXXXXXX form before it submits. Accepts the way a school
+ * would write it: 0712 345 678, +254 712 345 678 or 254712345678.
+ */
+function normalizeKenyanPhone(raw: string): string | null {
+  const digits = raw.replace(/[^\d]/g, '');
+  let national: string;
+  if (/^0[17]\d{8}$/.test(digits)) national = digits.slice(1);
+  else if (/^[17]\d{8}$/.test(digits)) national = digits;
+  else if (/^254[17]\d{8}$/.test(digits)) national = digits.slice(3);
+  else return null;
+  return `254${national}`;
+}
+
 export const SaaSAdminDesk: React.FC = () => {
   const [tenants, setTenants] = useState<SchoolTenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,6 +107,8 @@ export const SaaSAdminDesk: React.FC = () => {
     term_fee: 30000,
   });
 
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 5000);
@@ -102,12 +120,20 @@ export const SaaSAdminDesk: React.FC = () => {
       showToast('Jina la shule, subdomain na barua pepe ya msimamizi ni lazima.');
       return;
     }
+    // The API requires a phone number for the head teacher's account, so refuse
+    // an empty or malformed one here rather than after a round trip.
+    const adminPhone = normalizeKenyanPhone(wizardData.headteacher_phone);
+    if (!adminPhone) {
+      setPhoneError('Weka nambari ya simu halali ya Mwalimu Mkuu, mfano 0712345678.');
+      return;
+    }
+    setPhoneError(null);
     try {
       const res = await api.post('/platform/tenants', {
         school_name: wizardData.name.trim(),
         subdomain: wizardData.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
         admin_email: wizardData.admin_email.toLowerCase().trim(),
-        admin_phone: wizardData.headteacher_phone || '',
+        admin_phone: adminPhone,
         plan: 'STANDARD',
         county: wizardData.county || '',
       });
@@ -125,6 +151,7 @@ export const SaaSAdminDesk: React.FC = () => {
       setIsOnboardingOpen(false);
       showToast(`✓ '${created.school_name || wizardData.name}' imesajiliwa. Msimamizi: ${created.admin_email} · Password ya muda (iona mara moja): ${created.temp_password}`);
       setWizardData({ name: '', slug: '', moe_code: '', county: 'Kitui', sub_county: '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_AND_BOARDING', paybill: '', admin_email: '', headteacher_name: '', headteacher_phone: '', term_fee: 30000 });
+      setPhoneError(null);
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Usajili umeshindikana.');
     }
@@ -446,11 +473,20 @@ export const SaaSAdminDesk: React.FC = () => {
                   <label className="block font-bold text-slate-700 mb-1">Nambari ya Simu ya Mwalimu Mkuu:</label>
                   <input
                     required
+                    type="tel"
+                    inputMode="tel"
+                    aria-invalid={phoneError ? true : undefined}
                     value={wizardData.headteacher_phone}
-                    onChange={(e) => setWizardData({ ...wizardData, headteacher_phone: e.target.value })}
+                    onChange={(e) => {
+                      setWizardData({ ...wizardData, headteacher_phone: e.target.value });
+                      if (phoneError) setPhoneError(null);
+                    }}
                     placeholder="0712345678"
-                    className="w-full p-2 border border-slate-300 rounded-lg font-mono"
+                    className={`w-full p-2 border rounded-lg font-mono ${phoneError ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                   />
+                  {phoneError && (
+                    <p className="text-[11px] text-red-600 mt-1">{phoneError}</p>
+                  )}
                 </div>
               </div>
 
