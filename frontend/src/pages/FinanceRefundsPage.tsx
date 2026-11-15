@@ -7,6 +7,7 @@ import HelpTip from "../components/atoms/HelpTip";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
+import { formatMoney } from "../lib/money";
 
 type Payment = {
   payment_id: string;
@@ -109,7 +110,7 @@ export default function FinanceRefundsPage() {
                   <option value="">Select payment…</option>
                   {payments.map((p) => (
                     <option key={p.payment_id} value={p.payment_id}>
-                      {p.payment_reference || p.payment_id} · KES {Number(p.amount || 0).toLocaleString()} · {p.learner_id}
+                      {p.payment_reference || p.payment_id} · KES {formatMoney(p.amount)} · {p.learner_id}
                     </option>
                   ))}
                 </select>

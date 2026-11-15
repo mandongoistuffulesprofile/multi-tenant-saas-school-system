@@ -494,8 +494,10 @@ export interface FeeStructure {
   category_id: ID;
   category_code?: string | null;
   category_name?: string | null;
-  amount_per_term: number;
-  amount_per_year: number;
+  	// Decimal strings, like every other money field: the API sends exact
+  // decimals so a fee amount never passes through a double.
+  amount_per_term: string;
+  amount_per_year: string;
   currency: string;
   is_mandatory: boolean;
   payment_frequency: string;
@@ -509,8 +511,9 @@ export interface FeeStructureCreate {
   academic_year_id: ID;
   grade_id: ID;
   category_id: ID;
-  amount_per_term: number;
-  amount_per_year: number;
+  	// Sent as strings so the decoder reads an exact decimal.
+  amount_per_term: string;
+  amount_per_year: string;
   currency: string;
   is_mandatory: boolean;
   payment_frequency: string;

@@ -7,6 +7,7 @@ import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import Button from "../components/atoms/Button";
 import { useToast } from "../components/toast/ToastProvider";
+import { formatMoney, isPositiveMoney } from "../lib/money";
 
 type Txn = {
   trans_id: string;
@@ -53,7 +54,7 @@ export default function FinanceReconciliationPage() {
       const allTxns: Txn[] = Array.isArray(tRes.data) ? tRes.data : [];
       setTxns(allTxns.filter((t) => String(t.status || "").toUpperCase() !== "MATCHED"));
       const invs: Invoice[] = Array.isArray(iRes.data) ? iRes.data : [];
-      setInvoices(invs.filter((i) => Number(i.amount_outstanding || 0) > 0 && String(i.status || "").toUpperCase() !== "PAID"));
+      setInvoices(invs.filter((i) => isPositiveMoney(i.amount_outstanding) && String(i.status || "").toUpperCase() !== "PAID"));
     } finally {
       setLoading(false);
     }
@@ -119,7 +120,7 @@ export default function FinanceReconciliationPage() {
                 emptyMessage={t("reconciliation_page.no_unmatched")}
                 columns={[
                   { key: "external_trans_id", header: t("reconciliation_page.receipt"), render: (r) => r.external_trans_id || r.trans_id },
-                  { key: "amount", header: t("reconciliation_page.amount"), render: (r) => r.amount != null ? `KES ${Number(r.amount).toLocaleString()}` : "—" },
+                  { key: "amount", header: t("reconciliation_page.amount"), render: (r) => r.amount != null ? `KES ${formatMoney(r.amount)}` : "—" },
                   { key: "bill_ref", header: t("reconciliation_page.bill_ref") },
                   { key: "msisdn_masked", header: t("reconciliation_page.phone") },
                   { key: "status", header: t("reconciliation_page.status") },
@@ -135,7 +136,7 @@ export default function FinanceReconciliationPage() {
                           <option value="">{t("reconciliation_page.select_invoice")}</option>
                           {invoices.map((inv) => (
                             <option key={inv.invoice_id} value={inv.invoice_id}>
-                              {inv.invoice_number || inv.invoice_id} · KES {Number(inv.amount_outstanding || 0).toLocaleString()}
+                              {inv.invoice_number || inv.invoice_id} · KES {formatMoney(inv.amount_outstanding)}
                             </option>
                           ))}
                         </select>
@@ -163,8 +164,8 @@ export default function FinanceReconciliationPage() {
                   { key: "run_id", header: t("reconciliation_page.run_id") },
                   { key: "run_date", header: t("reconciliation_page.date"), render: (r) => r.run_date || r.period || "—" },
                   { key: "status", header: t("reconciliation_page.status") },
-                  { key: "total_expected", header: t("reconciliation_page.expected"), render: (r) => r.total_expected != null ? `KES ${Number(r.total_expected).toLocaleString()}` : "—" },
-                  { key: "total_received", header: t("reconciliation_page.received"), render: (r) => r.total_received != null ? `KES ${Number(r.total_received).toLocaleString()}` : "—" },
+                  { key: "total_expected", header: t("reconciliation_page.expected"), render: (r) => r.total_expected != null ? `KES ${formatMoney(r.total_expected)}` : "—" },
+                  { key: "total_received", header: t("reconciliation_page.received"), render: (r) => r.total_received != null ? `KES ${formatMoney(r.total_received)}` : "—" },
                   { key: "unmatched_transactions", header: t("reconciliation_page.unmatched_count"), render: (r) => r.unmatched_transactions ?? r.unmatched_count ?? "—" },
                 ]}
               />
@@ -178,7 +179,7 @@ export default function FinanceReconciliationPage() {
                 <p className="text-sm text-gray-600 mb-4">
                   {t("reconciliation_page.refund_confirm", {
                     ref: refundTxn.external_trans_id || refundTxn.trans_id,
-                    amount: Number(refundTxn.amount || 0).toLocaleString(),
+                    amount: formatMoney(refundTxn.amount),
                   })}
                 </p>
                 <label style={{ display: "block", marginBottom: "0.75rem" }}>

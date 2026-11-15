@@ -7,6 +7,7 @@ import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import Dialog from "../components/dialog/Dialog";
 import Button from "../components/atoms/Button";
 import { useToast } from "../components/toast/ToastProvider";
+import { formatMoney } from "../lib/money";
 
 export default function FinanceFeeStructuresPage() {
   const handleCreateStructure = async (payload: any) => {
@@ -45,8 +46,9 @@ export default function FinanceFeeStructuresPage() {
     setSaving(true);
     api.post("/finance/fee-structures", {
       ...form,
-      amount_per_term: Number(form.amount_per_term),
-      amount_per_year: Number(form.amount_per_year),
+      // Sent as strings so the API decodes an exact decimal, not a double.
+      amount_per_term: form.amount_per_term,
+      amount_per_year: form.amount_per_year,
       due_day: Number(form.due_day),
     }).then(() => { setOpen(false); refresh(); })
       .catch(() => {})
@@ -85,8 +87,8 @@ export default function FinanceFeeStructuresPage() {
 	                      return labels[r.residence_type] ?? r.residence_type ?? "All learners";
 	                    },
 	                  },
-                  { key: "amount_per_term", header: "Per Term", render: (r) => r.amount_per_term != null ? `KES ${r.amount_per_term}` : "—" },
-                  { key: "amount_per_year", header: "Per Year", render: (r) => r.amount_per_year != null ? `KES ${r.amount_per_year}` : "—" },
+                  { key: "amount_per_term", header: "Per Term", render: (r) => r.amount_per_term != null ? `KES ${formatMoney(r.amount_per_term)}` : "—" },
+                  { key: "amount_per_year", header: "Per Year", render: (r) => r.amount_per_year != null ? `KES ${formatMoney(r.amount_per_year)}` : "—" },
                   { key: "payment_frequency", header: "Frequency", render: (r) => r.payment_frequency || "—" },
                   { key: "is_mandatory", header: "Mandatory", render: (r) => r.is_mandatory ? "Yes" : "No" },
                 ]}

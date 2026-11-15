@@ -6,6 +6,7 @@ import Dialog from "../components/dialog/Dialog";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
+import { formatMoney, isPositiveMoney } from "../lib/money";
 
 interface MpesaEvent {
   event_id: string;
@@ -87,10 +88,10 @@ export default function FinanceMpesaPage() {
     setResolving(true);
     try {
       const res = await api.patch(`/finance/mpesa/events/${selected.event_id}/resolve`, { learner_id: learnerID });
-      const allocated = Number(res.data?.allocated_amount || 0);
+      const allocated = res.data?.allocated_amount;
       toast(
-        allocated > 0
-          ? t("mpesa_page.resolved_allocated", { ref: selected.trans_id, amount: allocated.toLocaleString() })
+        isPositiveMoney(allocated)
+          ? t("mpesa_page.resolved_allocated", { ref: selected.trans_id, amount: formatMoney(allocated) })
           : t("mpesa_page.resolved_on_account", { ref: selected.trans_id }),
         { type: "success" }
       );
@@ -168,7 +169,7 @@ export default function FinanceMpesaPage() {
                   header: t("mpesa_page.received"),
                   render: (e) => e.trans_time ? new Date(e.trans_time).toLocaleString() : "—",
                 },
-                { key: "amount", header: t("mpesa_page.amount"), render: (e) => `KES ${Number(e.amount).toLocaleString()}` },
+                { key: "amount", header: t("mpesa_page.amount"), render: (e) => `KES ${formatMoney(e.amount)}` },
                 { key: "bill_ref", header: t("mpesa_page.reference"), render: (e) => e.bill_ref || "—" },
                 { key: "msisdn_masked", header: t("mpesa_page.phone"), render: (e) => e.msisdn_masked || "—" },
                 {
@@ -211,7 +212,7 @@ export default function FinanceMpesaPage() {
           <div className="space-y-4">
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1">
               <div className="flex justify-between gap-3"><span className="text-gray-500">{t("mpesa_page.trans_id")}</span><span className="font-mono">{selected.trans_id}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-gray-500">{t("mpesa_page.amount")}</span><span className="font-medium">KES {Number(selected.amount).toLocaleString()}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-gray-500">{t("mpesa_page.amount")}</span><span className="font-medium">KES {formatMoney(selected.amount)}</span></div>
               <div className="flex justify-between gap-3"><span className="text-gray-500">{t("mpesa_page.reference")}</span><span>{selected.bill_ref || "—"}</span></div>
             </div>
             <label className="block text-sm">

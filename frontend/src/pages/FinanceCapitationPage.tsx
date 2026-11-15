@@ -7,6 +7,7 @@ import HelpTip from "../components/atoms/HelpTip";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
+import { formatMoney, sumMoney } from "../lib/money";
 
 export default function FinanceCapitationPage() {
   const [receipts, setReceipts] = useState<any[]>([]);
@@ -98,7 +99,7 @@ export default function FinanceCapitationPage() {
               />
               <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
                 <p className="text-sm text-green-800">
-                  <strong>Total Received:</strong> KES {receipts.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0).toLocaleString()}
+                  <strong>Total Received:</strong> KES {formatMoney(sumMoney(receipts.map((r) => r.total_amount)))}
                 </p>
               </div>
             </>

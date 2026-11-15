@@ -7,6 +7,7 @@ import HelpTip from "../components/atoms/HelpTip";
 import Skeleton from "../components/atoms/Skeleton";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
+import { formatMoney, isPositiveMoney } from "../lib/money";
 
 type Invoice = {
   invoice_id: string;
@@ -36,13 +37,13 @@ export default function FinanceAdjustmentsPage() {
     }).catch(() => setLoading(false));
     api.get("/finance/invoices", { params: { limit: 500, offset: 0 } }).then((res) => {
       const rows: any[] = Array.isArray(res.data) ? res.data : [];
-      setInvoices(rows.filter((i) => Number(i.amount_outstanding || 0) > 0 && String(i.status || "").toUpperCase() !== "PAID"));
+      setInvoices(rows.filter((i) => isPositiveMoney(i.amount_outstanding) && String(i.status || "").toUpperCase() !== "PAID"));
     }).catch(() => {});
   }, []);
 
   const invoiceLabel = (id: string) => {
     const inv = invoices.find((i) => i.invoice_id === id);
-    return inv ? `${inv.invoice_number || inv.invoice_id} · KES ${Number(inv.amount_outstanding || 0).toLocaleString()} · ${inv.learner_id}` : id;
+    return inv ? `${inv.invoice_number || inv.invoice_id} · KES ${formatMoney(inv.amount_outstanding)} · ${inv.learner_id}` : id;
   };
 
   const handleCreateAdjustment = async (e: React.FormEvent) => {
@@ -108,7 +109,7 @@ export default function FinanceAdjustmentsPage() {
                   <option value="">Select invoice…</option>
                   {invoices.map((inv) => (
                     <option key={inv.invoice_id} value={inv.invoice_id}>
-                      {inv.invoice_number || inv.invoice_id} · KES {Number(inv.amount_outstanding || 0).toLocaleString()} · {inv.learner_id}
+                      {inv.invoice_number || inv.invoice_id} · KES {formatMoney(inv.amount_outstanding)} · {inv.learner_id}
                     </option>
                   ))}
                 </select>
