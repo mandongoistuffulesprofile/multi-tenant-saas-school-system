@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
@@ -27,6 +28,7 @@ type Invoice = {
 };
 
 export default function FinanceReconciliationPage() {
+  const { t } = useTranslation();
   const [runs, setRuns] = useState<any[]>([]);
   const [txns, setTxns] = useState<Txn[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -61,17 +63,17 @@ export default function FinanceReconciliationPage() {
 
   const doMatch = async (txn: Txn) => {
     const invoiceId = matchInvoice[txn.trans_id];
-    if (!invoiceId) { toast("Select an invoice to match", { type: "error" }); return; }
+    if (!invoiceId) { toast(t("reconciliation_page.select_invoice_error"), { type: "error" }); return; }
     setActing(txn.trans_id);
     try {
       await api.post(`/finance/reconciliation/transactions/${txn.trans_id}/match`, {
         invoice_id: invoiceId,
         amount: txn.amount || 0,
       });
-      toast(`Matched ${txn.external_trans_id || txn.trans_id}`, { type: "success" });
+      toast(t("reconciliation_page.matched", { ref: txn.external_trans_id || txn.trans_id }), { type: "success" });
       await load();
     } catch (e: any) {
-      toast(e?.response?.data?.message || "Match failed", { type: "error" });
+      toast(e?.response?.data?.message || t("reconciliation_page.match_failed"), { type: "error" });
     } finally {
       setActing(null);
     }
@@ -79,7 +81,7 @@ export default function FinanceReconciliationPage() {
 
   const openRefundFlag = (txn: Txn) => {
     setRefundTxn(txn);
-    setRefundReason("Unmatched / wrong bill reference");
+    setRefundReason(t("reconciliation_page.reason_default"));
     setRefundModalOpen(true);
   };
 
@@ -88,13 +90,13 @@ export default function FinanceReconciliationPage() {
     setFlagging(true);
     try {
       await api.post(`/finance/reconciliation/transactions/${refundTxn.trans_id}/flag-refund`, { reason: refundReason.trim() });
-      toast(`Flagged ${refundTxn.external_trans_id || refundTxn.trans_id} for refund`, { type: "success" });
+      toast(t("reconciliation_page.flagged", { ref: refundTxn.external_trans_id || refundTxn.trans_id }), { type: "success" });
       setRefundModalOpen(false);
       setRefundTxn(null);
       setRefundReason("");
       await load();
     } catch (e: any) {
-      toast(e?.response?.data?.message || "Failed to flag refund", { type: "error" });
+      toast(e?.response?.data?.message || t("reconciliation_page.flag_failed"), { type: "error" });
     } finally {
       setFlagging(false);
     }
@@ -105,32 +107,32 @@ export default function FinanceReconciliationPage() {
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-6xl mx-auto space-y-8">
           <div className="flex items-center justify-between">
-            <h2 className="text-heading">Reconciliation</h2>
-            <Button variant="secondary" size="sm" onClick={load} disabled={loading}>Refresh</Button>
+            <h2 className="text-heading">{t("reconciliation_page.title")}</h2>
+            <Button variant="secondary" size="sm" onClick={load} disabled={loading}>{t("reconciliation_page.refresh")}</Button>
           </div>
 
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Unmatched M-Pesa Transactions</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">{t("reconciliation_page.unmatched")}</h3>
             {loading ? <Skeleton rows={4} columns={6} /> : (
               <DataTable
                 data={txns}
-                emptyMessage="No unmatched transactions"
+                emptyMessage={t("reconciliation_page.no_unmatched")}
                 columns={[
-                  { key: "external_trans_id", header: "Receipt", render: (r) => r.external_trans_id || r.trans_id },
-                  { key: "amount", header: "Amount", render: (r) => r.amount != null ? `KES ${Number(r.amount).toLocaleString()}` : "—" },
-                  { key: "bill_ref", header: "Bill Ref" },
-                  { key: "msisdn_masked", header: "Phone" },
-                  { key: "status", header: "Status" },
-                  { key: "transaction_date", header: "Date", render: (r) => r.transaction_date || r.created_at || "—" },
+                  { key: "external_trans_id", header: t("reconciliation_page.receipt"), render: (r) => r.external_trans_id || r.trans_id },
+                  { key: "amount", header: t("reconciliation_page.amount"), render: (r) => r.amount != null ? `KES ${Number(r.amount).toLocaleString()}` : "—" },
+                  { key: "bill_ref", header: t("reconciliation_page.bill_ref") },
+                  { key: "msisdn_masked", header: t("reconciliation_page.phone") },
+                  { key: "status", header: t("reconciliation_page.status") },
+                  { key: "transaction_date", header: t("reconciliation_page.date"), render: (r) => r.transaction_date || r.created_at || "—" },
                   {
-                    key: "action", header: "Action", sortable: false, render: (r) => (
+                    key: "action", header: t("reconciliation_page.action"), sortable: false, render: (r) => (
                       <div className="flex flex-wrap items-center gap-2">
                         <select
                           className="text-xs border border-gray-300 rounded px-2 py-1 max-w-[220px]"
                           value={matchInvoice[r.trans_id] || ""}
                           onChange={(e) => setMatchInvoice((s) => ({ ...s, [r.trans_id]: e.target.value }))}
                         >
-                          <option value="">Select invoice…</option>
+                          <option value="">{t("reconciliation_page.select_invoice")}</option>
                           {invoices.map((inv) => (
                             <option key={inv.invoice_id} value={inv.invoice_id}>
                               {inv.invoice_number || inv.invoice_id} · KES {Number(inv.amount_outstanding || 0).toLocaleString()}
@@ -138,10 +140,10 @@ export default function FinanceReconciliationPage() {
                           ))}
                         </select>
                         <Button size="sm" variant="secondary" loading={acting === r.trans_id} disabled={!matchInvoice[r.trans_id] || acting === r.trans_id} onClick={() => doMatch(r)}>
-                          Match
+                          {t("reconciliation_page.match")}
                         </Button>
                         <Button size="sm" variant="ghost" disabled={acting === r.trans_id} onClick={() => openRefundFlag(r)}>
-                          Flag refund
+                          {t("reconciliation_page.flag_refund")}
                         </Button>
                       </div>
                     ),
@@ -152,45 +154,48 @@ export default function FinanceReconciliationPage() {
           </section>
 
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Reconciliation Runs</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">{t("reconciliation_page.runs")}</h3>
             {loading ? <Skeleton rows={3} columns={6} /> : (
               <DataTable
                 data={runs}
-                emptyMessage="No reconciliation runs"
+                emptyMessage={t("reconciliation_page.no_runs")}
                 columns={[
-                  { key: "run_id", header: "Run ID" },
-                  { key: "run_date", header: "Date", render: (r) => r.run_date || r.period || "—" },
-                  { key: "status", header: "Status" },
-                  { key: "total_expected", header: "Expected", render: (r) => r.total_expected != null ? `KES ${Number(r.total_expected).toLocaleString()}` : "—" },
-                  { key: "total_received", header: "Received", render: (r) => r.total_received != null ? `KES ${Number(r.total_received).toLocaleString()}` : "—" },
-                  { key: "unmatched_transactions", header: "Unmatched", render: (r) => r.unmatched_transactions ?? r.unmatched_count ?? "—" },
+                  { key: "run_id", header: t("reconciliation_page.run_id") },
+                  { key: "run_date", header: t("reconciliation_page.date"), render: (r) => r.run_date || r.period || "—" },
+                  { key: "status", header: t("reconciliation_page.status") },
+                  { key: "total_expected", header: t("reconciliation_page.expected"), render: (r) => r.total_expected != null ? `KES ${Number(r.total_expected).toLocaleString()}` : "—" },
+                  { key: "total_received", header: t("reconciliation_page.received"), render: (r) => r.total_received != null ? `KES ${Number(r.total_received).toLocaleString()}` : "—" },
+                  { key: "unmatched_transactions", header: t("reconciliation_page.unmatched_count"), render: (r) => r.unmatched_transactions ?? r.unmatched_count ?? "—" },
                 ]}
               />
             )}
           </section>
 
           {/* Flag Refund Modal */}
-          <Dialog open={refundModalOpen} onClose={() => { setRefundModalOpen(false); setRefundTxn(null); setRefundReason(""); }} title="Flag for Refund" className="max-w-md">
+          <Dialog open={refundModalOpen} onClose={() => { setRefundModalOpen(false); setRefundTxn(null); setRefundReason(""); }} title={t("reconciliation_page.refund_title")} className="max-w-md">
             {refundTxn && (
               <div>
                 <p className="text-sm text-gray-600 mb-4">
-                  Flag <strong>{refundTxn.external_trans_id || refundTxn.trans_id}</strong> (KES {Number(refundTxn.amount || 0).toLocaleString()}) for refund.
+                  {t("reconciliation_page.refund_confirm", {
+                    ref: refundTxn.external_trans_id || refundTxn.trans_id,
+                    amount: Number(refundTxn.amount || 0).toLocaleString(),
+                  })}
                 </p>
                 <label style={{ display: "block", marginBottom: "0.75rem" }}>
-                  <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>Reason</span>
+                  <span style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>{t("reconciliation_page.reason")}</span>
                   <textarea
                     required
                     rows={3}
                     value={refundReason}
                     onChange={(e) => setRefundReason(e.target.value)}
-                    placeholder="Enter reason for refund flag…"
+                    placeholder={t("reconciliation_page.reason_placeholder")}
                     style={{ width: "100%", padding: "0.5rem", border: "1px solid #d1d5db", borderRadius: 6 }}
                   />
                 </label>
                 <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
-                  <button type="button" onClick={() => { setRefundModalOpen(false); setRefundTxn(null); setRefundReason(""); }} style={{ padding: "0.5rem 1rem" }}>Cancel</button>
+                  <button type="button" onClick={() => { setRefundModalOpen(false); setRefundTxn(null); setRefundReason(""); }} style={{ padding: "0.5rem 1rem" }}>{t("reconciliation_page.cancel")}</button>
                   <button type="button" className="btn-primary" disabled={flagging} onClick={doFlagRefund}>
-                    {flagging ? "Flagging…" : "Flag for Refund"}
+                    {flagging ? t("reconciliation_page.flagging") : t("reconciliation_page.submit_flag")}
                   </button>
                 </div>
               </div>

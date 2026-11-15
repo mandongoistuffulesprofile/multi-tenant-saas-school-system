@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import { ErrorBoundary } from "../components/organisms/ErrorBoundary";
 import { useToast } from "../components/toast/ToastProvider";
@@ -6,24 +7,26 @@ import Button from "../components/atoms/Button";
 
 // Institutional identity printed on CBC report cards, leaving certificates and
 // M-Pesa receipts. MoE registration and KNEC centre code are what make those
-// documents valid outside the school gate.
-const PROFILE_FIELDS: { key: string; label: string; placeholder?: string; mono?: boolean }[] = [
-  { key: "school_name", label: "School Name" },
-  { key: "moe_registration_number", label: "MoE Registration Number", placeholder: "e.g. MOE/PRI/12839/2018", mono: true },
-  { key: "knec_code", label: "KNEC Centre Code (KPSEA / KJSEA)", placeholder: "e.g. 20401021", mono: true },
-  { key: "nemis_code", label: "NEMIS School Code", placeholder: "e.g. 01012001", mono: true },
-  { key: "kemis_code", label: "KEMIS School Code", mono: true },
-  { key: "county", label: "County", placeholder: "e.g. Nairobi" },
-  { key: "sub_county", label: "Sub-County", placeholder: "e.g. Westlands" },
-  { key: "zone_ward", label: "Zone / Ward" },
-  { key: "address", label: "Address", placeholder: "Physical address" },
-  { key: "default_locale", label: "Default Locale", placeholder: "e.g. en-KE" },
-  { key: "hosts_junior", label: "Hosts Junior School", placeholder: "true/false" },
-  { key: "kra_pin", label: "KRA PIN (eTIMS receipts)", placeholder: "e.g. P051234567Z", mono: true },
-  { key: "mpesa_account_format", label: "M-Pesa Account Format", placeholder: "STUDENT_ADM_NO", mono: true },
+// documents valid outside the school gate. `labelKey` is a translation key, not
+// a label: the field list is static so the keys are stable.
+const PROFILE_FIELDS: { key: string; labelKey: string; placeholder?: string; mono?: boolean }[] = [
+  { key: "school_name", labelKey: "school_profile_page.school_name" },
+  { key: "moe_registration_number", labelKey: "school_profile_page.moe_registration_number", placeholder: "e.g. MOE/PRI/12839/2018", mono: true },
+  { key: "knec_code", labelKey: "school_profile_page.knec_code", placeholder: "e.g. 20401021", mono: true },
+  { key: "nemis_code", labelKey: "school_profile_page.nemis_code", placeholder: "e.g. 01012001", mono: true },
+  { key: "kemis_code", labelKey: "school_profile_page.kemis_code", mono: true },
+  { key: "county", labelKey: "school_profile_page.county", placeholder: "e.g. Nairobi" },
+  { key: "sub_county", labelKey: "school_profile_page.sub_county", placeholder: "e.g. Westlands" },
+  { key: "zone_ward", labelKey: "school_profile_page.zone_ward" },
+  { key: "address", labelKey: "school_profile_page.address" },
+  { key: "default_locale", labelKey: "school_profile_page.default_locale", placeholder: "e.g. en-KE" },
+  { key: "hosts_junior", labelKey: "school_profile_page.hosts_junior", placeholder: "true/false" },
+  { key: "kra_pin", labelKey: "school_profile_page.kra_pin", placeholder: "e.g. P051234567Z", mono: true },
+  { key: "mpesa_account_format", labelKey: "school_profile_page.mpesa_account_format", placeholder: "STUDENT_ADM_NO", mono: true },
 ];
 
 export default function SchoolProfilePage() {
+  const { t } = useTranslation();
   const [school, setSchool] = useState<any>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -48,8 +51,11 @@ export default function SchoolProfilePage() {
   useEffect(() => {
     api.get("/school")
       .then((res) => applySchool(res.data))
-      .catch(() => toast("Failed to load school profile", { type: "error" }))
+      .catch(() => toast(t("school_profile_page.load_failed"), { type: "error" }))
       .finally(() => setLoading(false));
+    // t changes with the language; reloading the profile on a language switch
+    // would be a pointless request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -59,9 +65,9 @@ export default function SchoolProfilePage() {
       await api.patch("/school", form);
       const refreshed = await api.get("/school");
       applySchool(refreshed.data);
-      toast("Institutional details updated for official MoE / KNEC documents", { type: "success" });
+      toast(t("school_profile_page.saved"), { type: "success" });
     } catch (err: any) {
-      toast(err?.response?.data?.message || "Failed to update school profile", { type: "error" });
+      toast(err?.response?.data?.message || t("school_profile_page.save_failed"), { type: "error" });
     } finally {
       setSaving(false);
     }
@@ -92,7 +98,7 @@ export default function SchoolProfilePage() {
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-3xl mx-auto">
           <div className="card p-8 text-center">
-            <p className="text-body mt-4">School not found</p>
+            <p className="text-body mt-4">{t("school_profile_page.not_found")}</p>
           </div>
         </div>
       </div>
@@ -103,15 +109,15 @@ export default function SchoolProfilePage() {
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-50 p-4">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-heading mb-2">School Profile</h2>
+          <h2 className="text-heading mb-2">{t("school_profile_page.title")}</h2>
           <p className="text-caption text-muted mb-6">
-            These details appear on official CBC report cards, leaving certificates and M-Pesa receipts.
+            {t("school_profile_page.intro")}
           </p>
           <form onSubmit={handleSave} className="card p-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {PROFILE_FIELDS.map((field) => (
                 <div key={field.key}>
-                  <label className="label">{field.label}</label>
+                  <label className="label">{t(field.labelKey)}</label>
                   <input
                     className={`input-field ${field.mono ? "font-mono" : ""}`}
                     placeholder={field.placeholder}
@@ -122,27 +128,27 @@ export default function SchoolProfilePage() {
               ))}
             </div>
             <div>
-              <label className="label">School Motto</label>
+              <label className="label">{t("school_profile_page.motto")}</label>
               <input
                 className="input-field italic"
-                placeholder="e.g. Strive for Excellence"
+                placeholder={t("school_profile_page.motto_placeholder")}
                 value={form.school_motto ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, school_motto: e.target.value }))}
               />
             </div>
             <div>
-              <label className="label">Hosts Junior School</label>
+              <label className="label">{t("school_profile_page.hosts_junior")}</label>
               <select
                 className="input-field"
                 value={form.hosts_junior ?? "false"}
                 onChange={(e) => setForm((f) => ({ ...f, hosts_junior: e.target.value }))}
               >
-                <option value="false">No</option>
-                <option value="true">Yes</option>
+                <option value="false">{t("school_profile_page.no")}</option>
+                <option value="true">{t("school_profile_page.yes")}</option>
               </select>
             </div>
             <div>
-              <label className="label">Default Locale</label>
+              <label className="label">{t("school_profile_page.default_locale")}</label>
               <input
                 className="input-field"
                 placeholder="e.g. en-KE"
@@ -151,21 +157,21 @@ export default function SchoolProfilePage() {
               />
             </div>
             <div>
-              <label className="label">Physical Address</label>
+              <label className="label">{t("school_profile_page.address")}</label>
               <input
                 className="input-field"
-                placeholder="P.O. Box / Street address"
+                placeholder={t("school_profile_page.address_placeholder")}
                 value={form.address ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
               />
             </div>
             <div className="md:col-span-2">
-              <label className="label">School Logo</label>
+              <label className="label">{t("school_profile_page.logo")}</label>
               <div className="flex items-center gap-4">
                 {logoPreview ? (
-                  <img src={logoPreview} alt="Logo" className="w-16 h-16 rounded object-cover border" />
+                  <img src={logoPreview} alt={t("school_profile_page.logo")} className="w-16 h-16 rounded object-cover border" />
                 ) : (
-                  <div className="w-16 h-16 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-400">No logo</div>
+                  <div className="w-16 h-16 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-400">{t("school_profile_page.no_logo")}</div>
                 )}
                 <input type="file" accept="image/*" className="text-sm" onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -178,12 +184,12 @@ export default function SchoolProfilePage() {
               </div>
             </div>
             <div className="md:col-span-2">
-              <label className="label">Head Signature</label>
+              <label className="label">{t("school_profile_page.head_signature")}</label>
               <div className="flex items-center gap-4">
                 {headSigPreview ? (
-                  <img src={headSigPreview} alt="Signature" className="w-24 h-12 rounded object-cover border" />
+                  <img src={headSigPreview} alt={t("school_profile_page.head_signature")} className="w-24 h-12 rounded object-cover border" />
                 ) : (
-                  <div className="w-24 h-12 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-400">No signature</div>
+                  <div className="w-24 h-12 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-400">{t("school_profile_page.no_signature")}</div>
                 )}
                 <input type="file" accept="image/*" className="text-sm" onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -197,15 +203,15 @@ export default function SchoolProfilePage() {
             </div>
             <div className="grid grid-cols-2 gap-4 text-caption text-muted pt-2">
               <div>
-                Subdomain: <span className="text-gray-900">{school.subdomain}.skulapp.ke</span>
+                {t("school_profile_page.subdomain")}: <span className="text-gray-900">{school.subdomain}.skulapp.ke</span>
               </div>
               <div>
-                Status: <span className="text-gray-900">{school.status ?? "—"}</span>
+                {t("school_profile_page.status")}: <span className="text-gray-900">{school.status ?? "—"}</span>
               </div>
             </div>
             <div className="flex justify-end pt-4">
               <Button variant="primary" type="submit" loading={saving}>
-                Save Institutional Settings
+                {t("school_profile_page.save")}
               </Button>
             </div>
           </form>
