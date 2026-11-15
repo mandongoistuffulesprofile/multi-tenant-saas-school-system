@@ -539,9 +539,11 @@ export interface Invoice {
   term_id?: ID | null;
   status: string; // DRAFT, ISSUED, PARTIALLY_PAID, PAID, VOID
   currency: string;
-  total_amount: number;
-  amount_paid: number;
-  amount_outstanding: number;
+  // The API serialises NUMERIC as an exact decimal string; older responses
+  // carried a JSON number. Normalise with Number() before arithmetic.
+  total_amount: number | string;
+  amount_paid: number | string;
+  amount_outstanding: number | string;
   issue_date?: string | null;
   due_date?: string | null;
   paid_at?: Timestamp | null;
@@ -558,8 +560,8 @@ export interface InvoiceLine {
   category_code?: string | null;
   description: string;
   quantity: number;
-  unit_amount: number;
-  line_amount: number;
+  unit_amount: number | string;
+  line_amount: number | string;
   academic_year_id?: ID | null;
   term_id?: ID | null;
   created_at: Timestamp;
@@ -691,8 +693,8 @@ export interface CapitationReceipt {
   receipt_number: string;
   capitation_period: string;
   learner_count: number;
-  amount_per_learner: number;
-  total_amount: number;
+  amount_per_learner: number | string;
+  total_amount: number | string;
   currency: string;
   received_at?: Timestamp | null;
   reference?: string | null;

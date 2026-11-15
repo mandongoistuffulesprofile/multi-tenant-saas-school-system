@@ -42,7 +42,7 @@ export default function FinanceAdjustmentsPage() {
 
   const invoiceLabel = (id: string) => {
     const inv = invoices.find((i) => i.invoice_id === id);
-    return inv ? `${inv.invoice_number || inv.invoice_id} · KES ${inv.amount_outstanding?.toLocaleString()} · ${inv.learner_id}` : id;
+    return inv ? `${inv.invoice_number || inv.invoice_id} · KES ${Number(inv.amount_outstanding || 0).toLocaleString()} · ${inv.learner_id}` : id;
   };
 
   const handleCreateAdjustment = async (e: React.FormEvent) => {

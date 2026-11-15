@@ -366,11 +366,11 @@ type Invoice struct {
 	LearnerID         string  `json:"learner_id"`
 	AcademicYearID    string  `json:"academic_year_id"`
 	TermID            string  `json:"term_id,omitempty"`
-	Status            string  `json:"status"`
-	Currency          string  `json:"currency"`
-	TotalAmount       float64 `json:"total_amount"`
-	AmountPaid        float64 `json:"amount_paid"`
-	AmountOutstanding float64 `json:"amount_outstanding"`
+	Status            string        `json:"status"`
+	Currency          string        `json:"currency"`
+	TotalAmount       money.Decimal `json:"total_amount"`
+	AmountPaid        money.Decimal `json:"amount_paid"`
+	AmountOutstanding money.Decimal `json:"amount_outstanding"`
 	IssueDate         string  `json:"issue_date,omitempty"`
 	DueDate           string  `json:"due_date,omitempty"`
 	PaidAt            string  `json:"paid_at,omitempty"`
@@ -450,7 +450,7 @@ func (s *Service) CreateInvoice(ctx context.Context, tenantID string, inv Invoic
 	if strings.TrimSpace(inv.Status) == "" {
 		inv.Status = "OUTSTANDING"
 	}
-	if inv.AmountOutstanding == 0 && inv.TotalAmount > 0 && inv.AmountPaid == 0 {
+	if inv.AmountOutstanding.IsZero() && inv.TotalAmount.IsPositive() && inv.AmountPaid.IsZero() {
 		inv.AmountOutstanding = inv.TotalAmount
 	}
 
@@ -480,9 +480,9 @@ type InvoiceLine struct {
 	CategoryID     string  `json:"category_id"`
 	CategoryCode   string  `json:"category_code,omitempty"`
 	Description    string  `json:"description"`
-	Quantity       int     `json:"quantity"`
-	UnitAmount     float64 `json:"unit_amount"`
-	LineAmount     float64 `json:"line_amount"`
+	Quantity       int           `json:"quantity"`
+	UnitAmount     money.Decimal `json:"unit_amount"`
+	LineAmount     money.Decimal `json:"line_amount"`
 	AcademicYearID string  `json:"academic_year_id,omitempty"`
 	TermID         string  `json:"term_id,omitempty"`
 	CreatedAt      string  `json:"created_at"`
@@ -830,10 +830,8 @@ func (s *Service) CancelInvoice(ctx context.Context, tenantID, invoiceID, cancel
 		string(EventCancel), cancelledBy, "invoice cancelled")
 
 	inv.Status = string(nextState)
-	totalF, _ := totalAmount.Float64()
-	paidF, _ := paidAmount.Float64()
-	inv.TotalAmount = totalF
-	inv.AmountPaid = paidF
+	inv.TotalAmount = totalAmount
+	inv.AmountPaid = paidAmount
 	return &inv, nil
 }
 
@@ -887,10 +885,8 @@ func (s *Service) WaiveInvoice(ctx context.Context, tenantID, invoiceID, waivedB
 		string(EventWaive), waivedBy, "invoice waived")
 
 	inv.Status = string(nextState)
-	totalF, _ := totalAmount.Float64()
-	paidF, _ := paidAmount.Float64()
-	inv.TotalAmount = totalF
-	inv.AmountPaid = paidF
+	inv.TotalAmount = totalAmount
+	inv.AmountPaid = paidAmount
 	return &inv, nil
 }
 
@@ -943,10 +939,8 @@ func (s *Service) SuspendInvoice(ctx context.Context, tenantID, invoiceID, suspe
 		string(EventSuspend), suspendedBy, "invoice suspended")
 
 	inv.Status = string(nextState)
-	totalF, _ := totalAmount.Float64()
-	paidF, _ := paidAmount.Float64()
-	inv.TotalAmount = totalF
-	inv.AmountPaid = paidF
+	inv.TotalAmount = totalAmount
+	inv.AmountPaid = paidAmount
 	return &inv, nil
 }
 
@@ -1632,9 +1626,9 @@ type CapitationReceipt struct {
 	TenantID         string  `json:"tenant_id"`
 	ReceiptNumber    string  `json:"receipt_number"`
 	CapitationPeriod string  `json:"capitation_period"`
-	LearnerCount     int     `json:"learner_count"`
-	AmountPerLearner float64 `json:"amount_per_learner"`
-	TotalAmount      float64 `json:"total_amount"`
+	LearnerCount     int           `json:"learner_count"`
+	AmountPerLearner money.Decimal `json:"amount_per_learner"`
+	TotalAmount      money.Decimal `json:"total_amount"`
 	Currency         string  `json:"currency"`
 	ReceivedAt       string  `json:"received_at,omitempty"`
 	Reference        string  `json:"reference,omitempty"`
