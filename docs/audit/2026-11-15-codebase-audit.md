@@ -139,18 +139,40 @@ value ledger, opening balances, delegated access tokens) that a school
 administrator can never reach. Either build the screens or stop advertising the
 capability.
 
-## P1 — i18n falls back to raw keys in 134 places
+## P1 — i18n fell back to raw keys in 32 places (fixed)
 
-`t()` returns the literal key when the key is absent, and 134 keys used in the
-SPA are not in `i18n/translations.ts`. Most are silently masked by a
-`defaultValue`; the ones that are not render as keys. Confirmed on screen: the
-parent tab bar reads **`parent.child`** (`components/organisms/ParentLayout.tsx:16`,
-key missing from both languages). Whole clusters are affected: every
-`gate.*` key in the new `KioskPage`, the learner wizard's `wizard.step_*`, and
-the login page's `auth.welcome*` set.
+`t()` returns the literal key when the key is absent. Confirmed on screen: the
+parent tab bar read **`parent.child`** (`components/organisms/ParentLayout.tsx:16`).
 
-**Fix.** Add the missing keys in EN and SW, and make `t()` log or fail in
-development when a key is missing so the next one is caught at build time.
+An earlier count in this document said 134; the measured number, after loading
+the real `translations` object and asking i18next `exists()` for every key the
+code references, was 32 keys — 31 absent from both locales and `parent.child`
+absent from English only. The inflated figure came from a regex scan that did
+not apply `mergeLocale`'s lifting of flat `common` keys to the root. The other
+things it named were already present: `wizard.step_*` and `auth.welcome*`
+resolve, because they live in `common`.
+
+The bigger finding is how `gate.*` was broken: the whole group sat **nested
+inside `auth`** in both locales, so `t("gate.title")` never resolved. The keys
+existed; the path did not. Nested groups are invisible to a key-presence check
+that only looks at names.
+
+Fixed in `frontend/src/i18n/`:
+
+- `gate` moved to a top-level group in both locales, with the Swahili corrected
+  (it read "Stadi ya skena ya klerk" / "Tembelea nje").
+- The 31 missing keys added in English and Kiswahili, including the learner
+  termination dialog, select-all, sponsorship, `academic_year`, `class_group`,
+  `dashboard` and `username`.
+- `parent.child` added to English.
+- Both locales now carry the same 393 keys; the app references 280 of them and
+  all resolve in both.
+- Development now reports a missing key once, by name, with the file to edit;
+  production keeps rendering the key rather than throwing mid-render.
+- The `app_lang` choice is applied at startup: the header toggle wrote it but
+  nothing read it back, so a Kiswahili user returned to English on every
+  reload. Verified in a browser: the parent tab bar reads "My Child" in English
+  and "Mtoto Wangu" in Kiswahili, with no raw keys on `/parent` or `/gate`.
 
 ## P2 — Smaller defects found while reading
 
@@ -202,7 +224,8 @@ development when a key is missing so the next one is caught at build time.
 2. Add the four missing tables, or repoint the nine handlers. One slice,
    unbreaks nine admin/platform screens.
 3. Fix the 16 contract calls (mechanical, mostly `PUT` → `PATCH`).
-4. Fill the 134 i18n keys and make a missing key fail in development.
+4. ~~Fill the missing i18n keys and make a missing key fail in development.~~
+   Done — see the i18n finding above.
 5. Decide the fate of the five UI-less domains — build or de-advertise.
 
 ## Reproducing this audit
