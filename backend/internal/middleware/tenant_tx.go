@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +16,48 @@ type txKey struct{}
 const (
 	tenantStatusCacheTTL  = 30 * time.Second
 	tenantStatusKeyPrefix = "tenant:status:"
+	// How long one process keeps a status it has already read. Short enough that a
+	// suspension takes effect promptly, long enough that a Redis outage does not
+	// turn every request into a platform-role transaction.
+	tenantStatusLocalTTL = 10 * time.Second
 )
+
+// localStatusCache keeps recently read licence statuses in memory.
+//
+// It exists for one case: Redis is the shared cache, and when it is unavailable
+// every tenant request would otherwise read the status from the database. Entries
+// are only ever written after a successful read, so a status that could not be
+// established is never cached as "active".
+type localStatusCache struct {
+	mu      sync.RWMutex
+	entries map[string]localStatusEntry
+	ttl     time.Duration
+}
+
+type localStatusEntry struct {
+	status    string
+	expiresAt time.Time
+}
+
+func newLocalStatusCache(ttl time.Duration) *localStatusCache {
+	return &localStatusCache{entries: make(map[string]localStatusEntry), ttl: ttl}
+}
+
+func (l *localStatusCache) get(tenantID string) (string, bool) {
+	l.mu.RLock()
+	entry, ok := l.entries[tenantID]
+	l.mu.RUnlock()
+	if !ok || time.Now().After(entry.expiresAt) {
+		return "", false
+	}
+	return entry.status, true
+}
+
+func (l *localStatusCache) set(tenantID, status string) {
+	l.mu.Lock()
+	l.entries[tenantID] = localStatusEntry{status: status, expiresAt: time.Now().Add(l.ttl)}
+	l.mu.Unlock()
+}
 
 // tenantLicenseStatus reads a school's licence status for the suspension gate.
 //
@@ -44,6 +86,8 @@ func tenantLicenseStatus(ctx context.Context, db *sqlx.DB, tenantID string) (str
 // It also checks that the tenant is not suspended (cached in Redis).
 // If the JWT has read_only claim, the transaction is set to READ ONLY.
 func TenantTxMiddleware(db *sqlx.DB, redisClient *redis.Client) gin.HandlerFunc {
+	// One cache per middleware instance, i.e. per process.
+	local := newLocalStatusCache(tenantStatusLocalTTL)
 	return func(c *gin.Context) {
 		tenantID := c.GetString(ContextTenantID)
 		if tenantID == "" {
@@ -67,31 +111,48 @@ func TenantTxMiddleware(db *sqlx.DB, redisClient *redis.Client) gin.HandlerFunc 
 		// a suspended school. When the status cannot be established, the request is
 		// refused (503) instead of let through.
 		cacheKey := tenantStatusKeyPrefix + tenantID
+		suspend := func() {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
+		}
+
 		var cacheErr error = redis.Nil
 		if redisClient != nil {
 			status, err := redisClient.Get(c.Request.Context(), cacheKey).Result()
 			cacheErr = err
-			if err == nil && status == "SUSPENDED" {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
-				return
+			if err == nil {
+				local.set(tenantID, status)
+				if status == "SUSPENDED" {
+					suspend()
+					return
+				}
 			}
 		}
 		if cacheErr != nil {
-			// Cache miss, or Redis unavailable: go to the database.
-			dbStatus, err := tenantLicenseStatus(c.Request.Context(), db, tenantID)
-			if err != nil {
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-					"code":    "TENANT_STATUS_UNAVAILABLE",
-					"message": "Cannot confirm the school's status right now. Try again shortly.",
-				})
-				return
-			}
-			if dbStatus == "SUSPENDED" {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "TENANT_SUSPENDED", "message": "Tenant is suspended"})
-				return
-			}
-			if redisClient != nil {
-				_ = redisClient.Set(c.Request.Context(), cacheKey, dbStatus, tenantStatusCacheTTL).Err()
+			// Redis missed or is unavailable. This process's last read is good enough
+			// for a few seconds, and keeps an outage from reading the database in front
+			// of every request.
+			if status, ok := local.get(tenantID); ok {
+				if status == "SUSPENDED" {
+					suspend()
+					return
+				}
+			} else {
+				dbStatus, err := tenantLicenseStatus(c.Request.Context(), db, tenantID)
+				if err != nil {
+					c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+						"code":    "TENANT_STATUS_UNAVAILABLE",
+						"message": "Cannot confirm the school's status right now. Try again shortly.",
+					})
+					return
+				}
+				local.set(tenantID, dbStatus)
+				if dbStatus == "SUSPENDED" {
+					suspend()
+					return
+				}
+				if redisClient != nil {
+					_ = redisClient.Set(c.Request.Context(), cacheKey, dbStatus, tenantStatusCacheTTL).Err()
+				}
 			}
 		}
 

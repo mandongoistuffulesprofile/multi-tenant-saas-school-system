@@ -175,3 +175,72 @@ func TestTenantTxMiddlewareRefusesWhenTheDatabaseCannotBeRead(t *testing.T) {
 		t.Fatal("a request with no reachable database reached the handler")
 	}
 }
+
+func TestTenantTxMiddlewareAnswersFromItsOwnCacheWhenTheDatabaseIsGone(t *testing.T) {
+	database := middlewareTestDB(t)
+	tenantID := fmt.Sprintf("mw-cache-%d", time.Now().UnixNano()%1e9)
+	createSchool(t, database, tenantID, "SUSPENDED")
+
+	router, reached := gateTestRouter(database, tenantID)
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	if first.Code != http.StatusForbidden {
+		t.Fatalf("first request: got %d, want 403: %s", first.Code, first.Body.String())
+	}
+
+	// The database is now unusable. The status was read a moment ago, so the gate
+	// answers from memory instead of turning every request into a 503 (or worse,
+	// letting it through).
+	database.Close()
+
+	second := httptest.NewRecorder()
+	router.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	if second.Code != http.StatusForbidden {
+		t.Fatalf("second request: got %d, want 403: %s", second.Code, second.Body.String())
+	}
+	if body := decodeResponse(t, second); body["code"] != "TENANT_SUSPENDED" {
+		t.Fatalf("code is %v, want TENANT_SUSPENDED", body["code"])
+	}
+	if *reached {
+		t.Fatal("a suspended tenant reached the handler")
+	}
+}
+
+func TestLocalStatusCacheExpires(t *testing.T) {
+	cache := newLocalStatusCache(10 * time.Millisecond)
+	cache.set("tenant-a", "SUSPENDED")
+
+	if status, ok := cache.get("tenant-a"); !ok || status != "SUSPENDED" {
+		t.Fatalf("fresh entry: got %q/%v, want SUSPENDED/true", status, ok)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if status, ok := cache.get("tenant-a"); ok {
+		t.Fatalf("entry served after its TTL: %q", status)
+	}
+	// Another tenant is unaffected.
+	if _, ok := cache.get("tenant-b"); ok {
+		t.Fatal("cache answered for a tenant it never saw")
+	}
+}
+
+func TestTenantTxMiddlewareDoesNotCacheAFailedRead(t *testing.T) {
+	// An unreachable database must stay a refusal on every request: nothing may be
+	// remembered as a status, least of all "active".
+	unreachable, err := sqlx.Open("postgres", "postgres://nobody:nothing@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer unreachable.Close()
+
+	router, reached := gateTestRouter(unreachable, "mw-nocache")
+	for attempt := 0; attempt < 2; attempt++ {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("attempt %d: got %d, want 503: %s", attempt+1, w.Code, w.Body.String())
+		}
+	}
+	if *reached {
+		t.Fatal("a request with no reachable database reached the handler")
+	}
+}
