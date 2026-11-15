@@ -27,6 +27,17 @@ interface RFIDTag {
   issued_at: string | null;
 }
 
+interface GateEvent {
+  event_id: string;
+  device_id: string;
+  tag_id: string | null;
+  holder_type: string;
+  holder_id: string;
+  event_type: string;
+  event_ts: string;
+  verified: boolean;
+}
+
 interface GatePolicy {
   arrears_denial_enabled: boolean;
   require_photo_consent: boolean;
@@ -86,6 +97,9 @@ export default function GateAdminPage() {
   const [policy, setPolicy] = useState<GatePolicy>(DEFAULT_POLICY);
   const [savingPolicy, setSavingPolicy] = useState(false);
 
+  const [taps, setTaps] = useState<GateEvent[]>([]);
+  const [tapsState, setTapsState] = useState<"loading" | "content" | "error">("loading");
+
   const [deviceForm, setDeviceForm] = useState({ device_name: "", device_type: "KIOSK", location: "" });
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairing, setPairing] = useState(false);
@@ -113,8 +127,20 @@ export default function GateAdminPage() {
     }
   };
 
+  const loadTaps = async () => {
+    setTapsState("loading");
+    try {
+      const res = await api.get<GateEvent[] | null>("/gate/events");
+      setTaps(Array.isArray(res.data) ? res.data : []);
+      setTapsState("content");
+    } catch {
+      setTapsState("error");
+    }
+  };
+
   useEffect(() => {
     load();
+    loadTaps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -412,6 +438,71 @@ export default function GateAdminPage() {
           </div>
         </Card>
       </div>
+
+      <Card className="p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+          <div>
+            <h2 className="text-heading mb-1">Recent taps</h2>
+            <p className="text-caption text-muted">
+              The last scans the gate reported, newest first. If children are tapping and nothing appears here, the terminal is not reaching the server.
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={loadTaps} disabled={tapsState === "loading"}>
+            {tapsState === "loading" ? "Refreshing…" : "Refresh"}
+          </Button>
+        </div>
+        {tapsState === "error" ? (
+          <p className="text-sm text-kenyan-red py-2">Could not load recent taps.</p>
+        ) : tapsState === "loading" ? (
+          <p className="text-sm text-gray-500 py-4 text-center">Loading recent taps…</p>
+        ) : taps.length === 0 ? (
+          <p className="text-sm text-gray-500 py-4 text-center">
+            No taps recorded yet. Pair a terminal and scan a tag to see activity here.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">When</th>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Event</th>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Holder</th>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Tag</th>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Terminal</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {taps.slice(0, 10).map((event) => {
+                  const tag = tags.find((candidate) => candidate.tag_id === event.tag_id);
+                  const device = devices.find((candidate) => candidate.device_id === event.device_id);
+                  return (
+                    <tr key={event.event_id}>
+                      <td className="px-3 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {new Date(event.event_ts).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-3 text-sm">
+                        <Badge variant={event.verified ? "success" : "default"}>{event.event_type}</Badge>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-gray-900">
+                        {event.holder_type || "—"}
+                        <span className="block text-xs text-gray-400 font-mono">
+                          {event.holder_id ? event.holder_id.slice(0, 8) : "—"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-sm font-mono text-gray-600">
+                        {tag ? tag.tag_uid : event.tag_id ? "unknown" : "—"}
+                      </td>
+                      <td className="px-3 py-3 text-sm text-gray-600">
+                        {device ? device.device_name : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <Card className="p-4">
         <h2 className="text-heading mb-3">Devices</h2>
