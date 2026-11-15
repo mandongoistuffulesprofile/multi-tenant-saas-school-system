@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,6 +219,59 @@ func TestCreateTenantRejectsAnUnknownPlan(t *testing.T) {
 	}
 	if exists {
 		t.Fatalf("school %q exists after a rejected plan", tenantID)
+	}
+}
+
+// When a statement inside the create fails, the response has to name that
+// statement's error. Postgres aborts the transaction at that point, so an
+// unattended error turns every later statement into the same unhelpful message
+// ("current transaction is aborted ...") and the create ends at Commit with a
+// failure that says nothing about the cause.
+func TestCreateTenantReportsTheFailingStatement(t *testing.T) {
+	h := newOnboardingHandler(t)
+	token := fmt.Sprintf("%d", time.Now().UnixNano())
+	tenantID := "stmt-fail-" + token
+	email := "admin-" + token + "@dup-test.example"
+	cleanupTenant(t, h, tenantID, email)
+
+	// The school row is written first and the phone column is 20 characters, so
+	// the administrator insert fails after the school exists inside the tx.
+	overlongPhone := "254" + strings.Repeat("7", 30)
+	w := postCreateTenant(t, h, map[string]any{
+		"school_name": "Statement Failure Primary",
+		"subdomain":   tenantID,
+		"admin_email": email,
+		"admin_phone": overlongPhone,
+		"plan_code":   "STANDARD",
+	})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("got %d, want 500: %s", w.Code, w.Body.String())
+	}
+
+	body := decodeBody(t, w)
+	if body["code"] != "DB_ERROR" {
+		t.Fatalf("code is %v, want DB_ERROR", body["code"])
+	}
+	message, _ := body["message"].(string)
+	if !strings.Contains(message, "value too long for type character varying(20)") {
+		t.Fatalf("message %q does not carry the failing statement's error", message)
+	}
+	// The commit-time wording would mean the error was dropped on the floor.
+	for _, wrong := range []string{"current transaction is aborted", "commit"} {
+		if strings.Contains(strings.ToLower(message), strings.ToLower(wrong)) {
+			t.Fatalf("message %q is a transaction-level failure, not the statement's", message)
+		}
+	}
+
+	// And the school written before the failure must not survive it.
+	tx := platformTx(t, h)
+	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM schools WHERE tenant_id = $1)`, tenantID).Scan(&exists); err != nil {
+		t.Fatalf("check school: %v", err)
+	}
+	if exists {
+		t.Fatalf("school %q survived a failed create", tenantID)
 	}
 }
 
