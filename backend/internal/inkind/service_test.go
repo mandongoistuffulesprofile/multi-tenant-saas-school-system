@@ -40,6 +40,50 @@ func inkindTenantTx(t *testing.T, database *db.DB, tenantID string) (*sqlx.Tx, c
 	return tx, middleware.WithTx(context.Background(), tx)
 }
 
+// An intake for a commodity with no rate for the current term must be refused:
+// there is no defensible cash value to post.
+func TestIntakeRefusesAnItemWithNoRate(t *testing.T) {
+	database := inkindTestDB(t)
+	tenantID := fmt.Sprintf("inkind-norate-%d", time.Now().UnixNano()%1e9)
+
+	tx, _ := inkindTenantTx(t, database, tenantID)
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO schools (tenant_id, school_name, subdomain) VALUES ($1, 'No Rate School', $1)`, tenantID); err != nil {
+		t.Fatalf("school: %v", err)
+	}
+	var yearID, itemID, learnerID string
+	if err := tx.QueryRow(
+		`INSERT INTO academic_years (tenant_id, year_label, start_date, end_date, is_current)
+		 VALUES ($1, '2026', '2026-01-01', '2026-12-31', true) RETURNING year_id`, tenantID).Scan(&yearID); err != nil {
+		t.Fatalf("year: %v", err)
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO terms (tenant_id, year_id, term_number, term_label, start_date, end_date, is_current)
+		 VALUES ($1, $2, 1, 'Term 1', '2026-01-05', '2026-04-05', true)`, tenantID, yearID); err != nil {
+		t.Fatalf("term: %v", err)
+	}
+	if err := tx.QueryRow(
+		`INSERT INTO inventory_items (tenant_id, code, name, unit)
+		 VALUES ($1, 'BEANS', 'Beans', 'kg') RETURNING id`, tenantID).Scan(&itemID); err != nil {
+		t.Fatalf("item: %v", err)
+	}
+	if err := tx.QueryRow(
+		`INSERT INTO learners (tenant_id, admission_number, first_name, last_name)
+		 VALUES ($1, 'IK-2', 'John', 'Otieno') RETURNING learner_id`, tenantID).Scan(&learnerID); err != nil {
+		t.Fatalf("learner: %v", err)
+	}
+
+	ctx := middleware.WithTx(context.Background(), tx)
+	_, err := NewService(database).CreateIntake(ctx, tenantID, "", CreateIntakeLogRequest{
+		StudentID:    learnerID,
+		IntakeNumber: "IK-NO-RATE",
+		Items:        []CreateIntakeItemRequest{{InventoryItemID: itemID, Quantity: 2}},
+	})
+	if err == nil {
+		t.Fatal("intake succeeded with no rate configured, want an error")
+	}
+}
+
 type inkindFixture struct {
 	database  *db.DB
 	tenantID  string

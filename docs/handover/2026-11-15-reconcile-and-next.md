@@ -135,22 +135,41 @@ payments dialog and `INVOICE_BUSY` retry at `/finance/payments`).
 
 | # | Item | Evidence / where | Done when |
 | --- | --- | --- | --- |
-| 1 | RLS live probe covers 9 of 104 tenant tables | `backend/cmd/rlscheck` `probes()` seeds only tables fillable from `tenant_id` alone. Invoices, payments, staff and memberships are static-checked only. | Probes seed parents first (`learners`, `academic_years`, `tenant_memberships`) and cover the money/people tables. Highest-value table: `tenant_memberships` — the devuser login bug lived there. |
+| 1 | ~~RLS live probe covers 9 of 104 tenant tables~~ **Done 2026-11-15** (`b0d7ff7`) | `rlscheck` now seeds 14 tables including `academic_years`, `guardians`, `tenant_memberships`, `invoices` and `payments`, children after parents, and removes the probe users it creates. | — |
 | 2 | ~~Read DTOs carried money as `float64`~~ **Done 2026-11-15** (`54182fc`) | Invoice, invoice-line and capitation read DTOs now use `money.Decimal` and serialise as exact strings; `invoice_json_test.go` pins the wire shape and the SPA types accept `number \| string`. | — |
-| 3 | `RecordPayment` issues no durable receipt number | No `payments.receipt_number` column; `payment_ledger` requires `receipt_number`, `balance_before/after`. | `payment_ledger` row written inside the payment transaction; number taken from `receipt_sequences` under a row lock and returned. |
-| 4 | Seven pages are still hardcoded English | Translated so far: payments, `NotFoundPage`, `ResetPasswordPage`, `ImportLearnersPage`, `CBCAssessment`, `CurriculumPage`. Remaining: `AcademicCalendarPage`, `FinanceMpesaPage`, `FinanceReconciliationPage`, `ForgotPasswordPage`, `ReportCardPrint`, `SaaSAdminDesk`, `SchoolProfilePage` | `frontend/src/i18n/keyCoverage.test.ts` fails on any literal `t()` key missing from `en` or `sw`, so add the keys and it proves the page |
-| 5 | `kitchen`, `inkind`, `valueledger` still have no test files | `backend/internal/{kitchen,inkind,valueledger}` | each handler has one success and one failure test against `TEST_DATABASE_URL` |
+| 3 | ~~`RecordPayment` issues no durable receipt number~~ **Done 2026-11-15** (`b4ae5a7`) | The number is consumed from `receipt_sequences` under a row lock, written with the ledger row in the payment transaction and returned as `receipt_number`; `0061` links ledger rows to payments so a replay returns the same number. | — |
+| 4 | Seven pages are still hardcoded English — **not done, and it needs a native speaker first** | Remaining: `AcademicCalendarPage`, `FinanceMpesaPage`, `FinanceReconciliationPage`, `ForgotPasswordPage`, `ReportCardPrint`, `SaaSAdminDesk`, `SchoolProfilePage` (2,625 lines). The Kiswahili already in `translations.ts` is visibly wrong — `fees` is rendered `mali` (property), `auto_renew` is `janaja la kuimarisha` (nonsense), `subdomain` is `salama`. | Someone who reads Kiswahili rewrites the existing `sw` strings, then the seven pages are translated against that corrected glossary. `keyCoverage.test.ts` only proves a key exists, not that the translation means anything. |
+| 5 | ~~`kitchen`, `inkind`, `valueledger` still have no test files~~ **Done 2026-11-15** (`57a53e8`) | Each package has a DB-backed test with a success path and a refusal path (overdrawing stock, a commodity with no rate). Writing them exposed seven runtime defects, all fixed in the same commit. | — |
 | 6 | CBC rubric sync is disabled, not implemented | no rubric-score table/endpoint; the UI labels its queue local | rubric score model + endpoint and the UI posts again, or the queue is removed |
 | 7 | Three declared screenshots never captured | `33-admin-cbc-assessment.png`, `36-admin-report-card-print.png`, `40-admin-bom-oversight.png` absent from `docs/ui-design/training/` (prefix duplication is fixed now) | captured and asserted, reviewed before promoting |
-| 8 | `cmd/rlscheck` false failures on a long-lived DB | five drift-only tables plus a skipped `tenant_usage` on dev databases; fresh run is clean | trust the CI fresh-database run; document or drop drift tables |
+| 8 | `cmd/rlscheck` false failures on a long-lived DB | five drift-only tables plus a skipped `tenant_usage` on dev databases; fresh run is clean | trust the CI fresh-database run; document or drop drift tables. **Partly addressed 2026-11-15**: a probe that looks parents up in the session tenant now reports `SKIP` instead of a false pass, and cross inserts are judged on rows written rather than "no error". |
 | 9 | Plan document added by the cherry-pick | `docs/audit/MASTER_IMPLEMENTATION_PLAN.md` (382 lines) is now on `main` | read before starting new work; it may overlap items above |
+
+## 5a. The database was finally available — what that proved (2026-11-15)
+
+Postgres was not usable in earlier passes, so every DB test skipped. This pass
+ran a real cluster (embedded PostgreSQL 18.3, fresh `migrate -seed`) as a
+**non-superuser** role (`NOSUPERUSER NOBYPASSRLS`) — a superuser silently
+bypasses RLS, which is how three wrong test expectations survived:
+
+- `ListExports` selected `COALESCE(parameters, '')` on a JSONB column; invalid
+  SQL, 500 as soon as an export row existed (`e092c5e`).
+- Platform and finance tests asserted the driver error was echoed in the 500,
+  and read `allocated_amount` as a number although it is a fixed-2dp string.
+  Both contradicted the repo's sanitized-error contract.
+- `auth_lookup_credentials` is granted to `skulapp_app` by `0031`; a role not
+  named there needs its own `GRANT EXECUTE` before the login tests can run.
+
+The whole suite now passes with `TEST_DATABASE_URL` pointing at that role.
 
 ## 6. Suggested next slice
 
-`#1` and `#3`: the money and people tables are neither live-probed for
-isolation nor attached to a durable receipt number. Add `tenant_memberships`,
-`invoices`, `payments` and `staff_profiles` probes to `rlscheck` (membership
-needs a `users` row first — clean it up in `cleanup()`), then write the
-`payment_ledger` row inside `RecordPayment` so a receipt number is durable.
-Both need a migrated database, so run them against a fresh `migrate -seed`
-database before merging.
+`#4`, after a Kiswahili glossary rewrite: the translations are the product of a
+bad machine pass, and adding seven more pages on top of them would multiply the
+error. Then `#6` (CBC rubric sync needs a rubric-score table and endpoint first)
+and `#7` (the three screenshots need Redis, a built SPA and a browser, none of
+which this workspace has).
+
+Still unverified for the same reason: no browser run, no screenshot capture and
+no live login through `devuser` — the login-membership fix is covered by a test
+that asserts the membership row exists, not by a real sign-in.

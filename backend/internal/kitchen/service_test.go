@@ -164,6 +164,65 @@ func TestRequisitionVarianceControlsStockDeduction(t *testing.T) {
 	}
 }
 
+// A requisition that would overdraw the store must fail loudly rather than
+// record a negative balance.
+func TestRequisitionRefusesToOverdrawStock(t *testing.T) {
+	database := kitchenTestDB(t)
+	stock := kitchenStock{
+		database: database,
+		tenantID: fmt.Sprintf("kitchen-short-%d", time.Now().UnixNano()%1e9),
+	}
+
+	tx, _ := tenantTx(t, database, stock.tenantID)
+	if _, err := tx.Exec(`INSERT INTO schools (tenant_id, school_name, subdomain) VALUES ($1, 'Short Store', $1)`, stock.tenantID); err != nil {
+		t.Fatalf("school: %v", err)
+	}
+	if err := tx.QueryRow(
+		`INSERT INTO inventory_items (tenant_id, code, name, unit)
+		 VALUES ($1, 'RICE', 'Rice', 'kg') RETURNING id`, stock.tenantID).Scan(&stock.itemID); err != nil {
+		t.Fatalf("item: %v", err)
+	}
+	if err := tx.QueryRow(
+		`INSERT INTO meal_recipes (tenant_id, name, meal_type)
+		 VALUES ($1, 'Rice plate', 'LUNCH') RETURNING id`, stock.tenantID).Scan(&stock.recipeID); err != nil {
+		t.Fatalf("recipe: %v", err)
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO recipe_items (tenant_id, recipe_id, inventory_item_id, qty_per_100)
+		 VALUES ($1, $2, $3, 10)`, stock.tenantID, stock.recipeID, stock.itemID); err != nil {
+		t.Fatalf("recipe item: %v", err)
+	}
+	// Only 5kg on the shelf for a 9kg issue.
+	if _, err := tx.Exec(
+		`INSERT INTO inventory_lots (tenant_id, source_type, inventory_item_id, qty_received, qty_remaining, unit_cost)
+		 VALUES ($1, 'OPENING', $2, 5, 5, 60)`, stock.tenantID, stock.itemID); err != nil {
+		t.Fatalf("lot: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit fixture: %v", err)
+	}
+
+	svc := NewService(database)
+	processTx, processCtx := tenantTx(t, database, stock.tenantID)
+	defer processTx.Rollback()
+	req, err := svc.CreateRequisition(processCtx, stock.tenantID, "", CreateRequisitionRequest{
+		SlipNumber:      "SLIP-SHORT",
+		RequisitionDate: "2026-11-15",
+		MealType:        "LUNCH",
+		RecipeID:        &stock.recipeID,
+		BoarderCountFed: 100,
+		Items: []CreateRequisitionItemRequest{
+			{InventoryItemID: stock.itemID, ExpectedQty: 0, ActualIssuedQty: 9},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create requisition: %v", err)
+	}
+	if _, err := svc.ProcessRequisition(processCtx, stock.tenantID, "", req.ID, 100); err == nil {
+		t.Fatal("processing 9kg against 5kg in stock succeeded, want an error")
+	}
+}
+
 func stockRemaining(t *testing.T, tx *sqlx.Tx, stock kitchenStock) float64 {
 	t.Helper()
 	var remaining float64
