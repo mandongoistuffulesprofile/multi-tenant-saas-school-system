@@ -52,6 +52,50 @@ CREATE INDEX IF NOT EXISTS idx_sub_strands_code ON public.sub_strands(code);
 -- (version_id, code) pair could repeat. Declare the pair the seed and the
 -- Curriculum screen both assume. IF NOT EXISTS keeps this safe on databases
 -- that already carry the index.
+--
+-- Legacy databases may already hold duplicates. Report them by name instead of
+-- letting CREATE UNIQUE INDEX fail with "could not create unique index ... Key
+-- (version_id, code)=(...) is duplicated", which says nothing about how many
+-- rows are affected or what to do next.
+DO $$
+DECLARE
+    duplicate_pairs integer;
+    examples text;
+BEGIN
+    SELECT count(*) INTO duplicate_pairs
+    FROM (
+        SELECT 1
+        FROM public.learning_areas
+        GROUP BY version_id, code
+        HAVING count(*) > 1
+    ) d;
+
+    IF duplicate_pairs > 0 THEN
+        SELECT string_agg(
+                   format('version_id=%s code=%s rows=%s', version_id, code, row_count),
+                   '; ' ORDER BY row_count DESC, code
+               )
+          INTO examples
+          FROM (
+              SELECT version_id, code, count(*) AS row_count
+              FROM public.learning_areas
+              GROUP BY version_id, code
+              HAVING count(*) > 1
+              ORDER BY count(*) DESC, code
+              LIMIT 5
+          ) d;
+
+        -- The hint is repeated inside the message on purpose: pgx and lib/pq
+        -- both print only Message, so a separate HINT never reaches the
+        -- operator running the migration.
+        RAISE EXCEPTION
+            'cannot add uq_learning_areas_version_code: learning_areas has % duplicate (version_id, code) pair(s). Examples: %. Keep one row per pair and repoint or delete the others (strands and sub_strands cascade from learning_areas), then re-run this migration. Renaming or retiring the repeated codes in the Curriculum screen first is usually easiest.',
+            duplicate_pairs, examples
+            USING ERRCODE = 'unique_violation',
+                  HINT = 'learning_areas must be unique per (version_id, code) before the index is created.';
+    END IF;
+END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_learning_areas_version_code
     ON public.learning_areas (version_id, code);
 
