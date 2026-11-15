@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import DataTable from "../components/organisms/DataTable";
 import Dialog from "../components/dialog/Dialog";
@@ -34,6 +35,7 @@ const statusStyle = (status: MpesaEvent["status"]) => {
 };
 
 export default function FinanceMpesaPage() {
+  const { t } = useTranslation();
   const [events, setEvents] = useState<MpesaEvent[]>([]);
   const [stats, setStats] = useState<MpesaStats>(EMPTY_STATS);
   const [learners, setLearners] = useState<{ id: string; label: string }[]>([]);
@@ -54,7 +56,7 @@ export default function FinanceMpesaPage() {
         setStats(res.data?.stats || EMPTY_STATS);
       })
       .catch((err) => {
-        toast(err.response?.data?.message || "Could not load the M-Pesa ledger", { type: "error" });
+        toast(err.response?.data?.message || t("mpesa_page.load_failed"), { type: "error" });
       })
       .finally(() => setLoading(false));
   };
@@ -88,8 +90,8 @@ export default function FinanceMpesaPage() {
       const allocated = Number(res.data?.allocated_amount || 0);
       toast(
         allocated > 0
-          ? `Reconciled ${selected.trans_id} to the learner's oldest invoice (KES ${allocated.toLocaleString()})`
-          : `Reconciled ${selected.trans_id}; no unpaid invoice, so the receipt is on account`,
+          ? t("mpesa_page.resolved_allocated", { ref: selected.trans_id, amount: allocated.toLocaleString() })
+          : t("mpesa_page.resolved_on_account", { ref: selected.trans_id }),
         { type: "success" }
       );
       setEvents((prev) => prev.map((e) => (e.event_id === selected.event_id ? { ...e, status: "ALLOCATED" } : e)));
@@ -104,7 +106,7 @@ export default function FinanceMpesaPage() {
       // The tenant transaction commits after the handler writes its response.
       window.setTimeout(load, 300);
     } catch (err: any) {
-      toast(err.response?.data?.message || "Failed to reconcile this receipt", { type: "error" });
+      toast(err.response?.data?.message || t("mpesa_page.resolve_failed"), { type: "error" });
     } finally {
       setResolving(false);
     }
@@ -116,29 +118,29 @@ export default function FinanceMpesaPage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <div>
-              <h2 className="text-heading">M-Pesa Ledger</h2>
-              <p className="text-sm text-gray-500 mt-1">Bank-grade C2B receipts, including money that has not reached a learner yet.</p>
+              <h2 className="text-heading">{t("mpesa_page.title")}</h2>
+              <p className="text-sm text-gray-500 mt-1">{t("mpesa_page.subtitle")}</p>
             </div>
             <button className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50" onClick={load}>
-              Refresh
+              {t("mpesa_page.refresh")}
             </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
             <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500">Receipts</div>
+              <div className="text-xs uppercase tracking-wide text-gray-500">{t("mpesa_page.receipts")}</div>
               <div className="text-xl font-semibold mt-1">{stats.total}</div>
             </div>
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs uppercase tracking-wide text-emerald-700">Allocated</div>
+              <div className="text-xs uppercase tracking-wide text-emerald-700">{t("mpesa_page.allocated")}</div>
               <div className="text-xl font-semibold mt-1 text-emerald-800">{stats.allocated}</div>
             </div>
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <div className="text-xs uppercase tracking-wide text-amber-700">Needs review</div>
+              <div className="text-xs uppercase tracking-wide text-amber-700">{t("mpesa_page.needs_review")}</div>
               <div className="text-xl font-semibold mt-1 text-amber-900">{stats.suspense + stats.failed}</div>
             </div>
             <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500">Synced</div>
+              <div className="text-xs uppercase tracking-wide text-gray-500">{t("mpesa_page.synced")}</div>
               <div className="text-xl font-semibold mt-1">{stats.sync_percent}%</div>
             </div>
           </div>
@@ -146,7 +148,7 @@ export default function FinanceMpesaPage() {
           <div className="mb-4">
             <input
               className="w-full sm:max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              placeholder="Search Trans ID, bill reference or phone…"
+              placeholder={t("mpesa_page.search_placeholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -158,23 +160,23 @@ export default function FinanceMpesaPage() {
             <DataTable
               data={filtered}
               keyField="event_id"
-              emptyMessage={events.length === 0 ? "No M-Pesa receipts yet" : "No receipts match this search"}
+              emptyMessage={events.length === 0 ? t("mpesa_page.no_receipts") : t("mpesa_page.no_match")}
               columns={[
-                { key: "trans_id", header: "Trans ID" },
+                { key: "trans_id", header: t("mpesa_page.trans_id") },
                 {
                   key: "trans_time",
-                  header: "Received",
+                  header: t("mpesa_page.received"),
                   render: (e) => e.trans_time ? new Date(e.trans_time).toLocaleString() : "—",
                 },
-                { key: "amount", header: "Amount", render: (e) => `KES ${Number(e.amount).toLocaleString()}` },
-                { key: "bill_ref", header: "Reference", render: (e) => e.bill_ref || "—" },
-                { key: "msisdn_masked", header: "Phone", render: (e) => e.msisdn_masked || "—" },
+                { key: "amount", header: t("mpesa_page.amount"), render: (e) => `KES ${Number(e.amount).toLocaleString()}` },
+                { key: "bill_ref", header: t("mpesa_page.reference"), render: (e) => e.bill_ref || "—" },
+                { key: "msisdn_masked", header: t("mpesa_page.phone"), render: (e) => e.msisdn_masked || "—" },
                 {
                   key: "status",
-                  header: "Status",
+                  header: t("mpesa_page.status"),
                   render: (e) => (
                     <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyle(e.status)}`}>
-                      {e.status === "SUSPENSE" ? "NEEDS REVIEW" : e.status}
+                      {e.status === "SUSPENSE" ? t("mpesa_page.needs_review_badge") : e.status}
                     </span>
                   ),
                 },
@@ -184,13 +186,13 @@ export default function FinanceMpesaPage() {
                   sortable: false,
                   render: (e) =>
                     e.status === "ALLOCATED" ? (
-                      <span className="text-xs text-gray-400">Reconciled</span>
+                      <span className="text-xs text-gray-400">{t("mpesa_page.reconciled")}</span>
                     ) : (
                       <button
                         className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium hover:bg-gray-50"
                         onClick={(ev) => { ev.stopPropagation(); setSelected(e); setLearnerID(""); }}
                       >
-                        Reconcile
+                        {t("mpesa_page.reconcile")}
                       </button>
                     ),
                 },
@@ -199,41 +201,41 @@ export default function FinanceMpesaPage() {
           )}
 
           <p className="text-xs text-gray-500 mt-4">
-            Receipts are written by the Safaricom callback. Reconciling posts a completed M-Pesa payment and allocates it to the learner's oldest unpaid invoice; the Trans ID makes retries idempotent.
+            {t("mpesa_page.footer_note")}
           </p>
         </div>
       </div>
 
-      <Dialog open={Boolean(selected)} onClose={() => { setSelected(null); setLearnerID(""); }} title="Reconcile M-Pesa receipt">
+      <Dialog open={Boolean(selected)} onClose={() => { setSelected(null); setLearnerID(""); }} title={t("mpesa_page.dialog_title")}>
         {selected && (
           <div className="space-y-4">
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1">
-              <div className="flex justify-between gap-3"><span className="text-gray-500">Trans ID</span><span className="font-mono">{selected.trans_id}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-gray-500">Amount</span><span className="font-medium">KES {Number(selected.amount).toLocaleString()}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-gray-500">Reference</span><span>{selected.bill_ref || "—"}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-gray-500">{t("mpesa_page.trans_id")}</span><span className="font-mono">{selected.trans_id}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-gray-500">{t("mpesa_page.amount")}</span><span className="font-medium">KES {Number(selected.amount).toLocaleString()}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-gray-500">{t("mpesa_page.reference")}</span><span>{selected.bill_ref || "—"}</span></div>
             </div>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium text-gray-700">Apply to learner</span>
+              <span className="mb-1 block font-medium text-gray-700">{t("mpesa_page.apply_to_learner")}</span>
               <select
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 value={learnerID}
                 onChange={(e) => setLearnerID(e.target.value)}
               >
-                <option value="">Select a learner…</option>
+                <option value="">{t("mpesa_page.select_learner")}</option>
                 {learners.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
               </select>
             </label>
-            <p className="text-xs text-gray-500">The receipt is allocated to this learner's oldest unpaid invoice. Any remainder stays as an unallocated payment.</p>
+            <p className="text-xs text-gray-500">{t("mpesa_page.dialog_help")}</p>
             <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white pt-4 pb-1">
               <button className="rounded-lg border border-gray-300 px-4 py-2 text-sm" onClick={() => { setSelected(null); setLearnerID(""); }} disabled={resolving}>
-                Cancel
+                {t("mpesa_page.cancel")}
               </button>
               <button
                 className="rounded-lg bg-kenyan-red px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 onClick={resolve}
                 disabled={!learnerID || resolving}
               >
-                {resolving ? "Posting…" : "Verify & Reconcile"}
+                {resolving ? t("mpesa_page.posting") : t("mpesa_page.verify_reconcile")}
               </button>
             </div>
           </div>
