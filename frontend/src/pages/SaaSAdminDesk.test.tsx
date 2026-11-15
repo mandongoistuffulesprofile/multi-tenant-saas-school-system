@@ -288,6 +288,98 @@ describe("platform admin desk", () => {
     expect(firstRow).not.toContain("Imesimamishwa");
   });
 
+  describe("impersonation", () => {
+    const originalLocation = window.location;
+
+    beforeEach(() => {
+      // jsdom refuses real navigation, and the desk leaves the SPA with
+      // window.location.href, so stand in a replaceable location object.
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: { href: "/platform/desk" },
+      });
+      sessionStorage.clear();
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: originalLocation,
+      });
+      vi.unstubAllGlobals();
+    });
+
+    const loginAs = () =>
+      Array.from(container.querySelectorAll("button")).find((b) =>
+        (b.textContent || "").includes("Login As"),
+      ) as HTMLButtonElement;
+
+    it("records the reason and carries the session into the school's dashboard", async () => {
+      harness.post.mockResolvedValue({
+        data: {
+          session_id: "imp-session-1",
+          expires_at: "2026-11-15T11:00:00Z",
+          school_name: "Kitui Central Primary",
+        },
+      });
+      vi.stubGlobal("prompt", vi.fn(() => "TICKET-431: fees balance query"));
+
+      await render();
+      await act(async () => {
+        loginAs().click();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(harness.post).toHaveBeenCalledWith("/platform/impersonations", {
+        tenant_id: "t-1",
+        reason: "TICKET-431: fees balance query",
+      });
+      // The support session travels with the operator into the tenant console.
+      expect(sessionStorage.getItem("imp_school")).toBe("Kitui Central Primary");
+      expect(sessionStorage.getItem("imp_session_id")).toBe("imp-session-1");
+      expect(sessionStorage.getItem("imp_expires_at")).toBe("2026-11-15T11:00:00Z");
+      expect(container.textContent || "").toContain("Session ya ukaguzi");
+      expect(window.location.href).toBe("/dashboard");
+    });
+
+    it("does nothing when the operator cancels the reason prompt", async () => {
+      vi.stubGlobal("prompt", vi.fn(() => null));
+
+      await render();
+      await act(async () => {
+        loginAs().click();
+      });
+
+      expect(harness.post).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem("imp_session_id")).toBeNull();
+      expect(window.location.href).toBe("/platform/desk");
+    });
+
+    it("stays on the desk and explains why when the platform refuses", async () => {
+      harness.post.mockRejectedValue({
+        response: { status: 403, data: { message: "Reason must be at least 10 characters" } },
+      });
+      vi.stubGlobal("prompt", vi.fn(() => "why"));
+
+      await render();
+      await act(async () => {
+        loginAs().click();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.textContent || "").toContain("Reason must be at least 10 characters");
+      // A refused session must not leave one behind in storage.
+      expect(sessionStorage.getItem("imp_session_id")).toBeNull();
+      expect(window.location.href).toBe("/platform/desk");
+    });
+  });
+
   it("keeps the row's old status when the platform rejects the change", async () => {
     harness.put.mockRejectedValue({ response: { status: 403, data: { message: "Forbidden" } } });
     await render();
