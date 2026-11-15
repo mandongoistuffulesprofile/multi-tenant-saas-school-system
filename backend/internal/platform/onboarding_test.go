@@ -264,6 +264,17 @@ func TestApplyFinanceIsIdempotent(t *testing.T) {
 		t.Fatalf("payment channels after two saves = %d, want 1", got)
 	}
 
+	// Without a chart of accounts the first in-kind intake is refused with
+	// "chart of accounts has no INV_FOOD account", so the wizard has to seed
+	// the accounts the posting resolves — exactly once, however often it is
+	// re-saved.
+	for _, code := range []string{"INV_FOOD", "FEE_RECEIVABLE"} {
+		if got := setupCount(t, h, tenantID,
+			`SELECT count(*) FROM ledger_accounts WHERE tenant_id=$1 AND code=$2`, tenantID, code); got != 1 {
+			t.Fatalf("ledger account %s after two saves = %d, want 1", code, got)
+		}
+	}
+
 	// A corrected amount must replace the saved one.
 	req.Structures = []setupFinanceStructure{
 		{GradeID: "G1", Amount: 9000},

@@ -119,6 +119,36 @@ type ReadinessResult struct {
 	EvaluatedAt string           `json:"evaluated_at"`
 }
 
+// baselineLedgerAccounts is the smallest chart of accounts a tenant needs
+// before anything can post against the ledger: an in-kind intake debits
+// INV_FOOD and credits FEE_RECEIVABLE. Without these rows the posting is
+// refused with "chart of accounts has no INV_FOOD account", so a school
+// onboarded through the wizard could not use in-kind or the value ledger at
+// all.
+var baselineLedgerAccounts = []struct {
+	Code string
+	Name string
+	Type string
+}{
+	{"INV_FOOD", "Inventory — food", "ASSET"},
+	{"FEE_RECEIVABLE", "Fee receivable", "ASSET"},
+}
+
+// seedBaselineChartOfAccounts creates the baseline accounts for a tenant. It is
+// idempotent, so every setup step that can be the first one may call it.
+func seedBaselineChartOfAccounts(ctx context.Context, tx *sql.Tx, tenantID string) error {
+	for _, account := range baselineLedgerAccounts {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO ledger_accounts (tenant_id, code, name, type)
+			 VALUES ($1,$2,$3,$4)
+			 ON CONFLICT (tenant_id, code) DO NOTHING`,
+			tenantID, account.Code, account.Name, account.Type); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *Handler) ensureOnboarding(ctx context.Context, tenantID, actor string) error {
 	_, err := h.qctx(ctx).Exec(
 		`INSERT INTO platform_tenant_onboarding (tenant_id, status, current_step, created_by, updated_by)
@@ -334,6 +364,19 @@ func (h *Handler) computeReadiness(ctx context.Context, tenantID string) (Readin
 		checks = append(checks, ReadinessCheck{"finance", "ok", "Fee structures configured"})
 	}
 
+	// No chart of accounts means nothing can post: in-kind intake and the value
+	// ledger both refuse. Setup seeds these now, so zero here means a tenant
+	// created outside the wizard.
+	var accountCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM ledger_accounts WHERE tenant_id=$1`, tenantID).Scan(&accountCount); err != nil {
+		return ReadinessResult{}, err
+	}
+	if accountCount == 0 {
+		checks = append(checks, ReadinessCheck{"ledger", "warn", "No chart of accounts: in-kind intake and the value ledger cannot post"})
+	} else {
+		checks = append(checks, ReadinessCheck{"ledger", "ok", "Chart of accounts seeded"})
+	}
+
 	var channelCount int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM school_payment_channels WHERE tenant_id=$1`, tenantID).Scan(&channelCount); err != nil {
 		return ReadinessResult{}, err
@@ -429,8 +472,12 @@ func (h *Handler) SetupProfile(c *gin.Context) {
 	args = append(args, tenantID)
 	actor := c.GetString("user_id")
 	err := h.withTenantTx(c.Request.Context(), tenantID, actor, func(tx *sql.Tx) error {
-		_, e := tx.ExecContext(c.Request.Context(), `UPDATE schools SET `+strings.Join(sets, ",")+` WHERE tenant_id=$`+strconv.Itoa(i), args...)
-		return e
+		if _, e := tx.ExecContext(c.Request.Context(), `UPDATE schools SET `+strings.Join(sets, ",")+` WHERE tenant_id=$`+strconv.Itoa(i), args...); e != nil {
+			return e
+		}
+		// The profile step is the first one a tenant completes, so the ledger
+		// is usable from then on even if the finance step is skipped.
+		return seedBaselineChartOfAccounts(c.Request.Context(), tx, tenantID)
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "uq_schools_nemis") {
@@ -592,6 +639,9 @@ func (h *Handler) applyStructure(ctx context.Context, tx *sql.Tx, tenantID strin
 func (h *Handler) applyFinance(ctx context.Context, tx *sql.Tx, tenantID string, req setupFinanceRequest) error {
 	// Seed standard Kenyan fee categories for this tenant.
 	if err := h.seedStandardFeeCategories(ctx, tx, tenantID, ""); err != nil {
+		return err
+	}
+	if err := seedBaselineChartOfAccounts(ctx, tx, tenantID); err != nil {
 		return err
 	}
 	for _, cat := range req.Categories {
