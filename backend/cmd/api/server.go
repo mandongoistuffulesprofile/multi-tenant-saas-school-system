@@ -575,6 +575,12 @@ func Run() error {
 		staffGroup.DELETE("/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), staffHandler.DeleteStaff)
 	}
 
+	// Guardian directory, used by the gate tag form to pick a person by name.
+	apiV1.GET("/guardians",
+		middleware.RequireAuthGin(jwtManager),
+		middleware.RequireRole(middleware.RoleSchoolAdministrators...),
+		learnerHandler.ListGuardians)
+
 	// Learner routes
 	learnerGroup := apiV1.Group("/learners")
 	learnerGroup.Use(middleware.RequireAuthGin(jwtManager))

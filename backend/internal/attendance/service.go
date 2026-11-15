@@ -382,6 +382,9 @@ type RFIDTag struct {
 	TagUID     string `json:"tag_uid"`
 	HolderType string `json:"holder_type"`
 	HolderID   string `json:"holder_id"`
+	// HolderName names the person a badge was issued to, resolved the same way
+	// as the gate log so an issued tag is recognisable without its record ID.
+	HolderName string `json:"holder_name,omitempty"`
 	IsActive   bool   `json:"is_active"`
 	IssuedAt   string `json:"issued_at"`
 	CreatedAt  string `json:"created_at"`
@@ -397,9 +400,28 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 	tenantID := c.GetString("tenant_id")
 	limit, offset := listPageParams(c)
 	rows, err := tx.Query(
-		`SELECT tag_id, tenant_id, tag_uid, holder_type, holder_id::text,
-			is_active, COALESCE(issued_at::text, ''), created_at::text, updated_at::text
-		 FROM rfid_tags WHERE tenant_id = $1 ORDER BY tag_uid
+		`SELECT rt.tag_id, rt.tenant_id, rt.tag_uid, rt.holder_type, rt.holder_id::text,
+			rt.is_active, COALESCE(rt.issued_at::text, ''), rt.created_at::text, rt.updated_at::text,
+			COALESCE(CASE upper(COALESCE(rt.holder_type, ''))
+				WHEN 'LEARNER' THEN (
+					SELECT l.first_name || ' ' || l.last_name FROM learners l
+					WHERE l.learner_id = rt.holder_id AND l.tenant_id = rt.tenant_id
+				)
+				WHEN 'STAFF' THEN (
+					SELECT COALESCE(NULLIF(btrim(
+						COALESCE(sp.first_name, '') || ' ' || COALESCE(sp.last_name, '')), ''), u.email, tm.role)
+					FROM tenant_memberships tm
+					JOIN users u ON u.user_id = tm.user_id
+					LEFT JOIN staff_profiles sp ON sp.membership_id = tm.membership_id
+					WHERE tm.membership_id = rt.holder_id AND tm.tenant_id = rt.tenant_id
+					LIMIT 1
+				)
+				WHEN 'GUARDIAN' THEN (
+					SELECT g.first_name || ' ' || g.last_name FROM guardians g
+					WHERE g.guardian_id = rt.holder_id AND g.tenant_id = rt.tenant_id
+				)
+			END, '') AS holder_name
+		 FROM rfid_tags rt WHERE rt.tenant_id = $1 ORDER BY rt.tag_uid
 		 LIMIT $2 OFFSET $3`,
 		tenantID, limit, offset,
 	)
@@ -413,7 +435,7 @@ func (h *Handler) ListRFIDTags(c *gin.Context) {
 	for rows.Next() {
 		var t RFIDTag
 		if err := rows.Scan(&t.TagID, &t.TenantID, &t.TagUID, &t.HolderType, &t.HolderID,
-			&t.IsActive, &t.IssuedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			&t.IsActive, &t.IssuedAt, &t.CreatedAt, &t.UpdatedAt, &t.HolderName); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
@@ -430,6 +452,9 @@ type GateEvent struct {
 	TagID      string `json:"tag_id,omitempty"`
 	HolderType string `json:"holder_type,omitempty"`
 	HolderID   string `json:"holder_id,omitempty"`
+	// HolderName is the person behind the tap, resolved for the gate log so an
+	// administrator reads "Amina Wanjiru" rather than a fragment of a UUID.
+	HolderName string `json:"holder_name,omitempty"`
 	EventType  string `json:"event_type"`
 	EventTS    string `json:"event_ts"`
 	Verified   bool   `json:"verified"`
@@ -446,10 +471,30 @@ func (h *Handler) ListGateEvents(c *gin.Context) {
 	}
 	tenantID := c.GetString("tenant_id")
 	rows, err := tx.Query(
-		`SELECT event_id, tenant_id, device_id, COALESCE(tag_id::text, ''), COALESCE(holder_type, ''),
-			COALESCE(holder_id::text, ''), event_type, event_ts::text, verified,
-			COALESCE(verified_by::text, ''), COALESCE(verified_at::text, ''), created_at::text
-		 FROM gate_events WHERE tenant_id = $1 ORDER BY event_ts DESC LIMIT 100`,
+		`SELECT ge.event_id, ge.tenant_id, ge.device_id, COALESCE(ge.tag_id::text, ''),
+			COALESCE(ge.holder_type, ''), COALESCE(ge.holder_id::text, ''), ge.event_type,
+			ge.event_ts::text, ge.verified, COALESCE(ge.verified_by::text, ''),
+			COALESCE(ge.verified_at::text, ''), ge.created_at::text,
+			COALESCE(CASE upper(COALESCE(ge.holder_type, ''))
+				WHEN 'LEARNER' THEN (
+					SELECT l.first_name || ' ' || l.last_name FROM learners l
+					WHERE l.learner_id = ge.holder_id AND l.tenant_id = ge.tenant_id
+				)
+				WHEN 'STAFF' THEN (
+					SELECT COALESCE(NULLIF(btrim(
+						COALESCE(sp.first_name, '') || ' ' || COALESCE(sp.last_name, '')), ''), u.email, tm.role)
+					FROM tenant_memberships tm
+					JOIN users u ON u.user_id = tm.user_id
+					LEFT JOIN staff_profiles sp ON sp.membership_id = tm.membership_id
+					WHERE tm.membership_id = ge.holder_id AND tm.tenant_id = ge.tenant_id
+					LIMIT 1
+				)
+				WHEN 'GUARDIAN' THEN (
+					SELECT g.first_name || ' ' || g.last_name FROM guardians g
+					WHERE g.guardian_id = ge.holder_id AND g.tenant_id = ge.tenant_id
+				)
+			END, '') AS holder_name
+		 FROM gate_events ge WHERE ge.tenant_id = $1 ORDER BY ge.event_ts DESC LIMIT 100`,
 		tenantID,
 	)
 	if err != nil {
@@ -463,7 +508,7 @@ func (h *Handler) ListGateEvents(c *gin.Context) {
 		var e GateEvent
 		if err := rows.Scan(&e.EventID, &e.TenantID, &e.DeviceID, &e.TagID, &e.HolderType,
 			&e.HolderID, &e.EventType, &e.EventTS, &e.Verified, &e.VerifiedBy,
-			&e.VerifiedAt, &e.CreatedAt); err != nil {
+			&e.VerifiedAt, &e.CreatedAt, &e.HolderName); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}

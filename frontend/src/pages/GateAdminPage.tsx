@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api";
 import Card from "../components/atoms/Card";
@@ -23,8 +23,21 @@ interface RFIDTag {
   tag_uid: string;
   holder_type: string;
   holder_id: string;
+  holder_name?: string;
   is_active: boolean;
   issued_at: string | null;
+}
+
+interface GateEvent {
+  event_id: string;
+  device_id: string;
+  tag_id: string | null;
+  holder_type: string;
+  holder_id: string;
+  holder_name?: string;
+  event_type: string;
+  event_ts: string;
+  verified: boolean;
 }
 
 interface GatePolicy {
@@ -42,6 +55,26 @@ const DEFAULT_POLICY: GatePolicy = {
 };
 
 const HOLDER_TYPES = ["LEARNER", "STAFF", "GUARDIAN"] as const;
+
+// A person a tag can belong to, already labelled for the picker.
+type HolderOption = {
+  id: string;
+  label: string;
+  hint: string;
+  search: string; // lower-cased label + hint + identifiers
+};
+
+const HOLDER_HELP: Record<string, string> = {
+  LEARNER: "Search by name or admission number.",
+  STAFF: "Search by name, email or role.",
+  GUARDIAN: "Search by name, phone or email.",
+};
+
+const HOLDER_ENDPOINTS: Record<string, string> = {
+  LEARNER: "/learners",
+  STAFF: "/staff",
+  GUARDIAN: "/guardians",
+};
 
 function errorMessage(err: unknown, fallback: string): string {
   const e = err as { response?: { data?: { message?: string } } };
@@ -72,6 +105,13 @@ export default function GateAdminPage() {
 
   const [tagForm, setTagForm] = useState({ tag_uid: "", holder_type: "LEARNER", holder_id: "" });
   const [issuing, setIssuing] = useState(false);
+  const [holderOptions, setHolderOptions] = useState<HolderOption[]>([]);
+  const [holderState, setHolderState] = useState<"loading" | "content" | "error">("loading");
+  const [holderQuery, setHolderQuery] = useState("");
+  const [selectedHolder, setSelectedHolder] = useState<HolderOption | null>(null);
+
+  const [taps, setTaps] = useState<GateEvent[]>([]);
+  const [tapsState, setTapsState] = useState<"loading" | "content" | "error">("loading");
 
   const load = async () => {
     try {
@@ -92,10 +132,85 @@ export default function GateAdminPage() {
     }
   };
 
+  const loadTaps = async () => {
+    setTapsState("loading");
+    try {
+      const res = await api.get<GateEvent[] | null>("/gate/events");
+      setTaps(Array.isArray(res.data) ? res.data : []);
+      setTapsState("content");
+    } catch {
+      setTapsState("error");
+    }
+  };
+
   useEffect(() => {
     load();
+    loadTaps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The person list behind the tag form. Re-read when the holder type changes,
+  // because learners, staff and guardians come from different directories.
+  useEffect(() => {
+    let cancelled = false;
+    setSelectedHolder(null);
+    setHolderQuery("");
+    setTagForm((f) => ({ ...f, holder_id: "" }));
+    setHolderState("loading");
+
+    const loadHolders = async () => {
+      try {
+        const res = await api.get<any[]>(HOLDER_ENDPOINTS[tagForm.holder_type], {
+          params: { limit: 200 },
+        });
+        if (cancelled) return;
+        const rows = Array.isArray(res.data) ? res.data : [];
+        const options: HolderOption[] = rows.map((row) => {
+          if (tagForm.holder_type === "LEARNER") {
+            const label = `${row.first_name} ${row.last_name}`;
+            return {
+              id: row.learner_id,
+              label,
+              hint: `${row.admission_number}${row.grade_label ? ` · ${row.grade_label}` : ""}`,
+              search: `${label} ${row.admission_number}`.toLowerCase(),
+            };
+          }
+          if (tagForm.holder_type === "STAFF") {
+            const label = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.email || row.phone_number;
+            return {
+              // The tenant staff record, which is what a membership-based
+              // holder_id refers to.
+              id: row.membership_id,
+              label,
+              hint: `${row.role}${row.email ? ` · ${row.email}` : ""}`,
+              search: `${label} ${row.email} ${row.role}`.toLowerCase(),
+            };
+          }
+          return {
+            id: row.guardian_id,
+            label: row.full_name,
+            hint: `${row.phone_number}${row.learner_count ? ` · ${row.learner_count} learners` : ""}`,
+            search: `${row.full_name} ${row.phone_number} ${row.email ?? ""}`.toLowerCase(),
+          };
+        });
+        setHolderOptions(options);
+        setHolderState("content");
+      } catch {
+        if (cancelled) return;
+        setHolderOptions([]);
+        setHolderState("error");
+      }
+    };
+
+    loadHolders();
+    return () => { cancelled = true; };
+  }, [tagForm.holder_type]);
+
+  const holderMatches = useMemo(() => {
+    const q = holderQuery.trim().toLowerCase();
+    const pool = q ? holderOptions.filter((o) => o.search.includes(q)) : holderOptions;
+    return pool.slice(0, 8);
+  }, [holderOptions, holderQuery]);
 
   const pairDevice = async () => {
     if (!deviceForm.device_name.trim()) {
@@ -121,8 +236,8 @@ export default function GateAdminPage() {
   };
 
   const issueTag = async () => {
-    if (!tagForm.tag_uid.trim() || !tagForm.holder_id.trim()) {
-      toast("A tag needs its UID and the ID of the person it belongs to.", { type: "error" });
+    if (!tagForm.tag_uid.trim() || !selectedHolder) {
+      toast("A tag needs its UID and the person it belongs to.", { type: "error" });
       return;
     }
     setIssuing(true);
@@ -130,9 +245,11 @@ export default function GateAdminPage() {
       await api.post("/gate/tags", {
         tag_uid: tagForm.tag_uid.trim(),
         holder_type: tagForm.holder_type,
-        holder_id: tagForm.holder_id.trim(),
+        holder_id: selectedHolder.id,
       });
       setTagForm({ tag_uid: "", holder_type: tagForm.holder_type, holder_id: "" });
+      setSelectedHolder(null);
+      setHolderQuery("");
       toast("Tag issued.", { type: "success" });
       await load();
     } catch (err) {
@@ -252,37 +369,153 @@ export default function GateAdminPage() {
                 placeholder="04:A2:1B:…"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label block mb-1" htmlFor="tag-holder-type">Holder</label>
-                <select
-                  id="tag-holder-type"
-                  className="input-field w-full"
-                  value={tagForm.holder_type}
-                  onChange={(e) => setTagForm((f) => ({ ...f, holder_type: e.target.value }))}
-                >
-                  {HOLDER_TYPES.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label block mb-1" htmlFor="tag-holder-id">Holder ID</label>
-                <input
-                  id="tag-holder-id"
-                  className="input-field w-full font-mono text-xs"
-                  value={tagForm.holder_id}
-                  onChange={(e) => setTagForm((f) => ({ ...f, holder_id: e.target.value }))}
-                  placeholder="Learner or staff record ID"
-                />
-              </div>
+            <div>
+              <label className="label block mb-1" htmlFor="tag-holder-type">Holder type</label>
+              <select
+                id="tag-holder-type"
+                className="input-field w-full"
+                value={tagForm.holder_type}
+                onChange={(e) => setTagForm((f) => ({ ...f, holder_type: e.target.value }))}
+              >
+                {HOLDER_TYPES.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
             </div>
-            <Button variant="primary" fullWidth onClick={issueTag} disabled={issuing}>
+            <div>
+              <label className="label block mb-1" htmlFor="tag-holder-search">Holder</label>
+              {selectedHolder ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-300 px-3 py-2">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-gray-900 truncate">{selectedHolder.label}</span>
+                    <span className="block text-xs text-gray-500 truncate">{selectedHolder.hint}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs text-gray-500 hover:text-kenyan-red shrink-0"
+                    onClick={() => { setSelectedHolder(null); setTagForm((f) => ({ ...f, holder_id: "" })); }}
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    id="tag-holder-search"
+                    className="input-field w-full"
+                    value={holderQuery}
+                    onChange={(e) => setHolderQuery(e.target.value)}
+                    placeholder={holderState === "loading" ? "Loading…" : "Type a name…"}
+                    disabled={holderState === "loading"}
+                    autoComplete="off"
+                  />
+                  <p className="text-caption text-muted mt-1">{HOLDER_HELP[tagForm.holder_type]}</p>
+                  {holderState === "error" && (
+                    <p className="text-xs text-kenyan-red mt-1">Could not load the {tagForm.holder_type.toLowerCase()} list.</p>
+                  )}
+                  {holderState === "content" && holderMatches.length === 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {holderQuery.trim() ? "No match." : "Nothing to choose from yet."}
+                    </p>
+                  )}
+                  {holderMatches.length > 0 && (
+                    <ul className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+                      {holderMatches.map((option) => (
+                        <li key={option.id}>
+                          <button
+                            type="button"
+                            className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                            onClick={() => {
+                              setSelectedHolder(option);
+                              setTagForm((f) => ({ ...f, holder_id: option.id }));
+                              setHolderQuery("");
+                            }}
+                          >
+                            <span className="block text-sm text-gray-900">{option.label}</span>
+                            <span className="block text-xs text-gray-500">{option.hint}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+            <Button variant="primary" fullWidth onClick={issueTag} disabled={issuing || !selectedHolder}>
               {issuing ? "Issuing…" : "Issue tag"}
             </Button>
           </div>
         </Card>
       </div>
+
+      <Card className="p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+          <div>
+            <h2 className="text-heading mb-1">Recent taps</h2>
+            <p className="text-caption text-muted">
+              The last scans the gate reported, newest first. If children are tapping and nothing appears here, the terminal is not reaching the server.
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={loadTaps} disabled={tapsState === "loading"}>
+            {tapsState === "loading" ? "Refreshing…" : "Refresh"}
+          </Button>
+        </div>
+        {tapsState === "error" ? (
+          <p className="text-sm text-kenyan-red py-2">Could not load recent taps.</p>
+        ) : tapsState === "loading" ? (
+          <p className="text-sm text-gray-500 py-4 text-center">Loading recent taps…</p>
+        ) : taps.length === 0 ? (
+          <p className="text-sm text-gray-500 py-4 text-center">
+            No taps recorded yet. Pair a terminal and scan a tag to see activity here.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">When</th>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Event</th>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Holder</th>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Tag</th>
+                  <th className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Terminal</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {taps.slice(0, 10).map((event) => {
+                  const tag = tags.find((candidate) => candidate.tag_id === event.tag_id);
+                  const device = devices.find((candidate) => candidate.device_id === event.device_id);
+                  return (
+                    <tr key={event.event_id}>
+                      <td className="px-3 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {new Date(event.event_ts).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-3 text-sm">
+                        <Badge variant={event.verified ? "success" : "default"}>{event.event_type}</Badge>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-gray-900">
+                        {event.holder_name || event.holder_type || "—"}
+                        <span className="block text-xs text-gray-400">
+                          {event.holder_name
+                            ? event.holder_type
+                            : event.holder_id
+                              ? `${event.holder_type} ${event.holder_id.slice(0, 8)}`
+                              : "—"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-sm font-mono text-gray-600">
+                        {tag ? tag.tag_uid : event.tag_id ? "unknown" : "—"}
+                      </td>
+                      <td className="px-3 py-3 text-sm text-gray-600">
+                        {device ? device.device_name : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <Card className="p-4">
         <h2 className="text-heading mb-3">Devices</h2>
@@ -340,9 +573,11 @@ export default function GateAdminPage() {
                 {tags.map((tag) => (
                   <tr key={tag.tag_id}>
                     <td className="px-3 py-3 text-sm font-mono text-gray-900">{tag.tag_uid}</td>
-                    <td className="px-3 py-3 text-sm text-gray-600">
-                      {tag.holder_type}
-                      <span className="block text-xs text-gray-400 font-mono">{tag.holder_id}</span>
+                    <td className="px-3 py-3 text-sm text-gray-900">
+                      {tag.holder_name || tag.holder_type}
+                      <span className={tag.holder_name ? "block text-xs text-gray-400" : "block text-xs text-gray-400 font-mono"}>
+                        {tag.holder_name ? tag.holder_type : tag.holder_id}
+                      </span>
                     </td>
                     <td className="px-3 py-3 text-sm text-gray-600">
                       {tag.issued_at ? new Date(tag.issued_at).toLocaleDateString() : "—"}
