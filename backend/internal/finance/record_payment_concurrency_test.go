@@ -174,17 +174,46 @@ func TestConcurrentPaymentsToTheSameInvoiceCannotDoubleCount(t *testing.T) {
 	}
 }
 
-func TestConcurrentPaymentsWithoutAnInvoiceLeaveAtMostOneAllocation(t *testing.T) {
+func TestConcurrentPaymentsWithoutAnInvoiceBothSettleIt(t *testing.T) {
 	f := newPaymentFixture(t)
 	const each = 2500.0
 
-	// No invoice_id: the handler picks the oldest unpaid invoice with
-	// FOR UPDATE SKIP LOCKED. A second request may find the row locked and walk
-	// past it, recording its payment unallocated — which is fine, as long as the
-	// invoice is never credited twice for the same money.
-	outcomes := racePayments(f, "", each)
+	// Hold the invoice row so both requests have to reach the oldest-unpaid lookup
+	// while it is locked. Without this the two goroutines usually run one after the
+	// other and never exercise the contention at all.
+	blocker, err := f.database.BeginTxx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin blocker: %v", err)
+	}
+	defer blocker.Rollback()
+	if _, err := blocker.Exec(`SELECT set_config('app.current_tenant_id', $1, true)`, f.tenantID); err != nil {
+		t.Fatalf("blocker tenant context: %v", err)
+	}
+	var locked string
+	if err := blocker.QueryRow(`SELECT invoice_id FROM invoices WHERE invoice_id = $1 AND tenant_id = $2 FOR UPDATE`,
+		f.invoiceID, f.tenantID).Scan(&locked); err != nil {
+		t.Fatalf("lock invoice: %v", err)
+	}
 
-	payments := 0
+	start := make(chan struct{})
+	outcomes := make([]paymentOutcome, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			outcomes[i] = submitPayment(f, "", each)
+		}(i)
+	}
+	close(start)
+	// Let both requests get as far as the lookup, then let them in.
+	time.Sleep(300 * time.Millisecond)
+	if err := blocker.Rollback(); err != nil {
+		t.Fatalf("release invoice: %v", err)
+	}
+	wg.Wait()
+
 	for i, outcome := range outcomes {
 		if outcome.err != nil {
 			t.Fatalf("request %d failed: %v", i+1, outcome.err)
@@ -195,31 +224,29 @@ func TestConcurrentPaymentsWithoutAnInvoiceLeaveAtMostOneAllocation(t *testing.T
 		if _, ok := outcome.body["payment_id"].(string); !ok {
 			t.Fatalf("request %d returned no payment_id: %v", i+1, outcome.body)
 		}
-		payments++
-	}
-	if payments != 2 {
-		t.Fatalf("%d payments recorded, want 2", payments)
+		// Both requests settled the same invoice: the second waited instead of
+		// walking past the locked row and leaving its money unallocated.
+		if invoiceID, _ := outcome.body["invoice_id"].(string); invoiceID != f.invoiceID {
+			t.Fatalf("request %d allocated to %q, want the fixture invoice %q", i+1, invoiceID, f.invoiceID)
+		}
+		if allocated, _ := outcome.body["allocated_amount"].(float64); allocated != each {
+			t.Fatalf("request %d allocated %.2f of a %.2f payment", i+1, allocated, each)
+		}
 	}
 
 	totals := readInvoiceTotals(t, f)
-	// The invariant the skip-locked path exists to protect.
-	if totals.allocated > 2*each+0.001 {
-		t.Fatalf("allocated %.2f from two %.2f payments", totals.allocated, each)
+	if totals.paid != 2*each {
+		t.Fatalf("invoice paid %.2f, want %.2f", totals.paid, 2*each)
 	}
-	if totals.paid != totals.allocated {
+	if totals.allocated != totals.paid {
 		t.Fatalf("amount_paid %.2f does not match allocations %.2f", totals.paid, totals.allocated)
 	}
-	if totals.paid > totals.total+0.001 {
-		t.Fatalf("invoice paid %.2f of total %.2f", totals.paid, totals.total)
+	if totals.outstanding != totals.total-2*each {
+		t.Fatalf("outstanding %.2f, want %.2f", totals.outstanding, totals.total-2*each)
 	}
-	if totals.outstanding < -0.001 {
-		t.Fatalf("negative outstanding %.2f", totals.outstanding)
-	}
-	if totals.allocations > 2 {
+	if totals.allocations != 2 {
 		t.Fatalf("%d allocations against one invoice from two payments", totals.allocations)
 	}
-
-	// Both payments exist in full; money that was not allocated is still recorded.
 	if got := countPayments(t, f); got != 2 {
 		t.Fatalf("%d payment rows, want 2", got)
 	}

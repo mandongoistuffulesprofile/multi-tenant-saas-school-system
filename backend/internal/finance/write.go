@@ -1001,11 +1001,14 @@ func (h *Handler) RecordPayment(c *gin.Context) {
 	if allocationInvoice == "" {
 		// No unpaid invoice is a normal outcome; a failed lookup is not, because the
 		// payment would then be recorded with nothing to settle it.
+		// Wait for the row rather than skipping it: a second cash receipt for the
+		// same learner should settle what the first one left, not sit unallocated
+		// until someone remembers to apply it by hand.
 		if err := tx.QueryRow(
 			`SELECT invoice_id FROM invoices
 			  WHERE tenant_id = $1 AND learner_id = $2 AND amount_outstanding > 0
 			  ORDER BY due_date NULLS LAST, issue_date
-			  LIMIT 1 FOR UPDATE SKIP LOCKED`,
+			  LIMIT 1 FOR UPDATE`,
 			tenantID, req.LearnerID).Scan(&allocationInvoice); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 			return
