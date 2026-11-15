@@ -203,6 +203,15 @@ describe("platform admin desk", () => {
   });
 
   it("suspends and reinstates a school from its licence chip", async () => {
+    // The desk re-reads the registry after the write, so the fake platform has to
+    // reflect the change it accepted, as the real one does.
+    let current = tenants.map((t) => ({ ...t }));
+    harness.get.mockImplementation(async () => ({ data: current.map((t) => ({ ...t })) }));
+    harness.put.mockImplementation(async (_url: string, body: { status: string }) => {
+      current = current.map((t) => (t.tenant_id === "t-1" ? { ...t, status: body.status } : t));
+      return { data: {} };
+    });
+
     await render();
 
     const chip = (label: string) =>
@@ -238,6 +247,45 @@ describe("platform admin desk", () => {
       status: "ACTIVE",
     });
     expect(chip("Leseni Hai")).toBeDefined();
+  });
+
+  it("re-reads the registry after a status change instead of trusting its own copy", async () => {
+    await render();
+
+    const chip = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find((b) =>
+        (b.textContent || "").includes(label),
+      ) as HTMLButtonElement | undefined;
+
+    // After our write, the registry answers with what the platform currently
+    // holds: the school was reinstated by a second operator, and its name was
+    // corrected at the same time. That copy must win, not our optimistic one.
+    harness.get.mockResolvedValue({
+      data: [
+        { ...tenants[0], school_name: "Kitui Central Primary (verified)", status: "ACTIVE" },
+        tenants[1],
+      ],
+    });
+
+    await act(async () => {
+      chip("Leseni Hai")!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(harness.put).toHaveBeenCalledWith("/platform/tenants/t-1/status", {
+      status: "SUSPENDED",
+    });
+    // One read for the first paint, one after the change.
+    expect(harness.get.mock.calls.filter(([url]) => url === "/platform/tenants")).toHaveLength(2);
+
+    const firstRow = container.querySelectorAll("tbody tr")[0].textContent || "";
+    expect(firstRow).toContain("Kitui Central Primary (verified)");
+    expect(firstRow).toContain("Leseni Hai");
+    expect(firstRow).not.toContain("Imesimamishwa");
   });
 
   it("keeps the row's old status when the platform rejects the change", async () => {

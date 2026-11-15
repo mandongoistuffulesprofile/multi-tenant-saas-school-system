@@ -1,5 +1,5 @@
 import { api } from "../lib/api";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { formatKES } from '../utils/kenyaFormatters';
 
@@ -38,6 +38,27 @@ interface SchoolTenant {
 
 
 
+// Plan pricing must match the platform control plane (server.js PLATFORM_PLANS).
+const PLAN_FEE: Record<string, number> = { BASIC: 0, STANDARD: 9900, ENTERPRISE: 24900 };
+
+/** The platform registry row, as the desk renders it. */
+function toSchoolTenant(r: any): SchoolTenant {
+  return {
+    id: r.tenant_id,
+    name: r.school_name || r.subdomain,
+    slug: r.subdomain || '',
+    county: r.county || '',
+    category: 'PUBLIC_COMPREHENSIVE',
+    residency: 'DAY_ONLY',
+    learner_count: Number(r.learners ?? r.student_count ?? 0),
+    license_status: (r.status || (r.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
+    term_subscription_fee: PLAN_FEE[r.plan_code] ?? 0,
+    contact_headteacher: '',
+    phone_headteacher: '',
+    staff_count: Number(r.staff_count ?? 0),
+  };
+}
+
 /**
  * The platform API stores the head teacher's phone as the account's login
  * number and rejects a blank one, so the form has to settle on the canonical
@@ -61,48 +82,24 @@ export const SaaSAdminDesk: React.FC = () => {
   const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
-  // Plan pricing must match the platform control plane (server.js PLATFORM_PLANS).
-  const PLAN_FEE: Record<string, number> = { BASIC: 0, STANDARD: 9900, ENTERPRISE: 24900 };
+  // The registry is read in four places — first paint, the poll, after a create
+  // and after a status change — so there is one loader and one row mapping.
+  const loadTenants = useCallback(async () => {
+    const res = await api.get("/platform/tenants");
+    const rows = Array.isArray(res.data) ? res.data : [];
+    setTenants(rows.map(toSchoolTenant));
+  }, []);
 
   useEffect(() => {
     let alive = true;
-    api.get("/platform/tenants")
-      .then((res) => {
-        if (!alive) return;
-        const rows = Array.isArray(res.data) ? res.data : [];
-        setTenants(rows.map((r: any) => ({
-          id: r.tenant_id,
-          name: r.school_name || r.subdomain,
-          slug: r.subdomain || '',
-          county: r.county || '',
-          category: 'PUBLIC_COMPREHENSIVE',
-          residency: 'DAY_ONLY',
-          learner_count: Number(r.learners ?? r.student_count ?? 0),
-          license_status: (r.status || (r.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
-          term_subscription_fee: PLAN_FEE[r.plan_code] ?? 0,
-          contact_headteacher: '',
-          phone_headteacher: '',
-          staff_count: Number(r.staff_count ?? 0),
-        })));
-      })
+    loadTenants()
       .catch(() => { /* console handled by axios interceptor */ })
       .finally(() => alive && setLoading(false));
     const iv = setInterval(() => {
-      api.get("/platform/tenants").then((res) => {
-        if (!alive) return;
-        const rows = Array.isArray(res.data) ? res.data : [];
-        setTenants(rows.map((r: any) => ({
-          id: r.tenant_id, name: r.school_name || r.subdomain, slug: r.subdomain || '',
-          county: r.county || '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_ONLY',
-          learner_count: Number(r.learners ?? r.student_count ?? 0),
-          license_status: (r.status || (r.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
-          term_subscription_fee: PLAN_FEE[r.plan_code] ?? 0, contact_headteacher: '', phone_headteacher: '',
-          staff_count: Number(r.staff_count ?? 0),
-        })));
-      }).catch(() => {});
+      if (alive) loadTenants().catch(() => {});
     }, 30000);
     return () => { alive = false; clearInterval(iv); };
-  }, []);
+  }, [loadTenants]);
 
   // New School Wizard Form State
   const [wizardData, setWizardData] = useState({
@@ -163,16 +160,7 @@ export const SaaSAdminDesk: React.FC = () => {
         county: wizardData.county || '',
       });
       const created = res.data || {};
-      await api.get('/platform/tenants').then((r) => {
-        const rows = Array.isArray(r.data) ? r.data : [];
-        setTenants(rows.map((x: any) => ({
-          id: x.tenant_id, name: x.school_name || x.subdomain, slug: x.subdomain || '',
-          county: x.county || '', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_ONLY',
-          learner_count: Number(x.learners ?? x.student_count ?? 0),
-          license_status: (x.status || (x.active ? 'ACTIVE' : 'SUSPENDED')) as SchoolTenant['license_status'],
-          term_subscription_fee: PLAN_FEE[x.plan_code] ?? 0, contact_headteacher: '', phone_headteacher: '',
-        })));
-      });
+      await loadTenants();
       setIsOnboardingOpen(false);
       showToast(`✓ '${created.school_name || wizardData.name}' imesajiliwa. Msimamizi: ${created.admin_email} · Password ya muda (iona mara moja): ${created.temp_password}`);
       setWizardData({ name: '', slug: '', county: 'Kitui', category: 'PUBLIC_COMPREHENSIVE', residency: 'DAY_AND_BOARDING', admin_email: '', headteacher_name: '', headteacher_phone: '', term_fee: 30000 });
@@ -189,10 +177,15 @@ export const SaaSAdminDesk: React.FC = () => {
     const next = t0.license_status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     try {
       await api.put(`/platform/tenants/${id}/status`, { status: next });
+      // Show the clerk's own change at once, then re-read the registry. Another
+      // operator may have changed the same school in the meantime, and their
+      // write — committed after ours or not — is what the server will serve; our
+      // local copy must not overwrite it.
       setTenants((prev) =>
         prev.map((t) => (t.id === id ? { ...t, license_status: next } : t)),
       );
       showToast(next === 'ACTIVE' ? `✓ '${t0.name}' imehudumiwa tena (ACTIVE).` : `⚠ '${t0.name}' imesimamishwa (SUSPENDED). Watumiaji hawawezi kuingia.`);
+      await loadTenants().catch(() => { /* keep the local value if the reload fails */ });
     } catch {
       showToast('Imeshindikana kubadilisha hali ya shule. Jaribu tena.');
     }
