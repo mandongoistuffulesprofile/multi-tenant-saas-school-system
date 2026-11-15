@@ -44,6 +44,16 @@ stack reports `API … answering, but its database is unreachable` with the
 PostgreSQL hint rather than a wall of per-page 500s. `--dry-run` skips the
 preflight, since it does not touch the network or the browser.
 
+Fonts are the fifth prerequisite, and the only silent one: on a host with no
+system fonts Chrome paints every glyph invisibly, so the run can succeed and
+still produce complete, plausible screenshots with no words on them. Point
+`FONTCONFIG_FILE` at a `fonts.conf` listing a directory of `.ttf`/`.otf` files
+before capturing:
+
+```bash
+FONTCONFIG_FILE=/path/to/fonts.conf node scripts/ui-screenshots/capture.mjs
+```
+
 ## What a run checks per route
 
 - document response is not 4xx/5xx, and no API call on the page returned 5xx
@@ -126,5 +136,12 @@ is skipped (and reported) rather than photographed blank.
 - The default `--chrome` is `/usr/bin/google-chrome`; pass `--chrome` if your
   browser is elsewhere. `--puppeteer-root` defaults to `/tmp/kilo/shots`, the
   module directory that provides `puppeteer-core`.
+- `--expand` grows the viewport to the document height and takes a normal
+  viewport shot instead of a beyond-viewport one. Use it where the browser
+  cannot capture beyond the viewport: `chrome-headless-shell`, the binary many
+  CI images ship, aborts with
+  `Protocol error (Page.captureScreenshot): Target closed` and only viewport
+  captures survive. The resulting PNG is the same full page at the same 2x
+  scale as a `fullPage` capture.
 - Output and backup directories are git-ignored; only the promoted PNGs in
   `docs/ui-design/screenshots/` belong in a commit.
