@@ -708,6 +708,8 @@ func Run() error {
 		financeGroup.GET("/mpesa/transactions", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListMPESATransactions)
 		financeGroup.POST("/mpesa/transactions", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateMPESATransaction)
 		financeGroup.POST("/mpesa/stk-requests", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateMPESASTKRequest)
+		financeGroup.GET("/mpesa/stk-requests", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListMPESASTKRequests)
+		financeGroup.GET("/mpesa/channels", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListPaymentChannels)
 
 		// Personas: parents/guardians pay their own linked learners' invoices
 		// and poll their own STK request status. Invoice linkage, amount
@@ -716,6 +718,9 @@ func Run() error {
 		financeGroup.GET("/parent/mpesa/stk-requests/:id", middleware.RequireRole(middleware.RoleParent, middleware.RoleGuardian), financeHandler.ParentMPESASTKStatus)
 
 		// Receipt sequences
+		financeGroup.GET("/receipt-sequences", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.ListReceiptSequences)
+		financeGroup.POST("/receipt-sequences", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.CreateReceiptSequence)
+		financeGroup.PATCH("/receipt-sequences/:id", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.UpdateReceiptSequence)
 		financeGroup.GET("/receipt-sequences/:period", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.GetReceiptSequence)
 		financeGroup.POST("/receipt-sequences/:sequence_id/increment", middleware.RequireRole(middleware.RoleFinanceStaff...), financeHandler.IncrementReceiptSequence)
 
@@ -813,6 +818,7 @@ func Run() error {
 		complianceGroup.PATCH("/breach-register/:id", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.UpdateBreach)
 		complianceGroup.GET("/retention-policies", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListRetentionPolicies)
 		complianceGroup.POST("/retention-policies", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.UpsertRetentionPolicy)
+		complianceGroup.GET("/dpia", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ListDPIAs)
 		complianceGroup.POST("/dpia", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.CreateDPIA)
 		complianceGroup.GET("/summary", middleware.RequireRole(middleware.RoleSchoolAdministrators...), complianceHandler.ComplianceSummary)
 	}
@@ -827,6 +833,7 @@ func Run() error {
 		// Write side
 		attendanceGroup.POST("/registers", middleware.RequireRole(middleware.RoleAcademicStaff...), attendanceHandler.CreateRegister)
 		attendanceGroup.PATCH("/registers/:register_id", middleware.RequireRole(middleware.RoleAcademicStaff...), attendanceHandler.UpdateRegister)
+		attendanceGroup.DELETE("/registers/:register_id", middleware.RequireRole(middleware.RoleAcademicStaff...), attendanceHandler.DeleteRegister)
 		attendanceGroup.GET("/registers/:register_id/summary", middleware.RequireRole(middleware.RoleAcademicStaff...), attendanceHandler.AttendanceSummary)
 		attendanceGroup.POST("/marks", middleware.RequireRole(middleware.RoleAcademicStaff...), attendanceHandler.UpsertMark)
 		attendanceGroup.POST("/marks/batch", middleware.RequireRole(middleware.RoleAcademicStaff...), attendanceHandler.BatchUpsertMarks)

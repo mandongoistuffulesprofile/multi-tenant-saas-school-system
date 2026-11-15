@@ -115,7 +115,7 @@ export default function StructurePage() {
     setSavingStream(true);
     try {
       if (editingStream) {
-        await api.put(`/structure/streams/${editingStream.stream_id}`, { stream_name: streamForm.stream_name.trim() });
+        await api.patch(`/structure/streams/${editingStream.stream_id}`, { stream_name: streamForm.stream_name.trim() });
         toast("Stream updated", { type: "success" });
       } else {
         await api.post("/structure/streams", { stream_name: streamForm.stream_name.trim() });
@@ -155,7 +155,7 @@ export default function StructurePage() {
     setSavingCG(true);
     try {
       if (editingCG) {
-        await api.put(`/structure/class-groups/${editingCG.class_group_id}`, { class_teacher_id: cgForm.class_teacher_id || undefined });
+        await api.patch(`/structure/class-groups/${editingCG.class_group_id}`, { class_teacher_id: cgForm.class_teacher_id || undefined });
         toast("Class group updated", { type: "success" });
       } else {
         await api.post("/structure/class-groups", {

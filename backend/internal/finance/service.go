@@ -1278,6 +1278,255 @@ func (s *Service) IncrementReceiptSequence(ctx context.Context, tenantID, sequen
 	return err
 }
 
+// ListReceiptSequences returns every receipt number sequence the school keeps.
+func (s *Service) ListReceiptSequences(ctx context.Context, tenantID string) ([]ReceiptSequence, error) {
+	q := middleware.TxFromContext(ctx)
+	rows, err := q.Query(
+		`SELECT sequence_id, tenant_id, prefix, last_number, reset_frequency,
+			current_period, created_at::text, updated_at::text
+		 FROM receipt_sequences WHERE tenant_id = $1
+		 ORDER BY current_period DESC, prefix`,
+		tenantID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sequences := make([]ReceiptSequence, 0)
+	for rows.Next() {
+		var seq ReceiptSequence
+		if err := rows.Scan(
+			&seq.SequenceID, &seq.TenantID, &seq.Prefix, &seq.LastNumber,
+			&seq.ResetFrequency, &seq.CurrentPeriod, &seq.CreatedAt, &seq.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		sequences = append(sequences, seq)
+	}
+	return sequences, rows.Err()
+}
+
+// ReceiptSequenceInput is the editable shape of a sequence.
+type ReceiptSequenceInput struct {
+	Prefix         string `json:"prefix"`
+	LastNumber     int    `json:"last_number"`
+	ResetFrequency string `json:"reset_frequency"`
+	CurrentPeriod  string `json:"current_period"`
+}
+
+func (s *Service) CreateReceiptSequence(ctx context.Context, tenantID string, in ReceiptSequenceInput) (*ReceiptSequence, error) {
+	q := middleware.TxFromContext(ctx)
+	var seq ReceiptSequence
+	err := q.QueryRow(
+		`INSERT INTO receipt_sequences (tenant_id, prefix, last_number, reset_frequency, current_period)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING sequence_id, tenant_id, prefix, last_number, reset_frequency,
+			current_period, created_at::text, updated_at::text`,
+		tenantID, in.Prefix, in.LastNumber, in.ResetFrequency, in.CurrentPeriod,
+	).Scan(
+		&seq.SequenceID, &seq.TenantID, &seq.Prefix, &seq.LastNumber,
+		&seq.ResetFrequency, &seq.CurrentPeriod, &seq.CreatedAt, &seq.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &seq, nil
+}
+
+func (s *Service) UpdateReceiptSequence(ctx context.Context, tenantID, sequenceID string, in ReceiptSequenceInput) (*ReceiptSequence, error) {
+	q := middleware.TxFromContext(ctx)
+	var seq ReceiptSequence
+	err := q.QueryRow(
+		`UPDATE receipt_sequences
+		 SET prefix = $1, last_number = $2, reset_frequency = $3, current_period = $4, updated_at = CURRENT_TIMESTAMP
+		 WHERE sequence_id = $5 AND tenant_id = $6
+		 RETURNING sequence_id, tenant_id, prefix, last_number, reset_frequency,
+			current_period, created_at::text, updated_at::text`,
+		in.Prefix, in.LastNumber, in.ResetFrequency, in.CurrentPeriod, sequenceID, tenantID,
+	).Scan(
+		&seq.SequenceID, &seq.TenantID, &seq.Prefix, &seq.LastNumber,
+		&seq.ResetFrequency, &seq.CurrentPeriod, &seq.CreatedAt, &seq.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &seq, nil
+}
+
+func (h *Handler) ListReceiptSequences(c *gin.Context) {
+	sequences, err := h.service.ListReceiptSequences(c.Request.Context(), c.GetString("tenant_id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, sequences)
+}
+
+func normalizeReceiptSequence(in *ReceiptSequenceInput) bool {
+	in.Prefix = strings.ToUpper(strings.TrimSpace(in.Prefix))
+	in.CurrentPeriod = strings.TrimSpace(in.CurrentPeriod)
+	in.ResetFrequency = strings.ToUpper(strings.TrimSpace(in.ResetFrequency))
+	if in.ResetFrequency == "" {
+		in.ResetFrequency = "YEARLY"
+	}
+	switch in.ResetFrequency {
+	case "YEARLY", "TERMLY", "MONTHLY", "NEVER":
+	default:
+		return false
+	}
+	return in.Prefix != "" && in.CurrentPeriod != "" && in.LastNumber >= 0
+}
+
+func (h *Handler) CreateReceiptSequence(c *gin.Context) {
+	var in ReceiptSequenceInput
+	if errs := validation.BindJSON(c, &in); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+	if !normalizeReceiptSequence(&in) {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "current_period", Code: "INVALID_VALUE", Message: "prefix and current_period are required; last_number must not be negative"},
+		})
+		return
+	}
+	created, err := h.service.CreateReceiptSequence(c.Request.Context(), c.GetString("tenant_id"), in)
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			validation.Conflict(c, "A sequence already exists for that period")
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, created)
+}
+
+func (h *Handler) UpdateReceiptSequence(c *gin.Context) {
+	var in ReceiptSequenceInput
+	if errs := validation.BindJSON(c, &in); errs != nil {
+		validation.BadRequest(c, "Invalid request", errs)
+		return
+	}
+	if !normalizeReceiptSequence(&in) {
+		validation.BadRequest(c, "Invalid request", []validation.FieldError{
+			{Field: "current_period", Code: "INVALID_VALUE", Message: "prefix and current_period are required; last_number must not be negative"},
+		})
+		return
+	}
+	updated, err := h.service.UpdateReceiptSequence(
+		c.Request.Context(), c.GetString("tenant_id"), c.Param("id"), in)
+	if errors.Is(err, sql.ErrNoRows) {
+		validation.NotFound(c, "Receipt sequence not found")
+		return
+	}
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			validation.Conflict(c, "A sequence already exists for that period")
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, updated)
+}
+
+// ============ M-Pesa STK requests, read side ============
+
+// ListMPESASTKRequests returns the school's recent STK pushes, newest first.
+func (s *Service) ListMPESASTKRequests(ctx context.Context, tenantID string, limit int) ([]MPESASTKRequest, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	q := middleware.TxFromContext(ctx)
+	rows, err := q.Query(
+		`SELECT stk_id, tenant_id, channel_id, checkout_request_id, merchant_request_id,
+			phone_number, amount, currency, COALESCE(account_reference, ''),
+			COALESCE(transaction_desc, ''), status, COALESCE(mpesa_trans_id, ''),
+			COALESCE(expires_at::text, ''), created_at::text, updated_at::text
+		 FROM mpesa_stk_requests WHERE tenant_id = $1
+		 ORDER BY created_at DESC LIMIT $2`,
+		tenantID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	requests := make([]MPESASTKRequest, 0)
+	for rows.Next() {
+		var r MPESASTKRequest
+		if err := rows.Scan(
+			&r.STKID, &r.TenantID, &r.ChannelID, &r.CheckoutRequestID, &r.MerchantRequestID,
+			&r.PhoneNumber, &r.Amount, &r.Currency, &r.AccountReference,
+			&r.TransactionDesc, &r.Status, &r.MPESATransID, &r.ExpiresAt, &r.CreatedAt, &r.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		requests = append(requests, r)
+	}
+	return requests, rows.Err()
+}
+
+func (h *Handler) ListMPESASTKRequests(c *gin.Context) {
+	requests, err := h.service.ListMPESASTKRequests(c.Request.Context(), c.GetString("tenant_id"), 100)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, requests)
+}
+
+// PaymentChannel is one M-Pesa paybill/till the school collects through.
+type PaymentChannel struct {
+	ChannelID          string `json:"channel_id"`
+	ChannelType        string `json:"channel_type"`
+	Name               string `json:"name"`
+	ShortcodeOrAccount string `json:"shortcode_or_account"`
+	Environment        string `json:"environment"`
+	IsDefault          bool   `json:"is_default"`
+	Status             string `json:"status"`
+}
+
+func (s *Service) ListPaymentChannels(ctx context.Context, tenantID string) ([]PaymentChannel, error) {
+	q := middleware.TxFromContext(ctx)
+	rows, err := q.Query(
+		`SELECT channel_id, channel_type, label, shortcode_or_account,
+			COALESCE(environment, ''), is_default, status
+		 FROM school_payment_channels WHERE tenant_id = $1 AND status <> 'DISABLED'
+		 ORDER BY is_default DESC, created_at`,
+		tenantID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	channels := make([]PaymentChannel, 0)
+	for rows.Next() {
+		var ch PaymentChannel
+		if err := rows.Scan(
+			&ch.ChannelID, &ch.ChannelType, &ch.Name, &ch.ShortcodeOrAccount,
+			&ch.Environment, &ch.IsDefault, &ch.Status,
+		); err != nil {
+			return nil, err
+		}
+		channels = append(channels, ch)
+	}
+	return channels, rows.Err()
+}
+
+func (h *Handler) ListPaymentChannels(c *gin.Context) {
+	channels, err := h.service.ListPaymentChannels(c.Request.Context(), c.GetString("tenant_id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, channels)
+}
+
 // ============ Capitation Receipts (tenant-scoped) ============
 
 type CapitationReceipt struct {
@@ -1311,7 +1560,8 @@ func (s *Service) ListCapitationReceipts(ctx context.Context, tenantID string) (
 	}
 	defer rows.Close()
 
-	var receipts []CapitationReceipt
+	// Non-nil so an empty school serialises as [] rather than null.
+	receipts := make([]CapitationReceipt, 0)
 	for rows.Next() {
 		var r CapitationReceipt
 		if err := rows.Scan(

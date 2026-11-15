@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -92,7 +93,9 @@ func (h *Handler) CreateRegister(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"register_id": registerID})
 }
 
-// UpdateRegister changes the status of a register (OPEN -> CLOSED).
+// UpdateRegister edits a register: its status (OPEN <-> CLOSED) and/or the
+// session it covers. At least one of the two must be present, so a mistyped
+// body cannot silently update nothing.
 func (h *Handler) UpdateRegister(c *gin.Context) {
 	tx := middleware.TxFromGin(c)
 	if tx == nil {
@@ -102,25 +105,51 @@ func (h *Handler) UpdateRegister(c *gin.Context) {
 	var q queryer = tx
 	registerID := c.Param("register_id")
 	var req struct {
-		Status string `json:"status" binding:"required"`
+		Status      string `json:"status"`
+		SessionType string `json:"session_type"`
 	}
 	if errs := validation.BindJSON(c, &req); errs != nil {
 		validation.BadRequest(c, "Invalid request", errs)
 		return
 	}
-	status := strings.ToUpper(strings.TrimSpace(req.Status))
-	if status != "OPEN" && status != "CLOSED" {
+
+	sets := []string{"marked_by = COALESCE($1, marked_by)", "marked_at = now()", "updated_at = now()"}
+	args := []interface{}{nullableString(c.GetString("user_id"))}
+
+	if strings.TrimSpace(req.Status) != "" {
+		status := strings.ToUpper(strings.TrimSpace(req.Status))
+		if status != "OPEN" && status != "CLOSED" {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "status", Code: "INVALID_VALUE", Message: "'status' must be OPEN or CLOSED"},
+			})
+			return
+		}
+		args = append(args, status)
+		sets = append(sets, "status = $"+strconv.Itoa(len(args)))
+	}
+	if strings.TrimSpace(req.SessionType) != "" {
+		sessionType := strings.ToUpper(strings.TrimSpace(req.SessionType))
+		if sessionType != "MORNING" && sessionType != "AFTERNOON" && sessionType != "EVENING" {
+			validation.BadRequest(c, "Invalid request", []validation.FieldError{
+				{Field: "session_type", Code: "INVALID_VALUE", Message: "'session_type' must be MORNING, AFTERNOON or EVENING"},
+			})
+			return
+		}
+		args = append(args, sessionType)
+		sets = append(sets, "session_type = $"+strconv.Itoa(len(args)))
+	}
+	if len(args) == 1 {
 		validation.BadRequest(c, "Invalid request", []validation.FieldError{
-			{Field: "status", Code: "INVALID_VALUE", Message: "'status' must be OPEN or CLOSED"},
+			{Field: "status", Code: "REQUIRED", Message: "send status, session_type, or both"},
 		})
 		return
 	}
 
 	tenantID := c.GetString("tenant_id")
-	userID := c.GetString("user_id")
+	args = append(args, registerID, tenantID)
 	result, err := q.Exec(
-		`UPDATE attendance_registers SET status = $1, marked_by = COALESCE($2, marked_by), marked_at = now(), updated_at = now()
-		 WHERE register_id = $3 AND tenant_id = $4`, status, nullableString(userID), registerID, tenantID)
+		`UPDATE attendance_registers SET `+strings.Join(sets, ", ")+
+			` WHERE register_id = $`+strconv.Itoa(len(args)-1)+` AND tenant_id = $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
@@ -129,7 +158,39 @@ func (h *Handler) UpdateRegister(c *gin.Context) {
 		validation.NotFound(c, "Attendance register not found")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"register_id": registerID, "status": status})
+	c.JSON(http.StatusOK, gin.H{"register_id": registerID})
+}
+
+// DeleteRegister removes a register and the marks captured against it. Both
+// statements run in the tenant transaction, so a register can never be left
+// half-deleted.
+func (h *Handler) DeleteRegister(c *gin.Context) {
+	tx := middleware.TxFromGin(c)
+	if tx == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "no tenant transaction"})
+		return
+	}
+	registerID := c.Param("register_id")
+	tenantID := c.GetString("tenant_id")
+
+	if _, err := tx.Exec(
+		`DELETE FROM attendance_marks WHERE register_id = $1 AND tenant_id = $2`,
+		registerID, tenantID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	result, err := tx.Exec(
+		`DELETE FROM attendance_registers WHERE register_id = $1 AND tenant_id = $2`,
+		registerID, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		validation.NotFound(c, "Attendance register not found")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"register_id": registerID, "deleted": true})
 }
 
 // UpsertMark records one attendance mark. Replaying the same client_uuid

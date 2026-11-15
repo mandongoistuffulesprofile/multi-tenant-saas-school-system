@@ -39,7 +39,7 @@ or error state as if there were no data.
 
 | Endpoint | API answer | Code | What the schema actually has |
 | --- | --- | --- | --- |
-| `GET /structure/teaching-assignments` | `pq: relation "teaching_assignments" does not exist` | `internal/structure/service.go:414`, also `internal/assessment/write.go:434` | `teaching_allocations` |
+| `GET /structure/teaching-assignments` | `pq: relation "teaching_assignments" does not exist` | `internal/structure/service.go:414`, also `internal/assessment/write.go:434` | no teaching table at all — neither `teaching_assignments` nor `teaching_allocations` exists in `migrations/` (an earlier version of this document wrongly claimed the latter existed) |
 | `GET /gate/tags`, `GET /gate/events` | `pq: column sp.first_name does not exist` | `internal/attendance/service.go:412,485` | `staff_profiles` has no name columns; names live on `users`, joined through `memberships` |
 | `GET /finance/holding-tank` | `pq: column "msisdn" does not exist` | `internal/finance/service.go` | `mpesa_holding_tank.sender_phone` |
 | `GET/POST /compliance/retention-policies` | `pq: relation "retention_policies" does not exist` | `internal/compliance/write.go:429,454` | no such table |
@@ -57,10 +57,10 @@ boundary rather than a message.
 
 **Fix.** Either add the four missing tables as migrations (they are referenced
 by handlers that already exist, so the shape is defined by the queries), or
-move the handlers onto the tables that do exist — `teaching_allocations` for
-`teaching_assignments`, `users` joined via `memberships` for staff names,
-`sender_phone` for `msisdn`. This is the single highest-value slice in the
-repo: nine screens come back at once.
+move the handlers onto the tables that do exist — `users` joined via
+`memberships` for staff names, `sender_phone` for `msisdn` — and add a migration
+for teaching assignments, which nothing creates today. This is the single
+highest-value slice in the repo: nine screens come back at once.
 
 ## P0 — The parent portal is broken end to end
 
@@ -91,34 +91,40 @@ Two more parent faults, independent of that:
 parent-scoped endpoints, add the missing i18n key. One migration-free slice
 that unbreaks six screens.
 
-## P1 — Sixteen SPA calls hit routes that do not exist
+## P1 — Sixteen SPA calls hit routes that do not exist (fixed)
 
-Frontend and backend disagree on the contract in eight pages. Every row
-reproduced with `curl` against the running API, status shown as returned:
+Frontend and backend disagreed on the contract in eight pages. Each 404 logged a
+console error, which is exactly what the screenshot harness fails a route on —
+that is how they surfaced. The pattern was `PUT` where the Go API wrote `PATCH`,
+plus paths never re-pointed after the backend moved from the old Node slices to
+Go, plus four resources the API could write but never read back.
 
-| Page | Call | Reality |
+| Page | Was | Now |
 | --- | --- | --- |
-| `AttendancePage` | `PUT /attendance/registers/:id` | backend uses `PATCH` |
-| `AttendancePage` | `DELETE /attendance/registers/:id` | no delete route exists |
-| `DPIAPage` | `GET /compliance/dpia` | only `POST` exists — the page has no way to list |
-| `FinanceCapitationPage` | `GET`/`POST /finance/capitation` | backend has `/finance/capitation/receipts` |
-| `FinanceLearnerStatementPage` | `GET /finance/statement/:id` | backend has `/finance/learners/:id/statement` |
-| `FinanceReceiptSequencesPage` | `GET /finance/receipt-sequences` | backend has `/finance/receipt-sequences/:period` |
-| `FinanceReceiptSequencesPage` | `PUT /finance/receipt-sequences/:id` | only `GET` on that path |
-| `FinanceReceiptSequencesPage` | `POST /finance/receipt-sequences` | backend has `/receipt-sequences/:id/increment` |
-| `FinanceSTKPage` | `GET /finance/mpesa/stk-requests` | only `POST` exists |
-| `FinanceSTKPage` | `GET /finance/mpesa/channels` | no such route |
-| `FinanceSTKPage` | `POST /finance/mpesa/stk-push` | backend has `/finance/mpesa/stk-requests` |
-| `FinanceSTKPage` | `GET /finance/mpesa/stk-requests/:id/status` | backend has `/finance/mpesa/stk-requests/:id` |
-| `ReportsPage` | `PUT /reports/templates/:id` | backend uses `PATCH` |
-| `StructurePage` | `PUT /structure/streams/:id` | backend uses `PATCH` |
-| `StructurePage` | `PUT /structure/class-groups/:id` | backend uses `PATCH` |
+| `AttendancePage` | `PUT /attendance/registers/:id` | `PATCH`, and the body sends the field it edits (`session_type`, not `status`) |
+| `AttendancePage` | `DELETE /attendance/registers/:id` | route added: marks and register deleted in one tenant transaction |
+| `DPIAPage` | `GET /compliance/dpia` | route added: the page can list what it creates |
+| `FinanceCapitationPage` | `GET`/`POST /finance/capitation` | `/finance/capitation/receipts`, and it reads the bare array the API returns |
+| `FinanceLearnerStatementPage` | `GET /finance/statement/:id` | `GET /finance/learners/:id/statement` |
+| `FinanceReceiptSequencesPage` | `GET`/`POST/PUT /finance/receipt-sequences` | list, create and `PATCH` added; the page's three calls match |
+| `FinanceSTKPage` | `GET` list, `GET` channels, `POST /mpesa/stk-push`, `GET .../:id/status` | list and channel routes added; create posts to `/mpesa/stk-requests`; status reads `/:id` |
+| `ReportsPage` | `PUT /reports/templates/:id` (two call sites) | `PATCH` |
+| `StructurePage` | `PUT /structure/streams/:id`, `PUT /structure/class-groups/:id` | `PATCH` |
 
-Each 404 logs a console error, which is exactly what the screenshot harness
-fails a route on — that is how they surfaced. Note the pattern: `PUT` where the
-Go API wrote `PATCH`, and paths that were never re-pointed after the backend
-moved from the old Node slices to Go. A one-line change per call, but 15 of
-them, and no test currently notices.
+Where the UI was right and the API was missing a read, the API gained it rather
+than the page losing a feature: `GET /compliance/dpia`,
+`GET /finance/mpesa/stk-requests`, `GET /finance/mpesa/channels`,
+`GET /finance/receipt-sequences`, `POST /finance/receipt-sequences`,
+`PATCH /finance/receipt-sequences/:id`, `DELETE /attendance/registers/:register_id`.
+`UpdateRegister` also accepts `session_type` now — the page's edit modal changes
+the session, and the old handler only ever accepted `OPEN`/`CLOSED`, so a
+corrected verb alone would have returned 400.
+
+A scripted cross-check of all 306 calls the SPA makes against all 288 routes the
+API registers now reports zero unmatched. Screenshot run over the nine affected
+routes: **seven pass**. `/structure` and `/grades-streams` still fail, on a
+*different* defect — `relation "teaching_assignments" does not exist` — see the
+P0 above.
 
 ## P1 — Five backend domains have no UI at all
 
@@ -223,7 +229,8 @@ Fixed in `frontend/src/i18n/`:
    unbreaks the whole parent portal.
 2. Add the four missing tables, or repoint the nine handlers. One slice,
    unbreaks nine admin/platform screens.
-3. Fix the 16 contract calls (mechanical, mostly `PUT` → `PATCH`).
+3. ~~Fix the 16 contract calls (mechanical, mostly `PUT` → `PATCH`).~~ Done —
+   seven of the nine affected routes now pass; see the P1 above.
 4. ~~Fill the missing i18n keys and make a missing key fail in development.~~
    Done — see the i18n finding above.
 5. Decide the fate of the five UI-less domains — build or de-advertise.
