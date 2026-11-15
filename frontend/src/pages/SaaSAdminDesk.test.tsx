@@ -366,7 +366,30 @@ describe("platform admin desk", () => {
         (b.textContent || "").includes("Login As"),
       ) as HTMLButtonElement;
 
-    it("records the reason and carries the session into the school's dashboard", async () => {
+    const reasonField = () => container.querySelector("#imp-reason") as HTMLTextAreaElement | null;
+
+    const typeReason = (value: string) => {
+      const field = reasonField()!;
+      expect(field).not.toBeNull();
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(field, value);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    const submitReason = () => {
+      const form = reasonField()!.closest("form")!;
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    };
+
+    const clickButton = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find((b) =>
+        (b.textContent || "").includes(label),
+      ) as HTMLButtonElement;
+
+    it("asks for the audit reason in a form, then records it and opens the school", async () => {
       harness.post.mockResolvedValue({
         data: {
           session_id: "imp-session-1",
@@ -374,11 +397,20 @@ describe("platform admin desk", () => {
           school_name: "Kitui Central Primary",
         },
       });
-      vi.stubGlobal("prompt", vi.fn(() => "TICKET-431: fees balance query"));
 
       await render();
+      // Opening the school asks first, rather than prompting the browser.
       await act(async () => {
         loginAs().click();
+      });
+      expect(reasonField()).not.toBeNull();
+      expect(container.textContent || "").toContain("Kitui Central Primary");
+
+      await act(async () => {
+        typeReason("TICKET-431: fees balance query");
+      });
+      await act(async () => {
+        submitReason();
       });
       await act(async () => {
         await Promise.resolve();
@@ -396,34 +428,80 @@ describe("platform admin desk", () => {
       expect(window.location.href).toBe("/dashboard");
     });
 
-    it("does nothing when the operator cancels the reason prompt", async () => {
-      vi.stubGlobal("prompt", vi.fn(() => null));
-
+    it("says what is wrong with the reason next to the field", async () => {
       await render();
       await act(async () => {
         loginAs().click();
       });
 
+      // Empty: the note is required.
+      await act(async () => {
+        submitReason();
+      });
+      expect(container.textContent || "").toContain("Sababu ya kuingia ni lazima");
+      expect(reasonField()!.getAttribute("aria-invalid")).toBe("true");
+      expect(harness.post).not.toHaveBeenCalled();
+
+      // Too short to be a useful audit trail.
+      await act(async () => {
+        typeReason("why");
+      });
+      await act(async () => {
+        submitReason();
+      });
+      expect(container.textContent || "").toContain("herufi 10 au zaidi");
+      expect(harness.post).not.toHaveBeenCalled();
+      expect(window.location.href).toBe("/platform/desk");
+
+      // Typing again clears the complaint; the form is still open with the text.
+      await act(async () => {
+        typeReason("TICKET-431: parent cannot see the fees balance");
+      });
+      expect(container.textContent || "").not.toContain("herufi 10 au zaidi");
+      expect(reasonField()!.value).toBe("TICKET-431: parent cannot see the fees balance");
+    });
+
+    it("closes the form without starting anything when the operator cancels", async () => {
+      await render();
+      await act(async () => {
+        loginAs().click();
+      });
+      await act(async () => {
+        typeReason("TICKET-431: fees balance query");
+      });
+      await act(async () => {
+        clickButton("Ghairi").click();
+      });
+
+      expect(reasonField()).toBeNull();
       expect(harness.post).not.toHaveBeenCalled();
       expect(sessionStorage.getItem("imp_session_id")).toBeNull();
       expect(window.location.href).toBe("/platform/desk");
     });
 
-    it("stays on the desk and explains why when the platform refuses", async () => {
+    it("keeps the form and its note when the platform refuses the session", async () => {
       harness.post.mockRejectedValue({
         response: { status: 403, data: { message: "Reason must be at least 10 characters" } },
       });
-      vi.stubGlobal("prompt", vi.fn(() => "why"));
 
       await render();
       await act(async () => {
         loginAs().click();
       });
       await act(async () => {
+        typeReason("why exactly");
+      });
+      await act(async () => {
+        submitReason();
+      });
+      await act(async () => {
         await Promise.resolve();
       });
 
+      // The server's own wording, in the form, with the note kept for a retry.
       expect(container.textContent || "").toContain("Reason must be at least 10 characters");
+      expect(reasonField()!.value).toBe("why exactly");
+      expect(reasonField()!.disabled).toBe(false);
       // A refused session must not leave one behind in storage.
       expect(sessionStorage.getItem("imp_session_id")).toBeNull();
       expect(window.location.href).toBe("/platform/desk");

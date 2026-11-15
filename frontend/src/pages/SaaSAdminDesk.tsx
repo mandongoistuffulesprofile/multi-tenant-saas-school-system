@@ -93,6 +93,11 @@ export const SaaSAdminDesk: React.FC = () => {
   const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [createdTenant, setCreatedTenant] = useState<CreatedTenant | null>(null);
+  // The school an operator wants to inspect, and the audit reason they are typing.
+  const [impTarget, setImpTarget] = useState<SchoolTenant | null>(null);
+  const [impReason, setImpReason] = useState('');
+  const [impError, setImpError] = useState<string | null>(null);
+  const [impBusy, setImpBusy] = useState(false);
   const navigate = useNavigate();
 
   // The registry is read in four places — first paint, the poll, after a create
@@ -230,10 +235,37 @@ export const SaaSAdminDesk: React.FC = () => {
 
   /* Time-boxed impersonation: records a support session server-side.
    * The platform session cookie remains valid; impersonation is scoped by
-   * the server-side impersonation_sessions table. */
-  const handleLoginAs = async (t0: SchoolTenant) => {
-    const reason = window.prompt(`Sababu ya kuingia kama ${t0.name} (huingia kwenye Platform Audit):`);
-    if (!reason) return;
+   * the server-side impersonation_sessions table. The reason is a written form
+   * field, not a browser prompt: it goes into Platform Audit, so it is checked
+   * and its problems are shown next to the field that has to change. */
+  const openImpersonation = (t0: SchoolTenant) => {
+    setImpTarget(t0);
+    setImpReason('');
+    setImpError(null);
+  };
+
+  const closeImpersonation = () => {
+    if (impBusy) return;
+    setImpTarget(null);
+    setImpReason('');
+    setImpError(null);
+  };
+
+  const handleLoginAs = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!impTarget) return;
+    const reason = impReason.trim();
+    if (reason.length < 10) {
+      setImpError(
+        reason
+          ? 'Sababu ni lazima iwe herufi 10 au zaidi — itaonekana kwenye Platform Audit.'
+          : 'Sababu ya kuingia ni lazima — itaonekana kwenye Platform Audit.',
+      );
+      return;
+    }
+    setImpError(null);
+    setImpBusy(true);
+    const t0 = impTarget;
     try {
       const res = await api.post("/platform/impersonations", { tenant_id: t0.id, reason });
       sessionStorage.setItem("imp_school", res.data.school_name || t0.name);
@@ -242,7 +274,10 @@ export const SaaSAdminDesk: React.FC = () => {
       showToast(`⚠ Session ya ukaguzi: ${res.data.school_name || t0.name} (hadi ${res.data.expires_at || "60 min"}).`);
       window.location.href = "/dashboard";
     } catch (err: any) {
-      showToast(err.response?.data?.message || "Impersonation imeshindikana.");
+      // The form stays open with the reason intact, so it can be corrected or
+      // retried without typing the audit note again.
+      setImpError(err.response?.data?.message || "Impersonation imeshindikana.");
+      setImpBusy(false);
     }
   };
 
@@ -371,7 +406,7 @@ export const SaaSAdminDesk: React.FC = () => {
                     Setup
                   </Link>
                   <button
-                    onClick={() => handleLoginAs(t)}
+                    onClick={() => openImpersonation(t)}
                     className="px-2.5 py-1 text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg cursor-pointer"
                   >
                     Fungua Shule (Login As)
@@ -382,6 +417,72 @@ export const SaaSAdminDesk: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Audit-session reason. A browser prompt could not show what was wrong with
+          the note, and the note is the record of why the school was opened. */}
+      {impTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
+            <div className="bg-slate-900 text-white p-5">
+              <h3 className="text-base font-black uppercase tracking-wide">
+                Fungua Shule kwa Ukaguzi (Login As)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {impTarget.name} — session ya dakika 60, read-only, itarekodiwa kwenye Platform Audit.
+              </p>
+            </div>
+
+            <form onSubmit={handleLoginAs} className="p-5 space-y-3 text-xs">
+              <label htmlFor="imp-reason" className="block font-bold text-slate-700">
+                Sababu ya kuingia (itahifadhiwa kwenye Platform Audit):
+              </label>
+              <textarea
+                id="imp-reason"
+                autoFocus
+                rows={3}
+                value={impReason}
+                onChange={(e) => {
+                  setImpReason(e.target.value);
+                  if (impError) setImpError(null);
+                }}
+                aria-invalid={impError ? true : undefined}
+                aria-describedby="imp-reason-help"
+                disabled={impBusy}
+                placeholder="Mfano: TICKET-431 — mzazi haoni salio la ada"
+                className={`w-full p-2 border rounded-lg resize-y ${
+                  impError ? 'border-red-400 bg-red-50' : 'border-slate-300'
+                }`}
+              />
+              <p id="imp-reason-help" className="text-[10px] text-slate-500">
+                Herufi 10 au zaidi. Andika tiketi au ombi lililofungua ukaguzi huu.
+              </p>
+              {impError && (
+                <p role="alert" className="text-[11px] font-bold text-red-600">
+                  {impError}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={closeImpersonation}
+                  disabled={impBusy}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold disabled:opacity-60"
+                >
+                  Ghairi
+                </button>
+                <button
+                  type="submit"
+                  disabled={impBusy}
+                  className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black shadow-md cursor-pointer disabled:opacity-60"
+                >
+                  {impBusy ? 'Inaanza…' : 'Anza Kikao cha Ukaguzi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 4-Step Onboarding Wizard Modal */}
       {isOnboardingOpen && (
