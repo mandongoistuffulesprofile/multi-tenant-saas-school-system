@@ -161,6 +161,66 @@ describe("platform admin desk", () => {
     });
   });
 
+  it("suspends and reinstates a school from its licence chip", async () => {
+    await render();
+
+    const chip = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find((b) =>
+        (b.textContent || "").includes(label),
+      ) as HTMLButtonElement | undefined;
+
+    // Only the ACTIVE school's chip offers suspension.
+    const suspend = chip("Leseni Hai");
+    expect(suspend).toBeDefined();
+    await act(async () => {
+      suspend!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(harness.put).toHaveBeenCalledWith("/platform/tenants/t-1/status", {
+      status: "SUSPENDED",
+    });
+    // The row has to follow the platform, not keep showing the old licence.
+    expect(chip("Leseni Hai")).toBeUndefined();
+    expect(chip("Imesimamishwa")).toBeDefined();
+
+    await act(async () => {
+      chip("Imesimamishwa")!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(harness.put).toHaveBeenLastCalledWith("/platform/tenants/t-1/status", {
+      status: "ACTIVE",
+    });
+    expect(chip("Leseni Hai")).toBeDefined();
+  });
+
+  it("keeps the row's old status when the platform rejects the change", async () => {
+    harness.put.mockRejectedValue({ response: { status: 403, data: { message: "Forbidden" } } });
+    await render();
+
+    const chip = Array.from(container.querySelectorAll("button")).find((b) =>
+      (b.textContent || "").includes("Leseni Hai"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      chip.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.textContent || "").toContain("Imeshindikana kubadilisha hali ya shule");
+    // Row-scoped: the second fixture school is suspended from the start.
+    const firstRow = container.querySelectorAll("tbody tr")[0];
+    expect(firstRow.textContent || "").toContain("Kitui Central Primary");
+    expect(firstRow.textContent || "").toContain("Leseni Hai");
+    expect(firstRow.textContent || "").not.toContain("Imesimamishwa");
+  });
+
   it("does not pretend a failed registry read is an empty one", async () => {
     harness.get.mockRejectedValue(new Error("Network Error"));
 
