@@ -198,7 +198,13 @@ export const SaaSAdminDesk: React.FC = () => {
     // Backend control plane only accepts ACTIVE | SUSPENDED.
     const next = t0.license_status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     try {
-      await api.put(`/platform/tenants/${id}/status`, { status: next });
+      await api.put(`/platform/tenants/${id}/status`, {
+        status: next,
+        // The state this clerk was looking at. If the school has moved since, the
+        // platform refuses instead of quietly overwriting the other operator's
+        // decision, and the reasons it gives are specific enough to show as-is.
+        expected_status: t0.license_status,
+      });
       // Show the clerk's own change at once, then re-read the registry. Another
       // operator may have changed the same school in the meantime, and their
       // write — committed after ours or not — is what the server will serve; our
@@ -208,7 +214,16 @@ export const SaaSAdminDesk: React.FC = () => {
       );
       showToast(next === 'ACTIVE' ? `✓ '${t0.name}' imehudumiwa tena (ACTIVE).` : `⚠ '${t0.name}' imesimamishwa (SUSPENDED). Watumiaji hawawezi kuingia.`);
       await loadTenants().catch(() => { /* keep the local value if the reload fails */ });
-    } catch {
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const reason = err?.response?.data?.message;
+      if (status === 409 && reason) {
+        // Another operator got there first. Say what happened, then take the
+        // platform's view of the school so the chip stops showing a stale state.
+        showToast(`⚠ ${reason}`);
+        await loadTenants().catch(() => { /* the toast already carries the reason */ });
+        return;
+      }
       showToast('Imeshindikana kubadilisha hali ya shule. Jaribu tena.');
     }
   };

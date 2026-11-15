@@ -343,6 +343,10 @@ func (h *Handler) SetTenantStatus(c *gin.Context) {
 	tenantID := c.Param("id")
 	var req struct {
 		Status string `json:"status"`
+		// ExpectedStatus is the state the operator was looking at. When it no longer
+		// matches, someone else changed this school first and the caller is told so
+		// instead of silently overwriting their decision.
+		ExpectedStatus string `json:"expected_status"`
 	}
 	status := strings.TrimSpace(c.Param("status"))
 	if c.Request.ContentLength != 0 {
@@ -361,15 +365,41 @@ func (h *Handler) SetTenantStatus(c *gin.Context) {
 		})
 		return
 	}
-	result, err := h.q(c).Exec(
-		`UPDATE schools SET status = $1, updated_at = now() WHERE tenant_id = $2`, status, tenantID)
+	expected := strings.ToUpper(strings.TrimSpace(req.ExpectedStatus))
+	query := `UPDATE schools SET status = $1, updated_at = now() WHERE tenant_id = $2`
+	args := []any{status, tenantID}
+	if expected != "" {
+		query += ` AND status = $3`
+		args = append(args, expected)
+	}
+	result, err := h.q(c).Exec(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
-		validation.NotFound(c, "Tenant not found")
-		return
+		// Either the school is gone or the status moved under us; say which.
+		var current string
+		switch err := h.q(c).QueryRow(`SELECT status FROM schools WHERE tenant_id = $1`, tenantID).Scan(&current); {
+		case err == sql.ErrNoRows:
+			validation.NotFound(c, "Tenant not found")
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		case strings.EqualFold(current, status):
+			// The change the operator asked for is already in force: someone else
+			// got there first, usually on a double submit or a stale screen.
+			validation.JSONError(c, "STATUS_CHANGED",
+				"This school is already "+current+" — another operator changed it before you. Reload to see the current state.",
+				http.StatusConflict, nil)
+			return
+		default:
+			validation.JSONError(c, "STATUS_CHANGED",
+				"Another operator changed this school to "+current+". Reload and try again.",
+				http.StatusConflict, nil)
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"tenant_id": tenantID, "status": status})
 }

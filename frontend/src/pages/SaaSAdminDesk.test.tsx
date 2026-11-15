@@ -278,6 +278,7 @@ describe("platform admin desk", () => {
 
     expect(harness.put).toHaveBeenCalledWith("/platform/tenants/t-1/status", {
       status: "SUSPENDED",
+      expected_status: "ACTIVE",
     });
     // The row has to follow the platform, not keep showing the old licence.
     expect(chip("Leseni Hai")).toBeUndefined();
@@ -292,6 +293,7 @@ describe("platform admin desk", () => {
 
     expect(harness.put).toHaveBeenLastCalledWith("/platform/tenants/t-1/status", {
       status: "ACTIVE",
+      expected_status: "SUSPENDED",
     });
     expect(chip("Leseni Hai")).toBeDefined();
   });
@@ -325,6 +327,7 @@ describe("platform admin desk", () => {
 
     expect(harness.put).toHaveBeenCalledWith("/platform/tenants/t-1/status", {
       status: "SUSPENDED",
+      expected_status: "ACTIVE",
     });
     // One read for the first paint, one after the change.
     expect(harness.get.mock.calls.filter(([url]) => url === "/platform/tenants")).toHaveLength(2);
@@ -425,6 +428,41 @@ describe("platform admin desk", () => {
       expect(sessionStorage.getItem("imp_session_id")).toBeNull();
       expect(window.location.href).toBe("/platform/desk");
     });
+  });
+
+  it("shows why a licence change was refused when another operator got there first", async () => {
+    // Another clerk suspended this school between our read and our write.
+    harness.put.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          code: "STATUS_CHANGED",
+          message:
+            "This school is already SUSPENDED — another operator changed it before you. Reload to see the current state.",
+        },
+      },
+    });
+
+    await render();
+
+    const chip = Array.from(container.querySelectorAll("button")).find((b) =>
+      (b.textContent || "").includes("Leseni Hai"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      chip.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The reason, not a generic failure: the clerk has to know the school is
+    // suspended and that their screen was out of date.
+    expect(container.textContent || "").toContain("already SUSPENDED");
+    expect(container.textContent || "").not.toContain("Imeshindikana kubadilisha hali ya shule");
+
+    // And the screen is re-read, so the row stops offering a change already made.
+    expect(harness.get.mock.calls.filter(([url]) => url === "/platform/tenants")).toHaveLength(2);
   });
 
   it("keeps the row's old status when the platform rejects the change", async () => {
